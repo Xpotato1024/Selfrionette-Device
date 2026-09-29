@@ -1,5 +1,5 @@
 ---
-status: canonical
+status: draft
 owner: architecture
 last_verified: 2026-09-29
 canonical_for:
