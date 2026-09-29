@@ -1,0 +1,26 @@
+# PlatformIO
+.pio/
+.pioenvs/
+.piolibdeps/
+
+# Rust
+target/
+
+# Node / GUI
+node_modules/
+dist/
+
+# Local configuration
+.env
+.env.*
+!.env.example
+*.local
+
+# Temporary / cache
+.cache/
+.tmp/
+tmp/
+
+# OS
+.DS_Store
+Thumbs.db
