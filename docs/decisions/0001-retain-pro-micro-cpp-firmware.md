@@ -9,6 +9,7 @@ canonical_for:
 related:
   - docs/README.md
   - docs/architecture/repository-boundaries.md
+  - docs/decisions/0002-separate-device-management-from-simulation-plugin.md
 ---
 
 # ADR-0001: Pro Microを継続し、初期firmwareはC++で実装する
@@ -25,7 +26,7 @@ RustによるAVR firmwareも候補に含めて検討したが、2026-09時点で
 - `avr-none`は`avr-gcc`と`build-std=core`を必要とする。
 - AVR向けRust HAL ecosystemは存在するが、ATmega32U4 / Pro MicroのUSBを含むproject-readyな経路を当然には仮定できない。
 - Embassy executorにはAVR向けの実験的なplatform supportが見られるが、Pro Micro / ATmega32U4を対象に、USB、HAL、async I/Oまで一貫した成熟経路として採用できる状態とは判断しない。
-- field reportで原因切り分けが困難なAVR Rust固有問題が報告されていることも、研究日程を優先する本projectではリスクとして扱う。
+- AVR Rust stackは発展途上であり、toolchain / HAL / USB周辺のecosystem固有問題を切り分ける追加コストを、研究日程を優先する本projectではmaterialなriskとして扱う。
 
 一方、ATmega32U4自体にも明確なresource制約がある。
 
@@ -131,4 +132,4 @@ hardwareは維持するが、device identity、versioned protocol、calibration 
 - Rust target tier policy: https://doc.rust-lang.org/rustc/target-tier-policy.html
 - avr-hal: https://github.com/Rahix/avr-hal
 - avr-hal Arduino Micro / ATmega32U4 discussion: https://github.com/Rahix/avr-hal/discussions/691
-- Embassy executor repository: https://github.com/embassy-rs/embassy
+- Embassy executor AVR build metadata: https://github.com/embassy-rs/embassy/blob/main/embassy-executor/Cargo.toml
