@@ -1,6 +1,7 @@
 [workspace]
 members = [
     "crates/selfrionette-core",
+    "crates/selfrionette-serial",
     "crates/selfrionettectl",
 ]
 resolver = "3"
