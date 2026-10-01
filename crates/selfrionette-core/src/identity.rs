@@ -53,18 +53,14 @@ impl FromStr for DeviceId {
         while index < DEVICE_ID_BYTES {
             let high_index = DEVICE_ID_PREFIX.len() + index * 2;
             let low_index = high_index + 1;
-            let high = parse_lower_hex(hex[high_index]).ok_or(
-                DeviceIdParseError::InvalidHex {
-                    index: high_index,
-                    value: hex[high_index] as char,
-                },
-            )?;
-            let low = parse_lower_hex(hex[low_index]).ok_or(
-                DeviceIdParseError::InvalidHex {
-                    index: low_index,
-                    value: hex[low_index] as char,
-                },
-            )?;
+            let high = parse_lower_hex(hex[high_index]).ok_or(DeviceIdParseError::InvalidHex {
+                index: high_index,
+                value: hex[high_index] as char,
+            })?;
+            let low = parse_lower_hex(hex[low_index]).ok_or(DeviceIdParseError::InvalidHex {
+                index: low_index,
+                value: hex[low_index] as char,
+            })?;
             bytes[index] = (high << 4) | low;
             index += 1;
         }
@@ -109,11 +105,17 @@ impl fmt::Display for DeviceIdParseError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::WrongLength { expected, actual } => {
-                write!(formatter, "device id length must be {expected} bytes, got {actual}")
+                write!(
+                    formatter,
+                    "device id length must be {expected} bytes, got {actual}"
+                )
             }
             Self::WrongPrefix => formatter.write_str("device id must start with srn-"),
             Self::InvalidHex { index, value } => {
-                write!(formatter, "invalid lowercase hex at byte {index}: {value:?}")
+                write!(
+                    formatter,
+                    "invalid lowercase hex at byte {index}: {value:?}"
+                )
             }
             Self::AllZero => formatter.write_str("all-zero device id is reserved"),
         }
@@ -135,8 +137,8 @@ mod tests {
         assert_eq!(
             id.as_bytes(),
             &[
-                0x01, 0x23, 0x45, 0x67, 0x89, 0xab, 0xcd, 0xef,
-                0x01, 0x23, 0x45, 0x67, 0x89, 0xab, 0xcd, 0xef,
+                0x01, 0x23, 0x45, 0x67, 0x89, 0xab, 0xcd, 0xef, 0x01, 0x23, 0x45, 0x67, 0x89, 0xab,
+                0xcd, 0xef,
             ]
         );
     }
