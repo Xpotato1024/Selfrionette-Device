@@ -21,6 +21,7 @@ related:
 | protocol v2 architecture | [ADR-0003](decisions/0003-versioned-ascii-protocol-v2.md) | 既存vector互換を保つversioned management protocol |
 | stable device identity | [ADR-0004](decisions/0004-eeprom-provisioned-device-identity.md) | 128-bit IDのEEPROM provisioningとrole分離 |
 | host core / CLI | [ADR-0005](decisions/0005-rust-host-core-cli.md) | Rust workspaceでpure coreとCLIを分離 |
+| serial transport | [ADR-0006](decisions/0006-explicit-serial-transport.md) | explicit portだけをopenする独立transport layer |
 
 ## Architecture
 
@@ -38,6 +39,7 @@ related:
 | stable device identity / provisioning | [device-identity.md](contracts/device-identity.md) |
 | firmware memory budget | [firmware-memory-budget.md](contracts/firmware-memory-budget.md) |
 | host device core | [host-device-core.md](contracts/host-device-core.md) |
+| serial transport | [serial-transport.md](contracts/serial-transport.md) |
 
 ## Operations
 

@@ -9,7 +9,9 @@ on:
       - "Cargo.lock"
       - "crates/**"
       - "docs/contracts/host-device-core.md"
+      - "docs/contracts/serial-transport.md"
       - "docs/decisions/0005-rust-host-core-cli.md"
+      - "docs/decisions/0006-explicit-serial-transport.md"
       - ".github/workflows/host-rust.yml"
   pull_request:
     paths:
@@ -17,7 +19,9 @@ on:
       - "Cargo.lock"
       - "crates/**"
       - "docs/contracts/host-device-core.md"
+      - "docs/contracts/serial-transport.md"
       - "docs/decisions/0005-rust-host-core-cli.md"
+      - "docs/decisions/0006-explicit-serial-transport.md"
       - ".github/workflows/host-rust.yml"
   workflow_dispatch:
 
@@ -26,7 +30,13 @@ permissions:
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-latest
+          - windows-latest
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
