@@ -91,7 +91,10 @@ pub fn parse_line(line: &str) -> Result<ProtocolFrame, ProtocolParseError> {
         "" => Err(ProtocolParseError::EmptyPrefix),
         _ => Ok(ProtocolFrame::Unknown(UnknownFrame {
             prefix: prefix.to_owned(),
-            fields: fields[1..].iter().map(|field| (*field).to_owned()).collect(),
+            fields: fields[1..]
+                .iter()
+                .map(|field| (*field).to_owned())
+                .collect(),
         })),
     }
 }
@@ -105,12 +108,13 @@ fn parse_device_frame(fields: &[&str]) -> Result<ProtocolFrame, ProtocolParseErr
         });
     }
 
-    let protocol_major = fields[1]
-        .parse::<u8>()
-        .map_err(|_| ProtocolParseError::InvalidInteger {
-            field: "protocol_major",
-            value: fields[1].to_owned(),
-        })?;
+    let protocol_major =
+        fields[1]
+            .parse::<u8>()
+            .map_err(|_| ProtocolParseError::InvalidInteger {
+                field: "protocol_major",
+                value: fields[1].to_owned(),
+            })?;
 
     if fields[2].is_empty() {
         return Err(ProtocolParseError::EmptyField {
@@ -128,12 +132,13 @@ fn parse_device_frame(fields: &[&str]) -> Result<ProtocolFrame, ProtocolParseErr
         )
     };
 
-    let channel_count = fields[4]
-        .parse::<u8>()
-        .map_err(|_| ProtocolParseError::InvalidInteger {
-            field: "channel_count",
-            value: fields[4].to_owned(),
-        })?;
+    let channel_count =
+        fields[4]
+            .parse::<u8>()
+            .map_err(|_| ProtocolParseError::InvalidInteger {
+                field: "channel_count",
+                value: fields[4].to_owned(),
+            })?;
 
     Ok(ProtocolFrame::Device(DeviceInfo {
         protocol_major,
@@ -152,22 +157,24 @@ fn parse_vector_frame(fields: &[&str]) -> Result<ProtocolFrame, ProtocolParseErr
         });
     }
 
-    let timestamp_ms = fields[1]
-        .parse::<u32>()
-        .map_err(|_| ProtocolParseError::InvalidInteger {
-            field: "timestamp_ms",
-            value: fields[1].to_owned(),
-        })?;
+    let timestamp_ms =
+        fields[1]
+            .parse::<u32>()
+            .map_err(|_| ProtocolParseError::InvalidInteger {
+                field: "timestamp_ms",
+                value: fields[1].to_owned(),
+            })?;
 
     let mut channels = [0.0_f64; CHANNEL_COUNT];
     for (index, target) in channels.iter_mut().enumerate() {
         let field_index = index + 2;
-        let value = fields[field_index]
-            .parse::<f64>()
-            .map_err(|_| ProtocolParseError::InvalidFloat {
-                channel: index,
-                value: fields[field_index].to_owned(),
-            })?;
+        let value =
+            fields[field_index]
+                .parse::<f64>()
+                .map_err(|_| ProtocolParseError::InvalidFloat {
+                    channel: index,
+                    value: fields[field_index].to_owned(),
+                })?;
         if !value.is_finite() {
             return Err(ProtocolParseError::NonFiniteFloat {
                 channel: index,
@@ -193,7 +200,10 @@ fn parse_diagnostic_frame(
 
     let frame = DiagnosticFrame {
         token: fields[1].to_owned(),
-        args: fields[2..].iter().map(|field| (*field).to_owned()).collect(),
+        args: fields[2..]
+            .iter()
+            .map(|field| (*field).to_owned())
+            .collect(),
     };
 
     Ok(if is_status {
@@ -296,7 +306,10 @@ impl fmt::Display for ProtocolParseError {
                 write!(formatter, "invalid float for channel {channel}: {value:?}")
             }
             Self::NonFiniteFloat { channel, value } => {
-                write!(formatter, "non-finite float for channel {channel}: {value:?}")
+                write!(
+                    formatter,
+                    "non-finite float for channel {channel}: {value:?}"
+                )
             }
             Self::MissingDiagnosticToken => {
                 formatter.write_str("diagnostic frame must contain a non-empty token")
@@ -314,10 +327,8 @@ mod tests {
 
     #[test]
     fn parses_provisioned_device_frame() {
-        let frame = parse_line(
-            "device,2,0.1.0,srn-0123456789abcdef0123456789abcdef,7\r\n",
-        )
-        .expect("valid device frame");
+        let frame = parse_line("device,2,0.1.0,srn-0123456789abcdef0123456789abcdef,7\r\n")
+            .expect("valid device frame");
 
         let ProtocolFrame::Device(info) = frame else {
             panic!("expected device frame");
@@ -331,8 +342,7 @@ mod tests {
 
     #[test]
     fn parses_unprovisioned_device_frame() {
-        let frame =
-            parse_line("device,2,0.1.0,unprovisioned,7").expect("valid device frame");
+        let frame = parse_line("device,2,0.1.0,unprovisioned,7").expect("valid device frame");
         let ProtocolFrame::Device(info) = frame else {
             panic!("expected device frame");
         };
@@ -385,8 +395,7 @@ mod tests {
 
     #[test]
     fn rejects_non_finite_vector_value() {
-        let error =
-            parse_line("vector,1234,1,2,3,4,NaN,6,7").expect_err("NaN must fail");
+        let error = parse_line("vector,1234,1,2,3,4,NaN,6,7").expect_err("NaN must fail");
         assert!(matches!(
             error,
             ProtocolParseError::NonFiniteFloat { channel: 4, .. }
