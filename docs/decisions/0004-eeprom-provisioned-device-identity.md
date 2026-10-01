@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: accepted
 owner: architecture
 date: 2026-09-29
 canonical_for:
