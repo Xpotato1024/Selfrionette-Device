@@ -20,3 +20,5 @@ Accepted ADRのdecisionを後から通常編集で変更しない。判断を変
 - [ADR-0004](0004-eeprom-provisioned-device-identity.md): Stable device identityはhostで生成しEEPROMへprovisionする
 
 - [ADR-0005](0005-rust-host-core-cli.md): Host device coreとCLIをRust workspaceで実装する
+
+- [ADR-0006](0006-explicit-serial-transport.md): Serial transportを独立crateに分離し、explicit portだけをopenする
