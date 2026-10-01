@@ -155,7 +155,8 @@ impl<T: LineTransport> DeviceSession<T> {
 
     pub fn query_info(&mut self) -> Result<DeviceInfo, SessionError> {
         self.transport.discard_input()?;
-        self.transport.write_line(&HostCommand::Info.encode_line())?;
+        self.transport
+            .write_line(&HostCommand::Info.encode_line())?;
 
         let started = Instant::now();
         for _ in 0..self.limits.max_lines {
@@ -245,16 +246,11 @@ impl<T: LineTransport> DeviceSession<T> {
 
 #[derive(Debug)]
 pub enum TransportError {
-    Open {
-        port_name: String,
-        message: String,
-    },
+    Open { port_name: String, message: String },
     Serial(String),
     Io(String),
     Timeout,
-    LineTooLong {
-        max_bytes: usize,
-    },
+    LineTooLong { max_bytes: usize },
     InvalidUtf8,
     CommandNotTerminated,
 }
@@ -263,7 +259,10 @@ impl fmt::Display for TransportError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Open { port_name, message } => {
-                write!(formatter, "failed to open serial port {port_name:?}: {message}")
+                write!(
+                    formatter,
+                    "failed to open serial port {port_name:?}: {message}"
+                )
             }
             Self::Serial(message) => write!(formatter, "serial operation failed: {message}"),
             Self::Io(message) => write!(formatter, "serial I/O failed: {message}"),
@@ -272,9 +271,7 @@ impl fmt::Display for TransportError {
                 write!(formatter, "serial line exceeded {max_bytes} bytes")
             }
             Self::InvalidUtf8 => formatter.write_str("serial line is not valid UTF-8"),
-            Self::CommandNotTerminated => {
-                formatter.write_str("host command must end with newline")
-            }
+            Self::CommandNotTerminated => formatter.write_str("host command must end with newline"),
         }
     }
 }
@@ -413,8 +410,7 @@ mod tests {
 
     #[test]
     fn query_info_rejects_incompatible_protocol() {
-        let transport =
-            FakeTransport::with_responses(vec![vec!["device,3,0.1.0,unprovisioned,7"]]);
+        let transport = FakeTransport::with_responses(vec![vec!["device,3,0.1.0,unprovisioned,7"]]);
         let mut session = DeviceSession::new(transport);
 
         assert!(matches!(
