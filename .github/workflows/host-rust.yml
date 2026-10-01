@@ -9,7 +9,9 @@ on:
       - "Cargo.lock"
       - "crates/**"
       - "docs/contracts/host-device-core.md"
+      - "docs/contracts/serial-transport.md"
       - "docs/decisions/0005-rust-host-core-cli.md"
+      - "docs/decisions/0006-explicit-serial-transport.md"
       - ".github/workflows/host-rust.yml"
   pull_request:
     paths:
@@ -17,7 +19,9 @@ on:
       - "Cargo.lock"
       - "crates/**"
       - "docs/contracts/host-device-core.md"
+      - "docs/contracts/serial-transport.md"
       - "docs/decisions/0005-rust-host-core-cli.md"
+      - "docs/decisions/0006-explicit-serial-transport.md"
       - ".github/workflows/host-rust.yml"
   workflow_dispatch:
 
@@ -33,6 +37,14 @@ jobs:
 
       - name: Install Rust toolchain
         run: rustup toolchain install stable --profile minimal --component rustfmt,clippy
+
+      - name: Generate dependency lock preview
+        shell: bash
+        run: |
+          cargo +stable generate-lockfile
+          echo "__CARGO_LOCK_BEGIN__"
+          cat Cargo.lock
+          echo "__CARGO_LOCK_END__"
 
       - name: Format
         run: cargo +stable fmt --check
