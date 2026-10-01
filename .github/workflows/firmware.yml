@@ -25,15 +25,19 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
 
       - name: Install PlatformIO
         run: python -m pip install "platformio==6.1.19"
 
-      - name: Build firmware
-        working-directory: firmware/loadcell_7ch
-        run: pio run -e pro_micro_7ch
+      - name: Build firmware and enforce memory budget
+        run: >-
+          python tools/check_firmware_size.py
+          --project-dir firmware/loadcell_7ch
+          --environment pro_micro_7ch
+          --max-static-ram 1024
+          --max-flash 24576
