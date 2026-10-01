@@ -68,9 +68,26 @@ device_id[16]
 integrity
 ```
 
-exact byte offsets、endianness、integrity fieldはfirmware implementation前にmemory/persistence contractへ固定する。
+current schema version 1のrecordはEEPROM address 0から23 bytesを使用する。
+
+| Offset | Size | Field |
+|---:|---:|---|
+| 0 | 4 | ASCII magic `SRN2` |
+| 4 | 1 | schema version `1` |
+| 5 | 16 | 128-bit device ID payload |
+| 21 | 2 | CRC-16/CCITT-FALSE, big-endian |
+
+CRC parameters:
+
+- polynomial: `0x1021`
+- initial value: `0xFFFF`
+- input: magic + schema version + 16-byte device ID
+- stored high byte first
+- no final XOR
 
 C++ structのnative paddingをwire / EEPROM formatとして暗黙利用しない。
+
+provision時はmagicを先にinvalid化し、schema / payload / CRCを書いた後にmagicを最後に書く。power lossによるpartial writeをvalid recordとして誤認しないためである。
 
 ## Provisioning
 

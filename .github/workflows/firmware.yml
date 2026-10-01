@@ -1,0 +1,52 @@
+name: Firmware
+
+on:
+  push:
+    branches:
+      - "codex/**"
+    paths:
+      - "firmware/**"
+      - "docs/contracts/firmware-protocol-v2.md"
+      - "docs/contracts/device-identity.md"
+      - "docs/contracts/firmware-memory-budget.md"
+      - "tools/check_firmware_size.py"
+      - "tests/test_check_firmware_size.py"
+      - ".github/workflows/firmware.yml"
+  pull_request:
+    paths:
+      - "firmware/**"
+      - "docs/contracts/firmware-protocol-v2.md"
+      - "docs/contracts/device-identity.md"
+      - "docs/contracts/firmware-memory-budget.md"
+      - "tools/check_firmware_size.py"
+      - "tests/test_check_firmware_size.py"
+      - ".github/workflows/firmware.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-pro-micro:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+
+      - name: Test memory budget parser
+        run: python -m unittest tests/test_check_firmware_size.py
+
+      - name: Install PlatformIO
+        run: python -m pip install "platformio==6.1.19"
+
+      - name: Build firmware and enforce memory budget
+        run: >-
+          python tools/check_firmware_size.py
+          --project-dir firmware/loadcell_7ch
+          --environment pro_micro_7ch
+          --max-static-ram 1024
+          --max-flash 24576
