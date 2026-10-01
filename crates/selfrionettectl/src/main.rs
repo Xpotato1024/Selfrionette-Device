@@ -71,9 +71,7 @@ fn run(args: Vec<String>) -> Result<(), CliError> {
 
 fn run_list(args: &[String]) -> Result<(), CliError> {
     if !args.is_empty() {
-        return Err(CliError::Usage(
-            "list does not accept arguments".to_owned(),
-        ));
+        return Err(CliError::Usage("list does not accept arguments".to_owned()));
     }
 
     let ports = available_port_names()
@@ -86,8 +84,8 @@ fn run_list(args: &[String]) -> Result<(), CliError> {
 
 fn run_info(args: &[String]) -> Result<(), CliError> {
     let port = parse_port_only(args, "info")?;
-    let transport = SerialPortTransport::open(port)
-        .map_err(|error| CliError::Failure(error.to_string()))?;
+    let transport =
+        SerialPortTransport::open(port).map_err(|error| CliError::Failure(error.to_string()))?;
     let mut session = DeviceSession::new(transport);
     let info = session
         .query_info()
