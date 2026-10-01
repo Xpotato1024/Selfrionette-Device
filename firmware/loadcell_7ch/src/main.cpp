@@ -507,6 +507,8 @@ void updateAllValues() {
 }  // namespace
 
 void setup() {
+  static_assert(sizeof(long) == 4, "firmware assumes 32-bit AVR long");
+  static_assert(sizeof(double) == 4, "firmware memory budget assumes AVR 32-bit double");
   static_assert(kIdentityBaseAddress + kIdentityRecordSize <= E2END + 1, "identity record exceeds EEPROM");
 
   Serial.begin(kSerialBaudRate);
