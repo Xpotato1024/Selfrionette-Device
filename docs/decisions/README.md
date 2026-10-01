@@ -18,3 +18,5 @@ Accepted ADRのdecisionを後から通常編集で変更しない。判断を変
 
 - [ADR-0003](0003-versioned-ascii-protocol-v2.md): Protocol v2は既存sample frameを維持し、management frameを追加する
 - [ADR-0004](0004-eeprom-provisioned-device-identity.md): Stable device identityはhostで生成しEEPROMへprovisionする
+
+- [ADR-0005](0005-rust-host-core-cli.md): Host device coreとCLIをRust workspaceで実装する
