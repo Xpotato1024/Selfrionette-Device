@@ -30,21 +30,19 @@ permissions:
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-latest
+          - windows-latest
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
 
       - name: Install Rust toolchain
         run: rustup toolchain install stable --profile minimal --component rustfmt,clippy
-
-      - name: Generate dependency lock preview
-        shell: bash
-        run: |
-          cargo +stable generate-lockfile
-          echo "__CARGO_LOCK_BEGIN__"
-          cat Cargo.lock
-          echo "__CARGO_LOCK_END__"
 
       - name: Format
         run: cargo +stable fmt --check
