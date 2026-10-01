@@ -35,6 +35,7 @@ related:
 | device / host / Xpotato-Sim boundary | [device-host-boundary.md](contracts/device-host-boundary.md) |
 | firmware protocol v2 | [firmware-protocol-v2.md](contracts/firmware-protocol-v2.md) |
 | stable device identity / provisioning | [device-identity.md](contracts/device-identity.md) |
+| firmware memory budget | [firmware-memory-budget.md](contracts/firmware-memory-budget.md) |
 
 ## Operations
 
@@ -49,7 +50,6 @@ related:
 まだ仕様を固定していない項目は、実装前に必要な範囲だけ追加する。
 
 - calibration / tare / persistent calibration
-- firmware memory budget
 - firmware update
 - host CLI
 - Device Manager GUI
