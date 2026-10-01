@@ -1,0 +1,44 @@
+name: Host Rust
+
+on:
+  push:
+    branches:
+      - "codex/**"
+    paths:
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "crates/**"
+      - "docs/contracts/host-device-core.md"
+      - "docs/decisions/0005-rust-host-core-cli.md"
+      - ".github/workflows/host-rust.yml"
+  pull_request:
+    paths:
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "crates/**"
+      - "docs/contracts/host-device-core.md"
+      - "docs/decisions/0005-rust-host-core-cli.md"
+      - ".github/workflows/host-rust.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install Rust toolchain
+        run: rustup toolchain install stable --profile minimal --component rustfmt,clippy
+
+      - name: Format
+        run: cargo +stable fmt --check
+
+      - name: Clippy
+        run: cargo +stable clippy --locked --workspace --all-targets -- -D warnings
+
+      - name: Test
+        run: cargo +stable test --locked --workspace
