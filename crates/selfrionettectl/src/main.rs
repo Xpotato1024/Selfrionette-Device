@@ -206,6 +206,7 @@ fn print_frame(frame: &ProtocolFrame) {
     }
 }
 
+#[derive(Debug)]
 enum CliError {
     Usage(String),
     Failure(String),
