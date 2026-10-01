@@ -8,7 +8,7 @@ Xpotato-Simから見たSelfrionetteはGamepad / Keyboardと同格のInput Source
 
 - Hardware: existing Pro Micro / ATmega32U4
 - Firmware: C++ / PlatformIOを初期方針とする
-- Host tooling: Rust workspace（`selfrionette-core` / `selfrionettectl`）としてfirmwareと独立に設計する
+- Host tooling: Rust workspace（`selfrionette-core` / `selfrionette-serial` / `selfrionettectl`）としてfirmwareと独立に設計する
 - Device management: CLI-first、GUIは同じcore logicを再利用する
 - Identity: stable device identityとleft/right等のroleを分離する
 - Protocol: versioned producer contractをこのrepositoryで管理する
