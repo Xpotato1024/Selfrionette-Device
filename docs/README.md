@@ -20,6 +20,7 @@ related:
 | repository / integration boundary | [ADR-0002](decisions/0002-separate-device-management-from-simulation-plugin.md) | Device管理とXpotato-Sim Input Source Pluginの分離 |
 | protocol v2 architecture | [ADR-0003](decisions/0003-versioned-ascii-protocol-v2.md) | 既存vector互換を保つversioned management protocol |
 | stable device identity | [ADR-0004](decisions/0004-eeprom-provisioned-device-identity.md) | 128-bit IDのEEPROM provisioningとrole分離 |
+| host core / CLI | [ADR-0005](decisions/0005-rust-host-core-cli.md) | Rust workspaceでpure coreとCLIを分離 |
 
 ## Architecture
 
@@ -36,6 +37,7 @@ related:
 | firmware protocol v2 | [firmware-protocol-v2.md](contracts/firmware-protocol-v2.md) |
 | stable device identity / provisioning | [device-identity.md](contracts/device-identity.md) |
 | firmware memory budget | [firmware-memory-budget.md](contracts/firmware-memory-budget.md) |
+| host device core | [host-device-core.md](contracts/host-device-core.md) |
 
 ## Operations
 
@@ -51,7 +53,6 @@ related:
 
 - calibration / tare / persistent calibration
 - firmware update
-- host CLI
 - Device Manager GUI
 - dual-device role binding
 
