@@ -8,6 +8,9 @@ on:
       - "firmware/**"
       - "docs/contracts/firmware-protocol-v2.md"
       - "docs/contracts/device-identity.md"
+      - "docs/contracts/firmware-memory-budget.md"
+      - "tools/check_firmware_size.py"
+      - "tests/test_check_firmware_size.py"
       - ".github/workflows/firmware.yml"
   pull_request:
     paths:
