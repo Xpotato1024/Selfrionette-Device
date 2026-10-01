@@ -69,4 +69,6 @@ Flash / SRAMの実測値はCI buildからbaseline化し、memory budget contract
 
 `HX711.h` / `HX711.cpp`は旧Xpotato-Sim firmwareから移行した、Bogdan Necula氏のHX711 Arduino library由来のMIT License実装を保持する。
 
+license全文は[THIRD_PARTY_NOTICES.md](../../THIRD_PARTY_NOTICES.md)を参照する。
+
 旧firmwareはmigration referenceであり、このrepositoryのcurrent firmwareが移行後のsource of truthになる。
