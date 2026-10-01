@@ -97,8 +97,8 @@ fn run_info(args: &[String]) -> Result<(), CliError> {
 fn run_provision(args: &[String]) -> Result<(), CliError> {
     let (port, device_id) = parse_provision_args(args)?;
 
-    let transport = SerialPortTransport::open(port)
-        .map_err(|error| CliError::Failure(error.to_string()))?;
+    let transport =
+        SerialPortTransport::open(port).map_err(|error| CliError::Failure(error.to_string()))?;
     let mut session = DeviceSession::new(transport);
     let info = session
         .provision(device_id)
