@@ -1,4 +1,3 @@
-use std::collections::VecDeque;
 use std::fmt;
 use std::io::{Read, Write};
 use std::time::{Duration, Instant};
@@ -347,6 +346,8 @@ impl std::error::Error for SessionError {}
 
 #[cfg(test)]
 mod tests {
+    use std::collections::VecDeque;
+
     use super::*;
 
     const TEST_ID: &str = "srn-0123456789abcdef0123456789abcdef";
