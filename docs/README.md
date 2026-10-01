@@ -18,11 +18,6 @@ related:
 |---|---|---|
 | MCU / firmware language | [ADR-0001](decisions/0001-retain-pro-micro-cpp-firmware.md) | Pro Micro継続、C++ firmware、AVR resource制約 |
 | repository / integration boundary | [ADR-0002](decisions/0002-separate-device-management-from-simulation-plugin.md) | Device管理とXpotato-Sim Input Source Pluginの分離 |
-
-## Proposed decisions
-
-| Topic | ADR | Meaning |
-|---|---|---|
 | protocol v2 architecture | [ADR-0003](decisions/0003-versioned-ascii-protocol-v2.md) | 既存vector互換を保つversioned management protocol |
 | stable device identity | [ADR-0004](decisions/0004-eeprom-provisioned-device-identity.md) | 128-bit IDのEEPROM provisioningとrole分離 |
 
@@ -38,11 +33,6 @@ related:
 |---|---|
 | documentation lifecycle / SoT rules | [documentation-contract.md](contracts/documentation-contract.md) |
 | device / host / Xpotato-Sim boundary | [device-host-boundary.md](contracts/device-host-boundary.md) |
-
-## Draft contracts
-
-| Topic | Draft document |
-|---|---|
 | firmware protocol v2 | [firmware-protocol-v2.md](contracts/firmware-protocol-v2.md) |
 | stable device identity / provisioning | [device-identity.md](contracts/device-identity.md) |
 
