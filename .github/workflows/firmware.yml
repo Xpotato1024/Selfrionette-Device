@@ -1,6 +1,14 @@
 name: Firmware
 
 on:
+  push:
+    branches:
+      - "codex/**"
+    paths:
+      - "firmware/**"
+      - "docs/contracts/firmware-protocol-v2.md"
+      - "docs/contracts/device-identity.md"
+      - ".github/workflows/firmware.yml"
   pull_request:
     paths:
       - "firmware/**"
