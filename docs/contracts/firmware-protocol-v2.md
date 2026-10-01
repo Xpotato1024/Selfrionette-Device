@@ -32,7 +32,7 @@ robot mapping、Xpotato-Sim command semantics、GUI behaviorは対象外。
 
 ## Connection model
 
-firmwareは通常streaming中にもmanagement commandを受け取れる。`info`はstreamを止めずに応答する。`tare`等、sensor stateを変更するcommandはcontractで定義したboundedな期間だけsample出力を一時停止してよい。
+firmwareは通常streaming中にもmanagement commandを受け取れる。`info`はstreamを止めずに応答する。`tare`等のsensor state変更や`provision`のboundedなEEPROM writeでは、その処理期間だけsample出力を一時停止してよい。
 
 hostはport open後、bounded deadline内に`info`を送信し、validな`device` frameを確認してからstable identityを必要とするoperationへ進む。
 
