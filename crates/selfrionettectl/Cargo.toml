@@ -1,0 +1,8 @@
+[package]
+name = "selfrionettectl"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+selfrionette-core = { path = "../selfrionette-core" }
