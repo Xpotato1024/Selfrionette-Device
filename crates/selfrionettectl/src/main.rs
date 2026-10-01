@@ -1,9 +1,7 @@
 use std::env;
 use std::process::ExitCode;
 
-use selfrionette_core::{
-    DeviceId, DeviceIdentity, HostCommand, ProtocolFrame, parse_line,
-};
+use selfrionette_core::{DeviceId, DeviceIdentity, HostCommand, ProtocolFrame, parse_line};
 
 fn usage() -> &'static str {
     "usage:
@@ -123,7 +121,10 @@ fn print_frame(frame: &ProtocolFrame) {
             println!("warn token={} args={:?}", warning.token, warning.args);
         }
         ProtocolFrame::Unknown(unknown) => {
-            println!("unknown prefix={} fields={:?}", unknown.prefix, unknown.fields);
+            println!(
+                "unknown prefix={} fields={:?}",
+                unknown.prefix, unknown.fields
+            );
         }
     }
 }
