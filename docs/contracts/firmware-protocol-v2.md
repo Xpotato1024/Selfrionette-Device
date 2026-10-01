@@ -77,9 +77,16 @@ hostはconnection時に確認したdevice metadataをsampleへ関連付ける。
 status,<token>[,<arg>...]
 ```
 
-initial token setは必要なimplementation時に限定して定義する。
+current implementationが使用するmanagement token:
 
-既存bring-upで使用していたsensor init / tare progress tokenはmigration inputとして再利用してよいが、無制限なfree-form messageをprotocolへ導入しない。
+```text
+status,tare_command_received
+status,provision_ok
+```
+
+sensor initialization / calibration progressでは既存tokenを継続利用する。
+
+無制限なfree-form messageをprotocolへ導入しない。
 
 ## Warning frame
 
@@ -88,6 +95,18 @@ warn,<token>[,<arg>...]
 ```
 
 warnはsensor sampleではない。
+
+current management warning token:
+
+```text
+warn,already_provisioned
+warn,invalid_device_id
+warn,provision_verify_failed
+warn,command_too_long
+warn,unknown_command
+```
+
+sensor acquisition / calibration warning tokenは既存系を継続する。
 
 hostはwarningをbounded diagnosticとして保持し、warning lineをvectorへ変換しない。
 
@@ -142,7 +161,12 @@ firmware command parserは:
 - malformed commandをside effectへ変換しない
 - unknown commandをsilent state mutationへ変換しない
 
-exact capacityはmemory budget測定後に固定する。
+current firmwareのcommand buffer capacityは64 bytesである。
+
+- NUL終端用1 byteを含むため、command payloadは最大63 ASCII bytes
+- CRは無視し、LFでcommandを確定する
+- 63 bytesを超えたlineはnewlineまでdiscardし、`warn,command_too_long`を出力する
+- overlength lineのprefix部分を実行しない
 
 ## Interleaving
 
@@ -165,9 +189,9 @@ vector,...
 
 host management queryはline count / byte count / deadlineを有限にする。
 
-exact値はhost core implementationとvalidationで固定する。
+host側のexact line budget / deadlineはhost core implementationとvalidationで固定する。
 
-firmwareもcommand input長を有限にする。
+firmware command inputは64-byte固定bufferで有限化する。
 
 ## Compatibility with existing Xpotato-Sim parser
 
