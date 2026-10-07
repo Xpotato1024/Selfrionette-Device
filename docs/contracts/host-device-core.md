@@ -93,6 +93,7 @@ live serial commands:
 ```text
 selfrionettectl list
 selfrionettectl info --port <port>
+selfrionettectl monitor --port <port> --id <device-id> --samples <1..64>
 selfrionettectl provision --port <port> --id <device-id> --yes
 ```
 

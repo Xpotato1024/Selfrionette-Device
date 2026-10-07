@@ -22,3 +22,4 @@ Accepted ADRのdecisionを後から通常編集で変更しない。判断を変
 - [ADR-0005](0005-rust-host-core-cli.md): Host device coreとCLIをRust workspaceで実装する
 
 - [ADR-0006](0006-explicit-serial-transport.md): Serial transportを独立crateに分離し、explicit portだけをopenする
+- [ADR-0007](0007-bounded-identity-checked-monitor.md): Identityを検証する有限sample monitorをhostに追加する
