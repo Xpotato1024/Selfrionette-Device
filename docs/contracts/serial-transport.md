@@ -86,6 +86,10 @@ hostがwriteしただけでは成功と報告しない。
 
 これはrepository agent permissionを置き換えない。AI agentが実deviceへprovisionを実行する場合は、AGENTS.md / hardware safetyに従い別途明示許可が必要である。
 
+## Sample monitor
+
+期待identityを確認する有限captureとCLI `monitor`は[sample monitor contract](sample-monitor.md)を正とする。
+
 ## Not yet exposed
 
 - real serial tare
