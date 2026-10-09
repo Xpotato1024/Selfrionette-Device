@@ -1,11 +1,10 @@
-# firmware
+# Sim由来firmware reference
 
-hardware firmwareとlegacy referenceの入口である。Python runtime、schema、viewerの
-source of truthではない。
+旧Sim firmwareの履歴付きimportである。現行は[Protocol v2](../../../firmware/loadcell_7ch/README.md)、
+この旧2ターゲットの用途・build・履歴は[管理案内](../../../docs/operations/legacy-sim-firmware.md)を参照する。
 
-- [Arduino firmware](arduino/README.md)
-- [serial frame contract](../docs/contracts/r7-a-lite-serial-frame-contract.md)
-- [hardware safety](../docs/operations/hardware-safety.md)
+- [Arduino reference](arduino/README.md)
+- [旧producer仕様](../../../docs/contracts/legacy-sim-serial-producer.md)
+- [hardware safety](../../../docs/operations/hardware-safety.md)
 
-README閲覧やcompileはhardware accessではない。serial open、upload、実機作動は
-canonical operationのoperator gateなしに実行しない。
+元の15ファイルはimport commitに保持する。README閲覧・compileから実機動作を認定しない。

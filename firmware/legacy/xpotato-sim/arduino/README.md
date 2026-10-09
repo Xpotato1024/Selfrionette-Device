@@ -1,10 +1,8 @@
-# Arduino firmware
+# Arduino reference
 
-current candidateとlegacy referenceを分離する。このindexはboard、port、parameterの正本ではない。
+[legacy_selfrionette](legacy_selfrionette/README.md)配下の2ターゲットを当時の挙動で保持する。
+現行v2のsourceではない。
 
-- `loadcell_7ch_pro_micro/`: current 7-channel sender candidate
-- [legacy_selfrionette](legacy_selfrionette/README.md): provenanceを保持したreference
-- [serial frame contract](../../docs/contracts/r7-a-lite-serial-frame-contract.md)
-- [hardware safety](../../docs/operations/hardware-safety.md)
-
-upload、serial open、実機validationはsoftware-only testと別のside effectである。
+- [管理・build・採用順](../../../../docs/operations/legacy-sim-firmware.md)
+- [旧producer仕様](../../../../docs/contracts/legacy-sim-serial-producer.md)
+- [hardware safety](../../../../docs/operations/hardware-safety.md)

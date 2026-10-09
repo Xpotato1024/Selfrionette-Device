@@ -35,6 +35,7 @@ related:
 |---|---|
 | documentation lifecycle / SoT rules | [documentation-contract.md](contracts/documentation-contract.md) |
 | device / host / Xpotato-Sim boundary | [device-host-boundary.md](contracts/device-host-boundary.md) |
+| 旧Sim 7ch producer（互換用） | [legacy-sim-serial-producer.md](contracts/legacy-sim-serial-producer.md) |
 | firmware protocol v2 | [firmware-protocol-v2.md](contracts/firmware-protocol-v2.md) |
 | stable device identity / provisioning | [device-identity.md](contracts/device-identity.md) |
 | firmware memory budget | [firmware-memory-budget.md](contracts/firmware-memory-budget.md) |
@@ -46,6 +47,7 @@ related:
 | Topic | Canonical document |
 |---|---|
 | Git / PR workflow | [git-pr-workflow.md](operations/git-pr-workflow.md) |
+| 旧Sim firmwareの管理・build・採用順 | [legacy-sim-firmware.md](operations/legacy-sim-firmware.md) |
 | validation categories | [validation.md](operations/validation.md) |
 | hardware / serial / flashing safety | [hardware-safety.md](operations/hardware-safety.md) |
 

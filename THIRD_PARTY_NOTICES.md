@@ -4,6 +4,11 @@
 
 `firmware/loadcell_7ch/src/HX711.h` and `HX711.cpp` are derived from the HX711 Arduino library by Bogdan Necula.
 
+同じnoticeはSimから履歴付きで取り込んだ旧2ターゲットのHX711.cpp/HX711.hにも適用する:
+
+- `firmware/legacy/xpotato-sim/arduino/legacy_selfrionette/loadcell_7ch_legacy/src/`
+- `firmware/legacy/xpotato-sim/arduino/legacy_selfrionette/loadcell_7ch_pro_micro/src/`
+
 Source: https://github.com/bogde/HX711
 
 MIT License

@@ -57,6 +57,11 @@ firmwareは小さなdevice runtimeに限定する。
 - participant evaluation
 - GUI rendering
 
+旧Simの2ターゲットは`firmware/legacy/xpotato-sim/`へ履歴付きで保持する。
+現行`firmware/loadcell_7ch/`とは別の互換・再現用であり、現在のProtocol v2を上書きしない。
+[管理・build案内](../operations/legacy-sim-firmware.md)と
+[旧producer仕様](../contracts/legacy-sim-serial-producer.md)を正とする。Simにfirmware sourceを残さない。
+
 ## Host core ownership
 
 host coreはdevice lifecycleとoperator-facing management logicを所有する。

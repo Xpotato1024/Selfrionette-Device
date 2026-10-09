@@ -2,8 +2,8 @@
 
 > このdirectoryはhistorical referenceであり、current operationのsource of truthではない。
 > current protocolとoperator gateは
-> [serial frame contract](../../../docs/contracts/r7-a-lite-serial-frame-contract.md)と
-> [hardware safety](../../../docs/operations/hardware-safety.md)を参照する。
+> [旧serial producer仕様](../../../../../docs/contracts/legacy-sim-serial-producer.md)と
+> [hardware safety](../../../../../docs/operations/hardware-safety.md)を参照する。
 
 This directory is copied from old Selfrionette `/firmware/arduino/`.
 
