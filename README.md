@@ -18,12 +18,14 @@ Xpotato-Simから見たSelfrionetteはGamepad / Keyboardと同格のInput Source
 
 ## Repository layout
 
-- `firmware/`: current firmware
+- `firmware/`: current Protocol v2 firmwareと旧Sim互換reference
 - `crates/`: host-side Rust libraries / CLI
 - `apps/`: human-facing applications such as Device Manager
 - `hardware/`: board / pinout / hardware reference
 - `docs/`: architecture、contracts、ADR、operations
 - `tests/`: repository-level / cross-component tests
 - `tools/`: repository support tools
+
+旧Simの2ターゲット、software buildと採用順は[firmware移行・build案内](docs/operations/legacy-sim-firmware.md)を参照する。
 
 実装前に[AGENTS.md](AGENTS.md)を確認する。

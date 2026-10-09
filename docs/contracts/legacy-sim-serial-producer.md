@@ -1,0 +1,197 @@
+---
+status: canonical
+owner: firmware
+last_verified: 2026-10-09
+canonical_for:
+  - legacy Sim seven-channel serial producer
+related:
+  - docs/contracts/firmware-protocol-v2.md
+  - docs/operations/legacy-sim-firmware.md
+---
+
+# 旧Sim 7ch serial producer
+
+この文書は旧Sim `loadcell_7ch_pro_micro`だけのproducer仕様を固定する。
+現行Protocol v2、identity、EEPROMや現行tare/calibrationの正本ではない。
+[旧main.cpp](../../firmware/legacy/xpotato-sim/arduino/legacy_selfrionette/loadcell_7ch_pro_micro/src/main.cpp)と
+[platformio.ini](../../firmware/legacy/xpotato-sim/arduino/legacy_selfrionette/loadcell_7ch_pro_micro/platformio.ini)を正とする。
+
+仕様の移行元は[Sim consumer文書](https://github.com/Xpotato1024/Xpotato-Sim/blob/552180b65d2055b63854cd3a25bc1d2e9308fb36/docs/contracts/r7-a-lite-serial-frame-contract.md)である。
+Sim側は受信parser/fixtureの互換要件を所有し、producer実装・校正algorithmの正本を複製しない。
+最初の`loadcell_7ch_legacy`とは別targetで、legacy版の挙動へ本仕様を外挿しない。
+過去の実機noteは当時の観測であり、今回のcompileからhardware validationを認定しない。
+
+## 旧Sim互換firmware target
+
+| 項目 | 値 |
+|---|---|
+| PlatformIO environment name | `pro_micro_7ch` |
+| Board | `sparkfun_promicro16` |
+| Framework | `arduino` |
+| `monitor_speed` | `115200` |
+| `Serial.begin(...)` baud | `115200` |
+| channel count | `7` |
+| DOUT pins | `4, 6, 8, 10, 19, 3, 14` |
+| SCK pins | `5, 7, 9, 18, 20, 2, 15` |
+| sampling rate target | `80 Hz` |
+| loop period target | `12500 us` |
+
+## Transport方式
+
+Pro MicroからPCへのUSB serialを使用する。contractはline-based ASCII streamである。
+
+## Baud rate設定
+
+`115200`
+
+## Sampling rate設定
+
+firmware loopはcycle period `12500 us`で`80 Hz`をtargetとする。
+`wait_ready_timeout()`、calibration、serial command handlingがcycleを遅延させた場合、
+実際のcadenceは変動し得る。
+
+## Line形式
+
+各lineにつき単一frameのcomma-delimited ASCIIであり、`Serial.println(...)`から出力する。
+
+想定するframe shape:
+
+```text
+status,<message>[,<channel>,<value>]
+warn,<reason>,<channel>[,<value>]
+vector,<timestamp_ms>,<ch0>,<ch1>,<ch2>,<ch3>,<ch4>,<ch5>,<ch6>
+```
+
+## Frame prefix一覧
+
+- `status`
+- `warn`
+- `vector`
+
+## `status` frame仕様
+
+旧Sim互換firmwareは次のstatus formを出力する。
+
+```text
+status,setup_start
+status,sensor_init_start
+status,sensor_init_end
+status,calibration_start
+status,calibration_command_received
+status,calibration_channel_start,<channel>,0
+status,calibration_channel_end,<channel>,<mean>
+status,calibration_end
+status,setup_end
+```
+
+`status` frameはdiagnosticであり、sensor recordとしてparseしてはならない。
+
+## `warn` frame仕様
+
+旧Sim互換firmwareは次のwarning formを出力する。
+
+```text
+warn,warmup_timeout,<channel>
+warn,calibration_warmup_timeout,<channel>
+warn,calibration_timeout,<channel>
+warn,calibration_skipped,<channel>
+warn,calibration_spread,<channel>,<spread>
+warn,ready_timeout,<channel>
+warn,spike,<channel>,<value>
+```
+
+`warn` frameはdiagnostic eventであり、sensor sampleとしてparseしてはならない。
+
+## `vector` frame仕様
+
+`vector` frameはsensor recordである。
+
+```text
+vector,<timestamp_ms>,<ch0>,<ch1>,<ch2>,<ch3>,<ch4>,<ch5>,<ch6>
+```
+
+frameにはexactly 7 channel value、合計exactly 9 comma-separated fieldが必要である。
+
+## Channel数
+
+`7`
+
+## Channel順序
+
+frame orderはfirmware orderの`ch0`から`ch6`である。
+このcontractではphysical sensor-to-channel mappingを確定しない。そのmappingはhardware bring-up noteで
+別途追跡する。
+
+## Timestamp field仕様
+
+`timestamp_ms`はframe出力時に`millis()`が返す値である。
+bootからのunsigned millisecond counterをASCII decimal形式で表す。
+
+## Numeric fieldのsemantics
+
+- `vector` channel valueは、firmwareのzero handlingとspike gating後のsigned decimal sensor readingである。
+- `status` numeric fieldはchannel indexやcalibration meanなどのdiagnostic dataである。
+- `warn` numeric fieldはchannel indexやretained valueなどのdiagnostic dataである。
+- valueはplain ASCII decimal textとして出力する。
+- parser codeはnon-finite valueをrejectする。
+
+## Delimiterとline ending
+
+- fieldはcommaで区切る。
+- frameは`Serial.println(...)`で終端する。
+- parser codeはstreamをline-basedとして扱い、CRLFを許容する。
+- quoted CSV、escaping、multi-line frameはcontractに含めない。
+
+## Calibration / zero handling仕様
+
+startup時にfirmwareは次を実行する。
+
+1. `115200`でserialを開始する。
+2. `status,setup_start`を出力する。
+3. 各sensorをinitializeする。
+4. `status,sensor_init_start`と`status,sensor_init_end`を出力する。
+5. 各channelのcalibrationを実行する。
+6. `status,calibration_start`と`status,calibration_end`を出力する。
+7. `status,setup_end`を出力する。
+
+channelごとのcalibration behaviorは次のとおりである。
+
+- `kCalibrationWarmupReads = 5`でwarm upする。
+- `kCalibrationBatchCount = 3` batchを収集する。
+- 各batchで`kCalibrationBatchSampleCount = 17` readingを収集する。
+- 各batchを`trimmedMean()`でreduceし、可能な場合はminとmaxを除く。
+- batch spreadが`kCalibrationBatchSpreadThreshold = 2000.0`を超えた場合、
+  `warn,calibration_spread,<channel>,<spread>`を出力する。
+- offsetは`medianOfThree(batch_means[0], batch_means[1], batch_means[2])`とする。
+- previous output valueを`0`へresetする。
+- rounded offsetを`status,calibration_channel_end,<channel>,<mean>`で出力する。
+
+calibrationはsetup時に実行し、runtimeでも`c` commandでtriggerできる。
+
+## Runtime serial command仕様
+
+supportするruntime command:
+
+- `c`: 全channelのcalibrationを実行する。
+
+`c`を受信した場合:
+
+- firmwareは`status,calibration_command_received`を出力する。
+- firmwareは`calibrateAllChannels()`をcallする。
+- calibrationのstatus / warn frameを出力する場合がある。
+- parserはcommand response frameをvector recordとして扱ってはならない。
+
+## Timeout / ready failure時のbehavior
+
+- warmupまたはcalibration中のready timeoutでは、対応する`warn,..._timeout,...` frameを出力する。
+- calibration sampleを一つも収集できない場合、firmwareは`warn,calibration_skipped,<channel>`を出力する。
+- runtime readのready timeoutでは`warn,ready_timeout,<channel>`を出力し、そのchannelのprevious output
+  valueを再利用する。
+
+## Spike / abnormal value時のbehavior
+
+- runtime spike thresholdは`100000.0`である。
+- previous outputからのabsolute changeがthresholdを超えた場合、firmwareは
+  `warn,spike,<channel>,<value>`を出力する。
+- spike時には新しいadjusted valueをpublishせず、previous output valueを維持する。
+- これはoutput-side suppressionであり、別のraw sample channelではない。
