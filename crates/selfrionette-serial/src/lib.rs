@@ -8,6 +8,8 @@ use selfrionette_core::{
 };
 use serialport::{ClearBuffer, SerialPort};
 
+pub mod legacy;
+
 pub const SERIAL_BAUD_RATE: u32 = 115_200;
 pub const MAX_LINE_BYTES: usize = 1024;
 pub const DEFAULT_MAX_LINES: usize = 64;

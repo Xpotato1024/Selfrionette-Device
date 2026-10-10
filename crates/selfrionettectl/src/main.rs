@@ -1,6 +1,8 @@
 use std::env;
 use std::process::ExitCode;
 
+mod legacy;
+
 use selfrionette_core::{
     DeviceId, DeviceIdentity, DeviceInfo, HostCommand, ProtocolFrame, parse_line,
 };
@@ -11,6 +13,8 @@ fn usage() -> &'static str {
   selfrionettectl list
   selfrionettectl info --port <port>
   selfrionettectl provision --port <port> --id <device-id> --yes
+  selfrionettectl legacy-monitor --port <port> [options]
+  selfrionettectl legacy-measure --port <port> [options]
   selfrionettectl parse-line <line>
   selfrionettectl validate-id <device-id>
   selfrionettectl encode info
@@ -29,6 +33,7 @@ fn main() -> ExitCode {
             eprintln!("{message}");
             ExitCode::FAILURE
         }
+        Err(CliError::Interrupted) => ExitCode::from(130),
     }
 }
 
@@ -41,6 +46,7 @@ fn run(args: Vec<String>) -> Result<(), CliError> {
         "list" => run_list(&args[1..]),
         "info" => run_info(&args[1..]),
         "provision" => run_provision(&args[1..]),
+        "legacy-monitor" | "legacy-measure" => legacy::run(command, &args[1..]),
         "parse-line" => {
             if args.len() != 2 {
                 return Err(CliError::Usage(
@@ -210,6 +216,7 @@ fn print_frame(frame: &ProtocolFrame) {
 enum CliError {
     Usage(String),
     Failure(String),
+    Interrupted,
 }
 
 #[cfg(test)]
