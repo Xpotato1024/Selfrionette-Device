@@ -1,4 +1,5 @@
 pub mod identity;
+pub mod legacy;
 pub mod protocol;
 
 pub use identity::{DeviceId, DeviceIdParseError};

@@ -1,7 +1,7 @@
 ---
 status: canonical
 owner: architecture
-last_verified: 2026-10-01
+last_verified: 2026-10-10
 canonical_for:
   - host core protocol semantics
   - initial selfrionettectl surface
@@ -74,7 +74,9 @@ coreはcanonical commandのみencodeする。
 - `tare\n`
 - `provision,<device_id>\n`
 
-legacy `c` aliasをhost coreから生成しない。
+Protocol v2の`HostCommand`はlegacy `c` aliasを生成しない。
+旧Sim専用の表示・測定と`c`送信は独立した`legacy` moduleで扱い、
+[旧Sim host tools契約](legacy-sim-host-tools.md)を正とする。
 
 ## CLI surface
 

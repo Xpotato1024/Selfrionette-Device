@@ -39,6 +39,7 @@ related:
 | firmware protocol v2 | [firmware-protocol-v2.md](contracts/firmware-protocol-v2.md) |
 | stable device identity / provisioning | [device-identity.md](contracts/device-identity.md) |
 | firmware memory budget | [firmware-memory-budget.md](contracts/firmware-memory-budget.md) |
+| 旧Sim monitor / measure host処理 | [legacy-sim-host-tools.md](contracts/legacy-sim-host-tools.md) |
 | host device core | [host-device-core.md](contracts/host-device-core.md) |
 | serial transport | [serial-transport.md](contracts/serial-transport.md) |
 
@@ -48,6 +49,7 @@ related:
 |---|---|
 | Git / PR workflow | [git-pr-workflow.md](operations/git-pr-workflow.md) |
 | 旧Sim firmwareの管理・build・採用順 | [legacy-sim-firmware.md](operations/legacy-sim-firmware.md) |
+| 旧Sim monitor / measure操作 | [legacy-sim-host-tools.md](operations/legacy-sim-host-tools.md) |
 | validation categories | [validation.md](operations/validation.md) |
 | hardware / serial / flashing safety | [hardware-safety.md](operations/hardware-safety.md) |
 

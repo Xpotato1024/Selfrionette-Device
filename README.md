@@ -29,3 +29,5 @@ Xpotato-Simから見たSelfrionetteはGamepad / Keyboardと同格のInput Source
 旧Simの2ターゲット、software buildと採用順は[firmware移行・build案内](docs/operations/legacy-sim-firmware.md)を参照する。
 
 実装前に[AGENTS.md](AGENTS.md)を確認する。
+
+旧Simのmonitor/measureはDeviceのRust CLIが所有する。[build・help・採用順](docs/operations/legacy-sim-host-tools.md)を参照する。
