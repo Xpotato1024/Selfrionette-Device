@@ -26,10 +26,11 @@ Tauri+Rust coreを維持し、firmware・serial・ロボット制御・実機の
 | 実Tauri/WebView2/Rust IPC | 9群 PASS |
 | UTF-8/BOM/改行・git diff --check | commit前に検査 |
 
-native QAの最終runはapps/device-manager/src-tauri/target/native-qa/run-A0Yt7l/。
+native QAの最終runはapps/device-manager/src-tauri/target/native-qa/run-esLy7E/。
 report.json、合成store、通常・調整・履歴・範囲超過・入力エラー・狭幅の画面を保存した。生成物はcommitしない。
 通常・調整・狭幅の画面を目視確認し、重複した注意文、常設工程操作、カード装飾を削減した。
 実機由来の情報や作成していないモデルのhotspotは表示していない。
+入力選択欄は「次に比較する合成入力」と明示し、現在の結果と次の操作値を区別した後、Debug buildとnative 9群を再検証した。
 
 ## 回帰試験で確認したこと
 | 対象 | 結果 |
