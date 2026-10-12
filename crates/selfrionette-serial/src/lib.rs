@@ -8,6 +8,7 @@ use selfrionette_core::{
 };
 use serialport::{ClearBuffer, SerialPort};
 
+pub mod legacy;
 mod monitor;
 
 pub use monitor::MonitorError;

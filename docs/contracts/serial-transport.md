@@ -1,7 +1,7 @@
 ---
 status: canonical
 owner: architecture
-last_verified: 2026-10-01
+last_verified: 2026-10-10
 canonical_for:
   - host serial transport behavior
   - initial live selfrionettectl commands
@@ -19,6 +19,9 @@ related:
 `selfrionette-serial`はOS serial portとProtocol v2 host coreのbridgeを所有する。
 
 stable device identityそのもの、robot mapping、GUIは所有しない。
+
+旧Simのraw `c` / SendTextとstreaming monitor/measureは独立した`legacy` moduleで扱う。
+[旧Sim host tools契約](legacy-sim-host-tools.md)を正とし、以下のv2 bounded management queryとは混ぜない。
 
 ## Port enumeration
 

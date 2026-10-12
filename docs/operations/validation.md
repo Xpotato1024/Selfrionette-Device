@@ -36,6 +36,10 @@ firmwareを変更した場合は最低限:
 
 resource usageは前回baselineと比較できる形で残す。
 
+旧Simから取り込んだ互換2ターゲットもCIでcompileしFlash/SRAMを記録する。
+現行v2の厳しいbudgetを旧referenceの安全性保証に流用しない。詳細は
+[旧firmware build](legacy-sim-firmware.md)を参照する。
+
 build成功をhardware validation成功と書かない。
 
 ## Host Rust
