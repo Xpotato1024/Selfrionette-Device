@@ -21,8 +21,12 @@ Rust stable、Node.js、MSVC v143 x64/x86、Windows SDK、WebView2が必要で�
 npmとnative Cargoのlockfileを同梱しています。
 
 LLM-01のMSVC永続導入先は D:\Xpotato-apps\toolchains\vs2022-msvc とします。
-bootstrapper/scriptだけを D:\Xpotato-apps\codex_room\device-calibration-prep に置き、toolchain本体は作業領域の整理対象から外します。
-既存Visual Studio 2022を検出した場合は新規導入を止め、その登録済み保存先を再利用します。
+bootstrapper/呼出wrapperだけを D:\Xpotato-apps\codex_room\device-calibration-prep に置き、toolchain本体は作業領域の整理対象から外します。
+helper本体と回帰テストはrepositoryの tools/windows-msvc/ で管理し、既存wrapperから同じ修正版を呼び出します。
+vswhereのJSONを実instanceへ正規化し、空出力/空配列/nullを既存製品として数えません。
+既存Visual Studio 2022の登録先・complete/launchable状態・v143 compiler/linkerを確認し、揃っていればその保存先を再利用します。
+不完全な登録、欠落toolchain、複数instance、不正JSONは新規導入を止め、既存先の確認へ戻します。
+PowerShell 5.1の回帰テストは tools/windows-msvc/test-vs-inventory.ps1、導入前の読取確認はhelperの -PreflightOnly で実行できます。
 helperはMicrosoft署名/VS2022を検証し、v143 x64/x86と必須依存だけを導入します。
 不要workload、global PATH/認証設定の変更、再起動は行いません。
 
