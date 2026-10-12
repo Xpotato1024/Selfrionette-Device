@@ -1,5 +1,6 @@
 // Windows-only native Tauri IPC smoke test. Synthetic records; no device I/O.
 import {chromium} from 'playwright-core';
+import {checkUI} from './ui-qa.mjs';
 import {spawn,spawnSync} from 'node:child_process';
 import {mkdirSync,mkdtempSync,writeFileSync,readdirSync,readFileSync} from 'node:fs';
 import {resolve,join} from 'node:path';
@@ -68,7 +69,7 @@ try{
  assert.deepEqual(exported.historical_observation.firmware_sample,original);
  assert.deepEqual(exported.historical_observation.normalized,Array(7).fill(0.5));
  assert.equal(exported.hardware_verified,false);assert.equal(exported.control_ready,false);
- await page.locator('#save').click();await page.locator('#load').click();
+ await page.locator('#save').click();await page.locator('#record-controls summary').click();await page.locator('#load').click();
  await page.waitForFunction(()=>document.querySelectorAll('#rows tr').length===0);
  assert.equal(await page.locator('#rows tr').count(),0);
  assert.equal(await page.locator('#preview').isDisabled(),true);
@@ -109,6 +110,7 @@ try{
  report.records=readdirSync(store).map(id=>({id,files:readdirSync(join(store,id))}));
  assert.equal(report.records.length,2);assert(report.records.every(r=>r.files.length===1));
  for(const record of report.records)assert.match(readFileSync(join(store,record.id,record.files[0]),'utf8'),/hardware_verified,0\ncontrol_ready,0/);
+ await checkUI(page,run,report);
  await close();
  ({page,call}=await launch());
  assert.equal((await call('status')).stage,0);await call('begin','left');v=await call('load');

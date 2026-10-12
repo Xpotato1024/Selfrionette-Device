@@ -40,7 +40,7 @@ physical draft（ID/組立/firmware/符号/revision/根拠）とoperation draft�
 
 ## 検証
 Windows core 34件（既存20・校正11・保存3）、core/GUI Clippy警告ゼロ、presentation adapter 2件を確認しました。
-npm run test:native は本物のTauri executable/WebView2/Rust IPCを使い、7群の合成試験を実行します。
+npm run test:native は本物のTauri executable/WebView2/Rust IPCを使い、機能7群と画面QAの計8群を実行します。
 保存/再読込/再起動、失敗後の旧承認・候補の利用拒否、品質不明、飽和、未測定逆方向を含みます。
 試験はsrc-tauri/target/native-qa/run-*/へ合成store・report.json・native-preview.pngを残します。
 [WebView2の公式試験手順](https://playwright.dev/docs/webview2)に沿い、試験processだけにlocalhost CDPと専用profileを設定します。
@@ -60,3 +60,19 @@ helperは空のJSON配列を誤検出しない修正を行い、PowerShell 5.1�
 Nodeだけで npm run preview を実行し、同じPCの http://127.0.0.1:4173 を開きます。終了はCtrl+Cです。
 固定のpresentation表示で、Rust判定・承認・保存/再読込を実行しません。native GUIの代替にはしません。
 USB/serial、info、tare、reset、EEPROM、flash、robot接続/actuationはこのappに実装していません。
+
+## 画面の読みやすさと操作
+デジタル庁デザインシステムの基本デザインとフォームの指針を参考にしています。
+政府の公式製品・認定を示すものではなく、政府ロゴや追加UI依存は使用していません。
+本文・ラベル・表見出しを16pxとし、OSフォントを継続します。詳細な記録欄のみ14pxです。
+対象側（左/右）と合成個体IDを常時表示し、工程に「完了・現在・未開始」と次の操作を示します。
+左右変更時の失効を事前に説明し、既存のRust coreの実行条件を維持します。
+手動変更の根拠は入力欄の近くに条件・日本語エラーを表示し、aria-describedbyで関連づけます。
+入力エラーにaria-live/alertは使いません。根拠未入力時は入力欄へフォーカスし、旧承認は失効します。
+キーボードのフォーカス枠、表のcaption/列見出し、横スクロール案内を追加しています。
+
+参照: [文字](https://design.digital.go.jp/dads/foundations/typography/)、[余白](https://design.digital.go.jp/dads/foundations/spacing/)、[工程](https://design.digital.go.jp/dads/components/step-navigation/)、[入力欄](https://design.digital.go.jp/dads/components/input-text/usage/)、[入力欄のアクセシビリティ](https://design.digital.go.jp/dads/components/input-text/accessibility/)。
+
+native試験にはTab/矢印/Enter/Spaceでの操作、左右ID・工程状態・エラー関連づけ、保存拒否、320/640 CSS pxでのreflow、主要文字色のコントラスト確認を含めます。
+画面は目視でも確認します。スクリーンリーダー・native 200%拡大の受入や、アクセシビリティ適合認証は未実施です。
+既存Host Rust CIはLinux/Windowsのworkspace検証です。GUI/native画面QAはLLM-01のローカル検証として区別します。
