@@ -1,0 +1,9 @@
+vector,0,9,9,9,9,9,9,9
+status,setup_end
+device,2,0.1.0,srn-0123456789abcdef0123456789abcdef,7
+status,calibration_end
+warn,ready_timeout,3
+future,not-a-sample
+vector,4294967295,-1,2.5,0,4,5,6,7
+device,2,0.1.0,srn-0123456789abcdef0123456789abcdef,7
+vector,0,7,6,5,4,3,2,1

@@ -2,6 +2,7 @@ use std::env;
 use std::process::ExitCode;
 
 mod legacy;
+mod monitor;
 
 use selfrionette_core::{
     DeviceId, DeviceIdentity, DeviceInfo, HostCommand, ProtocolFrame, parse_line,
@@ -12,6 +13,7 @@ fn usage() -> &'static str {
     "usage:
   selfrionettectl list
   selfrionettectl info --port <port>
+  selfrionettectl monitor --port <port> --id <device-id> --samples <1..64>
   selfrionettectl provision --port <port> --id <device-id> --yes
   selfrionettectl legacy-monitor --port <port> [options]
   selfrionettectl legacy-measure --port <port> [options]
@@ -45,6 +47,7 @@ fn run(args: Vec<String>) -> Result<(), CliError> {
     match command {
         "list" => run_list(&args[1..]),
         "info" => run_info(&args[1..]),
+        "monitor" => monitor::run(&args[1..]),
         "provision" => run_provision(&args[1..]),
         "legacy-monitor" | "legacy-measure" => legacy::run(command, &args[1..]),
         "parse-line" => {
