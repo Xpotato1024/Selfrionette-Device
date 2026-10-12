@@ -53,3 +53,13 @@ current 1〜64 sample monitorは通信smoketest用であり、校正シーケン
 原本rawが必要な場合、negation/tare/filter前の別bounded診断経路を将来設計する。
 ch mask、有限capture数/時間、raw integer、boot/tare epoch、timeout/spike/clippingの状態を明示し、
 normal streamとは別frame型にする。現在のfirmwareには追加せず、書込みも行わない。
+
+## 合成recordの保存契約（実機未対応）
+個体別storeはcanonical stable ID配下、20桁の増加連番file、新規作成だけを使用する。
+1 ID 32件、1 record 32768 bytes。symlink、非canonical名、破損、未知schemaを拒否する。
+recordのhardware_verified/control_readyはfalseを必須とし、synthetic firmware/fixture assemblyだけを受け付ける。
+確認時のtimestamp、元7ch、履歴baseline、差分、補正後値、正規化値を別々に保存する。
+firmware timestampはu32範囲。元値-baseline=差分、符号×差分=補正後、spanによる正規化の整合性を検証する。
+履歴baselineは証拠の比較専用。active baseline/符号/span/readinessの復元とは区別する。
+再読込でID/firmware/組立/ユーザー/姿勢を照合し、新epochの空sessionを作る。失敗でも旧確認を失効させる。
+次回の基準と品質観測から候補を作り直す。通常入力や保存済み値だけで校正済みにしない。

@@ -4,9 +4,10 @@ const designPreview = createDesignPreview();
 const call = native ? (action, argument='') => window.__TAURI__.core.invoke('fixture_action', {action, argument}) : designPreview;
 const $ = id => document.getElementById(id);
 $('environment').textContent = native ? 'Rust coreを使うoffline GUI。合成fixtureのみ。実機は未接続です。' : 'ブラウザーの表示確認モード：固定の合成表示です。Rust coreの校正判定は実行しません。';
-const buttons = ['baseline','assess','flip','preview','confirm','export','invalidate'];
+const buttons = ['baseline','assess','flip','preview','confirm','export','save','load','invalidate'];
 function render(view) {
   $('device-id').textContent = view.id || '未選択';
+  $('saved-profile').textContent = view.saved_profile || '再読込していません。';
   $('source').textContent = view.provenance + ' / epoch ' + view.epoch;
   $('rows').replaceChildren();
   for (const row of view.rows) {
@@ -20,7 +21,7 @@ function render(view) {
   [...$('steps').children].forEach((li,i)=>li.classList.toggle('active',view.stage===i+1));
   const stage = view.stage;
   $('baseline').disabled=stage<1; $('assess').disabled=stage<2; $('flip').disabled=stage<3;
-  $('preview').disabled=stage<3; $('confirm').disabled=stage!==4; $('export').disabled=stage!==5; $('invalidate').disabled=stage<1;
+  $('preview').disabled=stage<3; $('confirm').disabled=stage!==4; $('export').disabled=stage!==5; $('invalidate').disabled=stage<1; $('save').disabled=!native||stage!==5; $('load').disabled=!native||stage<1;
   $('message').textContent=view.message; $('message').className='';
   return view;
 }
@@ -34,7 +35,9 @@ $('assess').onclick=()=>action('assess',$('scenario').value);
 $('flip').onclick=()=>action('flip',$('flip-channel').value+':'+$('reason').value);
 $('preview').onclick=()=>action('preview',$('level').value);
 $('confirm').onclick=()=>action('confirm');
+$('save').onclick=()=>action('save');
+$('load').onclick=()=>action('load');
 $('invalidate').onclick=()=>action('invalidate');
-$('role').onchange=()=>action('invalidate');
+$('role').onchange=()=>action('begin',$('role').value);
 $('export').onclick=async()=>{const view=await action('export');if(!view?.export)return;const url=URL.createObjectURL(new Blob([view.export],{type:'application/json'}));const a=document.createElement('a');a.href=url;a.download='selfrionette-unverified-draft.json';a.click();URL.revokeObjectURL(url);};
 render({stage:0,id:'',epoch:0,provenance:'未接続',rows:[],message:'起動だけではserialを開きません。合成fixtureを明示選択してください。'});

@@ -1,12 +1,15 @@
 use selfrionette_core::calibration::*;
+use selfrionette_core::persistence::{ProfileStore, resume};
 use selfrionette_core::{DeviceId, VectorFrame};
 use serde::Serialize;
 use std::sync::Mutex;
+use tauri::Manager;
 #[derive(Default)]
 struct State {
     session: Option<CalibrationSession>,
     context: Option<Context>,
     preview: Option<Preview>,
+    loaded: Option<Draft>,
     stage: u8,
     role: String,
 }
@@ -36,6 +39,7 @@ struct View {
     control_ready: bool,
     rows: Vec<Row>,
     export: Option<String>,
+    saved_profile: Option<String>,
     message: String,
 }
 fn view(state: &State, message: &str) -> View {
@@ -72,8 +76,33 @@ fn view(state: &State, message: &str) -> View {
         control_ready: false,
         rows,
         export: None,
+        saved_profile: state
+            .loaded
+            .as_ref()
+            .map(|d| serde_json::to_string_pretty(&draft_json(d)).expect("finite validated draft")),
         message: message.into(),
     }
+}
+fn draft_json(d: &Draft) -> serde_json::Value {
+    serde_json::json!({
+        "schema_version": 1, "provenance": "synthetic fixture", "hardware_verified": false, "control_ready": false,
+        "physical": {"id": d.context.source.id.to_string(), "assembly_revision": d.context.source.assembly, "firmware": d.context.source.firmware,
+            "revision": d.revision, "signs": d.signs, "evidence": d.evidence, "manual_override": d.manual},
+        "operation": {"user": d.context.user, "posture": d.context.posture, "epoch": d.context.source.epoch,
+            "positive_spans": d.positive_spans, "reverse_spans": d.reverse_spans, "active_baseline_restored": false},
+        "historical_observation": {"timestamp_ms": d.observation.timestamp_ms, "firmware_sample": d.observation.firmware_sample,
+            "historical_baseline": d.observation.baseline, "delta": d.observation.delta, "oriented": d.observation.oriented, "normalized": d.observation.normalized}
+    })
+}
+fn store_root(app: &tauri::AppHandle) -> Result<std::path::PathBuf, String> {
+    if let Some(root) = std::env::var_os("SELFRIONETTE_GUI_FIXTURE_DIR") {
+        return Ok(root.into());
+    }
+    Ok(app
+        .path()
+        .app_config_dir()
+        .map_err(|e| e.to_string())?
+        .join("synthetic-fixtures"))
 }
 fn trials(target: usize, scenario: &str) -> Vec<Trial> {
     let delta = if target % 2 == 0 {
@@ -112,6 +141,7 @@ fn trials(target: usize, scenario: &str) -> Vec<Trial> {
 }
 #[tauri::command]
 fn fixture_action(
+    app: tauri::AppHandle,
     action: String,
     argument: String,
     state: tauri::State<Mutex<State>>,
@@ -133,7 +163,8 @@ fn fixture_action(
             let epoch = state
                 .context
                 .as_ref()
-                .map(|c| c.source.epoch + 1)
+                .map(|c| c.source.epoch.checked_add(1).ok_or("epoch overflow"))
+                .transpose()?
                 .unwrap_or(1);
             let context = Context {
                 source: Source {
@@ -146,6 +177,7 @@ fn fixture_action(
                 posture: "fixture-neutral".into(),
             };
             validate_bindings(&[id], [1, 2, 3, 4, 5, 6, 7])?;
+            state.loaded = None;
             state.session = Some(CalibrationSession::new(context.clone())?);
             state.context = Some(context);
             state.preview = None;
@@ -161,6 +193,20 @@ fn fixture_action(
             state.stage = 2;
         }
         "assess" => {
+            if ![
+                "good",
+                "noise",
+                "disagreement",
+                "unstable",
+                "release",
+                "crosstalk",
+                "timeout",
+                "direction",
+            ]
+            .contains(&argument.as_str())
+            {
+                return Err("unknown fixture scenario".into());
+            }
             if state.stage < 2 {
                 return Err("fresh baseline required".into());
             }
@@ -251,14 +297,49 @@ fn fixture_action(
                 &state,
                 "未検証draftを書き出せます。再読込では基準・readinessを復元しません。",
             );
-            result.export = Some(serde_json::to_string_pretty(&serde_json::json!({
-                "schema_version": 1, "provenance": "synthetic fixture", "hardware_verified": draft.hardware_verified(), "control_ready": draft.control_ready(),
-                "physical": {"id": draft.context.source.id.to_string(), "assembly_revision": draft.context.source.assembly, "firmware": draft.context.source.firmware,
-                    "revision": draft.revision, "signs": draft.signs, "evidence": draft.evidence, "manual_override": draft.manual},
-                "operation": {"user": draft.context.user, "posture": draft.context.posture, "epoch": draft.context.source.epoch,
-                    "positive_spans": draft.positive_spans, "reverse_spans": draft.reverse_spans, "baseline_persisted": false}
-            })).map_err(|e| e.to_string())?);
+            result.export =
+                Some(serde_json::to_string_pretty(&draft_json(&draft)).map_err(|e| e.to_string())?);
             return Ok(result);
+        }
+        "save" => {
+            let draft = state.session.as_ref().ok_or("fixture missing")?.draft()?;
+            let root = store_root(&app)?;
+            let path = ProfileStore::new(root)?.save(&draft)?;
+            return Ok(view(
+                &state,
+                &format!(
+                    "未検証の合成profileを個体別に保存しました: {}",
+                    path.display()
+                ),
+            ));
+        }
+        "load" => {
+            if let Some(session) = state.session.as_mut() {
+                session.invalidate();
+            }
+            state.preview = None;
+            state.loaded = None;
+            state.stage = 1;
+            let mut context = state
+                .context
+                .clone()
+                .ok_or("select fixture identity first")?;
+            context.source.epoch = context
+                .source
+                .epoch
+                .checked_add(1)
+                .ok_or("epoch overflow")?;
+            let root = store_root(&app)?;
+            let draft = ProfileStore::new(root)?.load(&context)?;
+            state.session = Some(resume(&draft, context.clone())?);
+            state.loaded = Some(draft);
+            state.context = Some(context);
+            state.preview = None;
+            state.stage = 1;
+            return Ok(view(
+                &state,
+                "個体・ユーザー・姿勢・組立revisionを照合して再読込しました。保存値は未検証のまま。基準と操作spanは新しいepochで再確認が必要です。",
+            ));
         }
         "invalidate" => {
             if let Some(session) = state.session.as_mut() {

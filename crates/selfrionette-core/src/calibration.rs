@@ -28,6 +28,7 @@ pub enum Quality {
 pub struct FirmwareSample {
     context: Context,
     values: [f64; N],
+    timestamp_ms: u64,
     quality: Quality,
 }
 impl FirmwareSample {
@@ -43,6 +44,7 @@ impl FirmwareSample {
         Ok(Self {
             context,
             values: vector.channels,
+            timestamp_ms: u64::from(vector.timestamp_ms),
             quality,
         })
     }
@@ -168,6 +170,7 @@ pub fn assess(target: usize, trials: &[Trial], limits: Thresholds) -> Assessment
 }
 #[derive(Clone, Debug, PartialEq)]
 pub struct Preview {
+    pub timestamp_ms: u64,
     pub firmware_sample: [f64; N],
     pub baseline: [f64; N],
     pub delta: [f64; N],
@@ -303,6 +306,7 @@ impl CalibrationSession {
             return Err("normalization overflow");
         }
         let preview = Preview {
+            timestamp_ms: sample.timestamp_ms,
             firmware_sample: sample.values,
             baseline,
             delta,
@@ -350,7 +354,29 @@ impl CalibrationSession {
             evidence: self.evidence.clone(),
             manual: self.manual,
             revision: self.revision,
+            observation: Observation::from(self.approved.as_ref().unwrap()),
         })
+    }
+}
+#[derive(Clone, Debug, PartialEq)]
+pub struct Observation {
+    pub timestamp_ms: u64,
+    pub firmware_sample: [f64; N],
+    pub baseline: [f64; N],
+    pub delta: [f64; N],
+    pub oriented: [f64; N],
+    pub normalized: [Option<f64>; N],
+}
+impl From<&Preview> for Observation {
+    fn from(p: &Preview) -> Self {
+        Self {
+            timestamp_ms: p.timestamp_ms,
+            firmware_sample: p.firmware_sample,
+            baseline: p.baseline,
+            delta: p.delta,
+            oriented: p.oriented,
+            normalized: p.normalized,
+        }
     }
 }
 #[derive(Clone, Debug)]
@@ -362,6 +388,7 @@ pub struct Draft {
     pub evidence: [String; N],
     pub manual: [bool; N],
     pub revision: u64,
+    pub observation: Observation,
 }
 impl Draft {
     pub const fn hardware_verified(&self) -> bool {
