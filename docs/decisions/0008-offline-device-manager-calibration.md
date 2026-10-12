@@ -21,3 +21,8 @@ LLM-01では最小Build Toolsと既存SDKを利用し、Windows native Debug bui
 合成経路の確認を実機physical calibrationやRelease配布の受入と混同せず、このADRはproposedを維持する。
 Nodeのみで起動するpresentation previewを別経路として用意する。校正logicの代替にはしない。
 実機対応を追加する時点で、品質情報、校正session capture、保存/失効、明示操作の境界を再レビューする。
+
+## 後続の合成workflow再構成
+private IPCは型付きdevice_commandへ変更し、個体別session、閲覧専用read_history、明示再開resumeを提供する。
+校正の計算・失効規則はcore、use caseとviewはworkflow、Tauriは薄いshellへ分離する。
+製品の操作体系は[device-manager-workflow.md](../architecture/device-manager-workflow.md)を正とする。このADRは引き続きproposedである。

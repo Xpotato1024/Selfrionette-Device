@@ -1,6 +1,6 @@
-# Selfrionette Device Manager（offline準備）
+# Selfrionette Device Manager（合成試験版）
 
-Rust coreを共有するTauri v2 GUIのローカル実装案です。
+Rust coreを共有するTauri v2 GUIです。製品の目的・状態・操作体系は[製品・操作設計](../../docs/architecture/device-manager-workflow.md)を正とします。
 Windows native Debug build・起動・Rust IPC・合成記録の保存/再読込をLLM-01で確認しました。
 合成fixture専用です。実機ID/番号/極性/校正値は未測定で、hardware_verified/control_readyは常にfalseです。
 
@@ -18,11 +18,12 @@ npm/native Cargoのlockfileを同梱しています。PowerShellで次を実行�
     .\src-tauri\target\debug\selfrionette-device-manager.exe
 
 開発中は .\run-native.cmd dev を使えます。
-起動だけでは接続も校正も行いません。合成fixtureを明示選択します。
+起動だけでは接続も校正も行いません。「デバイス」で合成個体を選び、「調整」で開始します。
+左右の選択は表示対象だけを変え、各個体の基準・候補・確認を保持します。やり直しは別の明示操作です。
 終了はnative windowを閉じます。devでは開発terminalもCtrl+Cで停止します。
 今回確認したのはDebug executableであり、Release/bundle配布や実機受入は未実施です。
 
-## 合成記録の保存・再読込
+## 合成記録の保存・閲覧・再開
 基準 → 品質を満たす7ch候補 → preview → 確認、の順で保存を許可します。
 個体別保存はapp config配下のsynthetic-fixtures/<stable ID>/に新しい有限記録を作ります。
 SELFRIONETTE_GUI_FIXTURE_DIRで当該processだけに絶対pathの試験storeを指定できます。
@@ -33,18 +34,20 @@ timestamp、元7ch、履歴baseline、差分、符号補正後、無次元値を
 元値はnegation/tare/filter後であり、raw ADCやN単位のforceではありません。
 physical draft（ID/組立/firmware/符号/revision/根拠）とoperation draft（ユーザー/姿勢/epoch/span）を分けます。
 逆方向spanは未測定のままです。表示clamp前の値とsaturationも区別します。
-再読込は個体/firmware/組立/ユーザー/姿勢を照合し、比較専用欄へ表示します。
-履歴baseline・符号・span・確認状態をactive sessionへ復元しません。新しい基準と観測が必要です。
-不正な再判定、再読込失敗、role/基準/手動override変更で古いpreview承認を使えません。
-「tare/resetの失効を確認」はローカル状態の失効だけを行います。
+「診断・記録」→「最新の保存記録を表示」は、個体/firmware/組立/ユーザー/姿勢を照合した比較専用の閲覧です。成功・失敗とも現在の調整を変更しません。
+「条件を照合して再開」は確認dialogを経て現在の調整を失効させ、新しいsessionを開始します。過去の基準・符号・span・確認は復元しません。
+再判定・基準・手動変更・再開等の失敗時に、依存する旧承認を利用できない規則を維持します。
+「合成sessionを失効」は開発用のローカル試験であり、実機へtare/resetを送信しません。
 
 ## 検証
-Windows core 34件（既存20・校正11・保存3）、core/GUI Clippy警告ゼロ、presentation adapter 2件を確認しました。
-npm run test:native は本物のTauri executable/WebView2/Rust IPCを使い、機能7群と画面QAの計8群を実行します。
-保存/再読込/再起動、失敗後の旧承認・候補の利用拒否、品質不明、飽和、未測定逆方向を含みます。
-試験はsrc-tauri/target/native-qa/run-*/へ合成store・report.json・native-preview.pngを残します。
+npm testで表示専用adapterと通信controllerの回帰テストを実行します。
+cargo test --workspace --lockedでcore/serial/CLIを、cargo test --manifest-path apps/device-manager/src-tauri/Cargo.toml --lib --lockedでGUI use caseを検証します。
+npm run test:nativeは本物のTauri executable/WebView2/Rust IPCを使い、9群を実行します。
+保存・閲覧・明示再開・再起動、左右の独立session、旧tokenの拒否、失敗後の承認失効、品質不明、表示範囲超過、未測定逆方向と画面QAを含みます。
+試験はsrc-tauri/target/native-qa/run-*/へ合成store・report.json・native-device.png・native-adjust.png等を残します。
 [WebView2の公式試験手順](https://playwright.dev/docs/webview2)に沿い、試験processだけにlocalhost CDPと専用profileを設定します。
 試験後は自分のnative windowを通常closeし、終了code 0を確認します。実機I/Oはありません。
+Host Rust CIにはWindowsのGUI software test/Clippy/Debug buildも含めます。native画面QAはローカル検証と区別します。
 
 ## Build Tools導入の記録
 Microsoft署名済みbootstrapper/呼出wrapperは D:\Xpotato-apps\codex_room\device-calibration-prep にあります。
@@ -62,17 +65,12 @@ Nodeだけで npm run preview を実行し、同じPCの http://127.0.0.1:4173 �
 USB/serial、info、tare、reset、EEPROM、flash、robot接続/actuationはこのappに実装していません。
 
 ## 画面の読みやすさと操作
-デジタル庁デザインシステムの基本デザインとフォームの指針を参考にしています。
-政府の公式製品・認定を示すものではなく、政府ロゴや追加UI依存は使用していません。
-本文・ラベル・表見出しを16pxとし、OSフォントを継続します。詳細な記録欄のみ14pxです。
-対象側（左/右）と合成個体IDを常時表示し、工程に「完了・現在・未開始」と次の操作を示します。
-左右変更時の失効を事前に説明し、既存のRust coreの実行条件を維持します。
-手動変更の根拠は入力欄の近くに条件・日本語エラーを表示し、aria-describedbyで関連づけます。
-入力エラーにaria-live/alertは使いません。根拠未入力時は入力欄へフォーカスし、旧承認は失効します。
-キーボードのフォーカス枠、表のcaption/列見出し、横スクロール案内を追加しています。
+「デバイス」「調整」「診断・記録」に分け、全工程の操作を常時表示しません。
+対象IDと合成モードを共通表示し、調整はRustが返した現在工程と操作可否で描画します。
+16pxの本文・ラベル・表見出し、数値の桁揃え、選択chの詳細、表示値に対応する入力バーを使います。
+未測定方向は数値・バーを捏造せず、値なしと理由を表示します。モデルや物理位置は未確認です。
+デジタル庁のローカルデザインシステムの考え方を参考にし、政府の公式製品・認定・ロゴは表示しません。
+入力エラーを関連づけ、Tab/矢印/Enter/Space、確認dialogのcancel、320/640 CSS pxの全ページreflow、主要文字色のコントラストを検証します。
+スクリーンリーダー、native 200%/Windows DPI、Release/bundle配布、実機受入、ユーザビリティ評価は未実施です。
 
-参照: [文字](https://design.digital.go.jp/dads/foundations/typography/)、[余白](https://design.digital.go.jp/dads/foundations/spacing/)、[工程](https://design.digital.go.jp/dads/components/step-navigation/)、[入力欄](https://design.digital.go.jp/dads/components/input-text/usage/)、[入力欄のアクセシビリティ](https://design.digital.go.jp/dads/components/input-text/accessibility/)。
-
-native試験にはTab/矢印/Enter/Spaceでの操作、左右ID・工程状態・エラー関連づけ、保存拒否、320/640 CSS pxでのreflow、主要文字色のコントラスト確認を含めます。
-画面は目視でも確認します。スクリーンリーダー・native 200%拡大の受入や、アクセシビリティ適合認証は未実施です。
-既存Host Rust CIはLinux/Windowsのworkspace検証です。GUI/native画面QAはLLM-01のローカル検証として区別します。
+参照: [ローカルデザインシステム](https://design.digital.go.jp/dads/guidance/local-design-system/)、[文字](https://design.digital.go.jp/dads/foundations/typography/)、[入力欄のアクセシビリティ](https://design.digital.go.jp/dads/components/input-text/accessibility/)。

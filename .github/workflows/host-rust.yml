@@ -8,6 +8,7 @@ on:
       - "Cargo.toml"
       - "Cargo.lock"
       - "crates/**"
+      - "apps/device-manager/**"
       - "docs/contracts/host-device-core.md"
       - "docs/contracts/serial-transport.md"
       - "docs/contracts/sample-monitor.md"
@@ -21,6 +22,7 @@ on:
       - "Cargo.toml"
       - "Cargo.lock"
       - "crates/**"
+      - "apps/device-manager/**"
       - "docs/contracts/host-device-core.md"
       - "docs/contracts/serial-transport.md"
       - "docs/contracts/sample-monitor.md"
@@ -58,3 +60,38 @@ jobs:
 
       - name: Test
         run: cargo +stable test --locked --workspace
+
+  device-manager:
+    name: Device Manager software tests (Windows)
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install Rust toolchain
+        run: rustup toolchain install stable --profile minimal --component rustfmt,clippy
+
+      - uses: actions/setup-node@v7.1.0
+        with:
+          node-version: '24'
+
+      - name: Install locked frontend tooling
+        working-directory: apps/device-manager
+        run: npm ci
+
+      - name: Frontend workflow tests
+        working-directory: apps/device-manager
+        run: npm test
+
+      - name: Format application
+        run: cargo +stable fmt --manifest-path apps/device-manager/src-tauri/Cargo.toml --check
+
+      - name: Clippy application
+        run: cargo +stable clippy --locked --manifest-path apps/device-manager/src-tauri/Cargo.toml --all-targets -- -D warnings
+
+      - name: Application workflow tests
+        run: cargo +stable test --locked --manifest-path apps/device-manager/src-tauri/Cargo.toml --lib
+
+      - name: Build Debug application (no bundle, no hardware)
+        working-directory: apps/device-manager
+        run: npm run build -- --debug

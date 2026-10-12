@@ -184,6 +184,15 @@ pub struct Preview {
     pub evidence: [String; N],
     context: Context,
 }
+/// Read-only progress derived from domain state, not a GUI step counter.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CalibrationPhase {
+    NeedsBaseline,
+    NeedsAssessment,
+    NeedsPreview,
+    NeedsConfirmation,
+    Confirmed,
+}
 #[derive(Clone, Debug)]
 pub struct CalibrationSession {
     context: Context,
@@ -342,6 +351,32 @@ impl CalibrationSession {
     }
     pub fn invalidate(&mut self) {
         self.baseline = None;
+        self.spans = None;
+        self.manual = [false; N];
+        self.changed();
+    }
+    pub fn phase(&self) -> CalibrationPhase {
+        if self.baseline.is_none() {
+            CalibrationPhase::NeedsBaseline
+        } else if self.signs.is_none() || self.spans.is_none() {
+            CalibrationPhase::NeedsAssessment
+        } else if self.approved.is_some() {
+            CalibrationPhase::Confirmed
+        } else if self.current_preview.is_some() {
+            CalibrationPhase::NeedsConfirmation
+        } else {
+            CalibrationPhase::NeedsPreview
+        }
+    }
+    pub fn current_preview(&self) -> Option<&Preview> {
+        self.current_preview.as_ref()
+    }
+    pub fn revision(&self) -> u64 {
+        self.revision
+    }
+    /// An attempted reassessment must not leave previously qualified candidates usable.
+    pub fn revoke_candidates(&mut self) {
+        self.signs = None;
         self.spans = None;
         self.manual = [false; N];
         self.changed();

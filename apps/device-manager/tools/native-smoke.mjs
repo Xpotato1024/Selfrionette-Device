@@ -31,8 +31,17 @@ async function launch(){
  const page=browser.contexts().flatMap(c=>c.pages()).find(p=>p.url().includes('tauri.localhost'))||browser.contexts()[0].pages()[0];
  await page.waitForFunction(()=>typeof window.__TAURI__?.core?.invoke==='function');
  assert.match(page.url(),/tauri.localhost/);
- const call=(action,argument='')=>page.evaluate(({action,argument})=>window.__TAURI__.core.invoke('fixture_action',{action,argument}),{action,argument});
- return {page,call};
+ const invoke=request=>page.evaluate(request=>window.__TAURI__.core.invoke('device_command',{request}),request);
+ const raw=async(action, fields={})=>{
+   const status=await invoke({expected:null,command:{action:'status'}});
+   return invoke({expected:status.view.token,command:{action,...fields}});
+ };
+ const call=async(action,fields={})=>{
+   const reply=await raw(action,fields);
+   if(reply.error)throw Error(JSON.stringify(reply.error));
+   return {...reply.view,export:reply.export};
+ };
+ return {page,call,raw,invoke};
 }
 async function close(){
  if(!active)return;
@@ -47,78 +56,107 @@ async function close(){
  await browser?.close().catch(()=>{});
  active=null;
 }
-async function rejected(call,action,arg=''){await assert.rejects(()=>call(action,arg));}
-async function qualified(call){await call('begin','left');await call('baseline');await call('assess','good');return call('preview','0.5');}
+
+async function rejected(call,action,fields={}){await assert.rejects(()=>call(action,fields));}
+async function qualified(call){await call('select',{role:'left'});await call('begin');await call('baseline');await call('assess',{scenario:'good'});return call('preview',{level:'0.5'});}
 async function approved(call){await qualified(call);await call('confirm');}
-async function noOldApproval(call){const v=await call('status');assert.equal(v.rows.length,0);assert(v.stage<4);await rejected(call,'export');await rejected(call,'save');}
-try{
- let {page,call}=await launch();
- assert.equal((await call('status')).stage,0);
+async function noOldApproval(call){const v=await call('status');assert.equal(v.rows.length,0);assert.notEqual(v.phase,'record');await rejected(call,'export');await rejected(call,'save');}
+async function syncUI(page){await page.reload();await page.waitForFunction(()=>!document.getElementById('role').disabled);}
+try {
+ let {page,call,raw,invoke}=await launch();
+ assert.equal((await call('status')).phase,'not_started');
  assert.match(await page.locator('#environment').innerText(),/Rust core/);
+ await page.locator('nav [data-page="adjust"]').click();
  for(const id of ['begin','baseline','assess','preview'])await page.locator('#'+id).click();
  await page.waitForFunction(()=>document.querySelectorAll('#rows tr').length===7);
- assert.equal(await page.locator('#rows tr').count(),7);
  let v=await call('status');assert.equal(v.hardware_verified,false);assert.equal(v.control_ready,false);
  assert.deepEqual(v.rows.map(r=>r.normalized),Array(7).fill(0.5));
+ assert.deepEqual(v.rows.map(r=>r.wire),[0,1,2,3,4,5,6]);assert(v.rows.every(r=>r.physical===null));
  const original=v.rows.map(r=>r.firmware);
- assert.deepEqual(v.rows.map(r=>r.wire),[0,1,2,3,4,5,6]);
- await page.screenshot({path:join(run,'native-preview.png'),fullPage:true});
- await page.locator('#confirm').click();
+ await page.screenshot({path:join(run,'native-adjust.png'),fullPage:true});
+ await page.locator('nav [data-page="device"]').click();await page.screenshot({path:join(run,'native-device.png'),fullPage:true});
+ await page.locator('nav [data-page="adjust"]').click();await page.locator('#confirm').click();
  await page.waitForFunction(()=>!document.getElementById('save').disabled);
  const exported=JSON.parse((await call('export')).export);
  assert.deepEqual(exported.historical_observation.firmware_sample,original);
  assert.deepEqual(exported.historical_observation.normalized,Array(7).fill(0.5));
  assert.equal(exported.hardware_verified,false);assert.equal(exported.control_ready,false);
- await page.locator('#save').click();await page.locator('#record-controls summary').click();await page.locator('#load').click();
- await page.waitForFunction(()=>document.querySelectorAll('#rows tr').length===0);
- assert.equal(await page.locator('#rows tr').count(),0);
- assert.equal(await page.locator('#preview').isDisabled(),true);
- const saved=JSON.parse(await page.locator('#saved-profile').innerText());
- assert.deepEqual(saved.historical_observation.firmware_sample,original);
- assert.equal(saved.operation.active_baseline_restored,false);
- await rejected(call,'preview','0.5');await rejected(call,'export');
- report.cases.push('native GUI/IPC 7ch, original vs corrected export, disk save/load and fresh-baseline gate');
- for(const [action,arg] of [['preview','NaN'],['preview','bad'],['preview','3'],['assess','unknown'],['flip','bad'],['flip','0:'],['flip','99:reason'],['begin','other']]){
-  await approved(call);await rejected(call,action,arg);await noOldApproval(call);
+ // The direct export advanced the request revision: deliberately synchronize the client.
+ await syncUI(page);await page.locator('nav [data-page="adjust"]').click();await page.locator('#save').click();
+ await page.waitForFunction(()=>document.getElementById('record-state').textContent.includes('保存済み'));
+ const before=await call('status');
+ await page.locator('nav [data-page="diagnostics"]').click();await page.locator('#read-history').click();
+ await page.waitForFunction(()=>document.getElementById('history-summary').textContent.includes('表示中'));
+ v=await call('status');assert.equal(v.epoch,before.epoch);assert.equal(v.core_revision,before.core_revision);assert.equal(v.phase,'record');assert(v.saved_current);
+ assert.equal(v.rows.length,7);assert.deepEqual(v.history.historical_observation.firmware_sample,original);
+ assert.equal(v.history.operation.active_baseline_restored,false);
+ await page.screenshot({path:join(run,'native-history.png'),fullPage:true});
+ await page.locator('#resume-controls summary').click();await page.locator('#resume').click();
+ assert(await page.locator('#confirm-dialog').isVisible());await page.locator('#dialog-cancel').click();
+ assert.equal((await call('status')).epoch,before.epoch);
+ await page.locator('#resume').click();await page.locator('#dialog-apply').click();
+ await page.waitForFunction(()=>!document.getElementById('baseline').disabled&&document.querySelectorAll('#rows tr').length===0);
+ v=await call('status');assert.equal(v.epoch,before.epoch+1);assert.equal(v.phase,'baseline');
+ await rejected(call,'preview',{level:'0.5'});await rejected(call,'export');
+ report.cases.push('native GUI/IPC, original/corrected export, read-only history, explicit resume/cancel and fresh-baseline gate');
+ for(const [action,fields] of [['preview',{level:'NaN'}],['preview',{level:'bad'}],['preview',{level:'3'}],['assess',{scenario:'unknown'}],['flip',{channel:0,reason:''}],['flip',{channel:99,reason:'reason'}]]){
+  await approved(call);await rejected(call,action,fields);await noOldApproval(call);
  }
- await approved(call);await rejected(call,'assess','unknown');
- await rejected(call,'flip','0:synthetic reason');await rejected(call,'preview','0.5');await noOldApproval(call);
- report.cases.push('invalid mutation requests revoke old confirmation/save/export and cannot reuse old candidates');
+ // A failed reassessment specifically clears previously qualified candidates.
+ await approved(call);await rejected(call,'assess',{scenario:'unknown'});
+ await rejected(call,'flip',{channel:0,reason:'synthetic reason'});await rejected(call,'preview',{level:'0.5'});await noOldApproval(call);
+ report.cases.push('invalid mutation values revoke old confirmation; failed assessment cannot recover old candidates');
  for(const scenario of ['noise','disagreement','unstable','release','crosstalk','timeout','direction']){
-  await approved(call);await rejected(call,'assess',scenario);await noOldApproval(call);
+  await approved(call);await rejected(call,'assess',{scenario});await noOldApproval(call);
  }
- report.cases.push('7 inconclusive quality/direction scenarios revoke old confirmation');
- await qualified(call);v=await call('preview','1.5');
- assert.deepEqual(v.rows.map(r=>r.normalized),Array(7).fill(1.5));
- assert.deepEqual(v.rows.map(r=>r.displayed),Array(7).fill(1));assert(v.rows.every(r=>r.saturated));
+ report.cases.push('all 7 inconclusive quality/direction scenarios revoke old approval');
+ await qualified(call);v=await call('preview',{level:'1.5'});
+ assert.deepEqual(v.rows.map(r=>r.normalized),Array(7).fill(1.5));assert.deepEqual(v.rows.map(r=>r.displayed),Array(7).fill(1));assert(v.rows.every(r=>r.saturated));
+ assert(!v.operations.find(o=>o.id==='confirm').enabled);
+ await syncUI(page);await page.locator('nav [data-page="adjust"]').click();
+ assert(await page.locator('#preview').isVisible());assert(await page.locator('#confirm').isDisabled());
+ assert.equal(await page.locator('#page-adjust button.primary:visible').getAttribute('id'),'preview');
+ await page.screenshot({path:join(run,'native-saturation.png'),fullPage:true});
  await rejected(call,'confirm');await rejected(call,'save');
- v=await call('preview','-0.5');assert(v.rows.every(r=>r.normalized===null));
- report.cases.push('unclamped saturation and unknown reverse span');
- await approved(call);await call('invalidate');await noOldApproval(call);await rejected(call,'preview','0.5');
- await call('begin','right');await rejected(call,'load');await noOldApproval(call);
- await call('baseline');await call('assess','good');await call('preview','0.5');await call('confirm');await call('save');
- await call('begin','left');v=await call('load');
- assert.equal(v.id,'srn-11111111111111111111111111111111');assert.deepEqual(JSON.parse(v.saved_profile).historical_observation.firmware_sample,original);
- report.cases.push('local reset/tare invalidation, separate left/right synthetic IDs');
- for(const id of ['begin','baseline','assess','preview','confirm'])await page.locator('#'+id).click();
- await page.waitForFunction(()=>!document.getElementById('save').disabled);
- await page.locator('#level').evaluate(el=>el.add(new Option('invalid fixture','NaN')));
- await page.locator('#level').selectOption('NaN');await page.locator('#preview').click();
- await page.waitForFunction(()=>document.getElementById('message').textContent.includes('判定不可'));
+ v=await call('preview',{level:'-0.5'});assert(v.rows.every(r=>r.normalized===null&&r.displayed===null));
+ report.cases.push('unclamped display saturation and explicitly unmeasured reverse span');
+ await approved(call);const left=await call('status');
+ await call('select',{role:'right'});assert.equal((await call('status')).phase,'not_started');
+ let result=await invoke({expected:left.token,command:{action:'invalidate'}});
+ assert.equal(result.error.code,'stale_target');assert.equal(result.view.phase,'not_started');
+ await call('begin');await call('baseline');await call('assess',{scenario:'good'});await call('preview',{level:'0.5'});await call('confirm');await call('save');
+ const right=await call('status');await call('select',{role:'left'});v=await call('status');
+ assert.equal(v.phase,'record');assert.equal(v.epoch,left.epoch);assert.equal(v.core_revision,left.core_revision);
+ await call('select',{role:'right'});assert.equal((await call('status')).epoch,right.epoch);
+ await call('select',{role:'left'});const token=(await call('status')).token;
+ result=await invoke({expected:token,command:{action:'invalidate'}});assert.equal(result.error,null);
+ result=await invoke({expected:token,command:{action:'begin'}});assert.equal(result.error.code,'stale_target');
+ report.cases.push('independent left/right sessions, selection without reset, stale-target and repeated-request rejection');
+ await qualified(call);await syncUI(page);await page.locator('nav [data-page="adjust"]').click();
+ await page.locator('#comparison-controls > summary').click();
+ await page.locator('#level').evaluate(el=>el.add(new Option('invalid fixture','NaN')));await page.locator('#level').selectOption('NaN');await page.locator('#preview').click();
+ await page.waitForFunction(()=>!document.getElementById('error-panel').hidden);
  assert.equal(await page.locator('#rows tr').count(),0);assert(await page.locator('#save').isDisabled());
- report.cases.push('frontend error renders current Rust state and clears stale rows');
- report.records=readdirSync(store).map(id=>({id,files:readdirSync(join(store,id))}));
- assert.equal(report.records.length,2);assert(report.records.every(r=>r.files.length===1));
- for(const record of report.records)assert.match(readFileSync(join(store,record.id,record.files[0]),'utf8'),/hardware_verified,0\ncontrol_ready,0/);
- await checkUI(page,run,report);
- await close();
- ({page,call}=await launch());
- assert.equal((await call('status')).stage,0);await call('begin','left');v=await call('load');
- assert.deepEqual(JSON.parse(v.saved_profile).historical_observation.firmware_sample,original);
- assert.equal(v.stage,1);assert.equal(v.rows.length,0);await rejected(call,'preview','0.5');await rejected(call,'export');
- report.cases.push('new native process reload preserves evidence but restores no readiness');
- await close();
- report.result='PASS';writeFileSync(join(run,'report.json'),JSON.stringify(report,null,2));
+ report.cases.push('frontend failure renders current Rust state and clears stale values');
+ await approved(call);
+ await call('select',{role:'right'});await rejected(call,'resume'); // No viewed record: explicit mutation still invalidates.
+ await call('select',{role:'left'});await call('read_history');
+ const dir=join(store,'srn-22222222222222222222222222222222');
+ const damaged=join(dir,readdirSync(dir).find(n=>n.endsWith('.srnp')));writeFileSync(damaged,'corrupt synthetic test record');
+ await call('select',{role:'right'});await call('begin');await call('baseline');await call('assess',{scenario:'good'});await call('preview',{level:'0.5'});await call('confirm');
+ const beforeFailure=await call('status');await rejected(call,'read_history');v=await call('status');
+ assert.equal(v.phase,'record');assert.equal(v.epoch,beforeFailure.epoch);assert.equal(v.core_revision,beforeFailure.core_revision);assert.equal(v.history,null);
+ report.cases.push('corrupt history does not modify active preparation or restore an older history view');
+ await checkUI(page,run,report,call);
+ report.records=readdirSync(store).map(id=>({id,files:readdirSync(join(store,id))}));assert.equal(report.records.length,2);
+ assert(report.records.every(r=>r.files.length===1));
+ await close();({page,call,raw,invoke}=await launch());
+ assert.equal((await call('status')).phase,'not_started');v=await call('read_history');
+ assert.deepEqual(v.history.historical_observation.firmware_sample,original);assert.equal(v.phase,'not_started');assert.equal(v.epoch,0);assert.equal(v.rows.length,0);
+ await rejected(call,'preview',{level:'0.5'});await rejected(call,'export');
+ await assert.rejects(()=>invoke({expected:null,command:{action:'status',arbitrary:true}}));
+ report.cases.push('new process reads evidence before session start without restoring readiness; strict request shape');
+ await close();report.result='PASS';writeFileSync(join(run,'report.json'),JSON.stringify(report,null,2));
  console.log('Native Tauri smoke PASS: '+report.cases.length+' groups; report '+join(run,'report.json'));
 }catch(e){report.result='FAIL';report.error=String(e);writeFileSync(join(run,'report.json'),JSON.stringify(report,null,2));throw e;}
 finally{await close();}
