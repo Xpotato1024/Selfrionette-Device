@@ -20,6 +20,12 @@ Rust stable、Node.js、MSVC v143 x64/x86、Windows SDK、WebView2が必要で�
 [公式prerequisites](https://v2.tauri.app/start/prerequisites/)を確認してください。
 npmとnative Cargoのlockfileを同梱しています。
 
+LLM-01のMSVC永続導入先は D:\Xpotato-apps\toolchains\vs2022-msvc とします。
+bootstrapper/scriptだけを D:\Xpotato-apps\codex_room\device-calibration-prep に置き、toolchain本体は作業領域の整理対象から外します。
+既存Visual Studio 2022を検出した場合は新規導入を止め、その登録済み保存先を再利用します。
+helperはMicrosoft署名/VS2022を検証し、v143 x64/x86と必須依存だけを導入します。
+不要workload、global PATH/認証設定の変更、再起動は行いません。
+
     cd D:\Xpotato-apps\Selfrionette-Device\apps\device-manager
     npm ci
     npm run dev
@@ -49,6 +55,8 @@ Rust coreの校正10件、保存/再読込3件、presentation adapter 2件をoff
 独立レビューのP2（連番file名と履歴値の整合性）は修正済みです。
 native bridgeのcompile/起動はBuild Tools導入前なので未完了です。
 LLM-01にはWindows SDK 10.0.26100.0/WebView2があり、MSVC linkerはありません。
-新規契約への同意前に停止する本人指示に従い、installerはdownload/起動/導入していません。
-[Microsoft公式契約ページ](https://visualstudio.microsoft.com/license-terms/vs2022-ga-diagnosticbuildtools/)を確認後、導入を再開します。
+[Microsoft公式契約条項](https://visualstudio.microsoft.com/license-terms/vs2022-ga-diagnosticbuildtools/)への本人同意は取得済みです。
+公式bootstrapperを取得しMicrosoft署名Validを確認しましたが、昇格launcherはexit 1で終了しました。
+UAC画面の表示は確認していません。現在installer/UAC processはなく、MSVC導入も確認できていません。
+本人のLLM-01通常PowerShellから既存helperを再開する手順は親へ引き渡し、再実行を待ちます。
 USB/serial、info、tare、reset、EEPROM、flash、robot接続/actuationはこのappに実装していません。
