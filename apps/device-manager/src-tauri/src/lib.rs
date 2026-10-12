@@ -105,7 +105,7 @@ fn store_root(app: &tauri::AppHandle) -> Result<std::path::PathBuf, String> {
         .join("synthetic-fixtures"))
 }
 fn trials(target: usize, scenario: &str) -> Vec<Trial> {
-    let delta = if target % 2 == 0 {
+    let delta = if target.is_multiple_of(2) {
         20.0 + target as f64 * 5.0
     } else {
         -40.0 - target as f64 * 5.0
@@ -147,7 +147,15 @@ fn fixture_action(
     state: tauri::State<Mutex<State>>,
 ) -> Result<View, String> {
     let mut state = state.lock().map_err(|_| "state unavailable")?;
+    if ["begin", "baseline", "assess", "flip", "preview", "load"].contains(&action.as_str()) {
+        if let Some(session) = state.session.as_mut() {
+            session.revoke_preview();
+        }
+        state.preview = None;
+        state.stage = state.stage.min(if action == "assess" { 2 } else { 3 });
+    }
     match action.as_str() {
+        "status" => return Ok(view(&state, "現在のoffline状態")),
         "begin" => {
             if !["left", "right"].contains(&argument.as_str()) {
                 return Err("explicit role required".into());
@@ -239,6 +247,9 @@ fn fixture_action(
             state.stage = 3;
         }
         "flip" => {
+            if state.stage < 3 {
+                return Err("qualified candidates required".into());
+            }
             let (ch, reason) = argument.split_once(':').ok_or("channel:reason required")?;
             let ch = ch.parse().map_err(|_| "invalid wire channel")?;
             state

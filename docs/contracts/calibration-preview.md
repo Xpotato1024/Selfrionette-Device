@@ -63,3 +63,9 @@ firmware timestampはu32範囲。元値-baseline=差分、符号×差分=補正�
 履歴baselineは証拠の比較専用。active baseline/符号/span/readinessの復元とは区別する。
 再読込でID/firmware/組立/ユーザー/姿勢を照合し、新epochの空sessionを作る。失敗でも旧確認を失効させる。
 次回の基準と品質観測から候補を作り直す。通常入力や保存済み値だけで校正済みにしない。
+
+## 再判定と失敗後の状態
+再判定要求の入口で旧preview承認を失効させ、不正引数でもsave/exportへ持ち越さない。
+assess失敗後はqualified stageを失い、手動flipで旧候補へ復帰できない。新しい品質観測が必要になる。
+GUIはエラー後にRustの現在状態を読み取り、旧active rowsや確認ボタンを成功状態のまま残さない。
+この失効は基準・符号・spanの自動再校正を意味しない。coreのrevoke_previewは確認状態だけを消す。

@@ -7,6 +7,7 @@ export function createDesignPreview() {
       return {wire:i,physical:i+1,firmware:10+sign*span*0.5,baseline:10,delta:sign*span*0.5,sign,oriented:span*0.5,positive_span:span,normalized:0.5,displayed:0.5,saturated:false,evidence:'固定の合成表示。Rust判定ではありません。'};
     }):[],export:null,message:'ブラウザー表示確認。校正判定・実値保存・実機接続は行いません。'});
   return async(action,argument='')=>{
+    if(action==='status')return view();
     if(action==='begin'){role=argument;epoch++;stage=1;}
     else if(action==='baseline') stage=2;
     else if(action==='assess'){stage=2;if(argument!=='good')throw Error('表示用の判定不可ケース');stage=3;}

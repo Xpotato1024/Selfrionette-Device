@@ -27,7 +27,11 @@ function render(view) {
 }
 async function action(name, argument='') {
   try { buttons.forEach(id=>$(id).disabled=true); return render(await call(name,argument)); }
-  catch(error) {$('message').textContent='判定不可: '+String(error);$('message').className='error'; $('baseline').disabled=false;$('assess').disabled=false;$('invalidate').disabled=false;return null;}
+  catch(error) {
+    try { render(await call('status')); }
+    catch { render({stage:0,id:'',epoch:0,provenance:'状態を取得できません',rows:[],message:''}); }
+    $('message').textContent='判定不可: '+String(error);$('message').className='error';return null;
+  }
 }
 $('begin').onclick=()=>action('begin',$('role').value);
 $('baseline').onclick=()=>action('baseline');

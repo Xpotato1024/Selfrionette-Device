@@ -336,6 +336,10 @@ impl CalibrationSession {
         self.approved = Some(preview.clone());
         Ok(())
     }
+    pub fn revoke_preview(&mut self) {
+        self.approved = None;
+        self.current_preview = None;
+    }
     pub fn invalidate(&mut self) {
         self.baseline = None;
         self.spans = None;

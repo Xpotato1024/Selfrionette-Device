@@ -218,7 +218,6 @@ fn runtime_samples_do_not_recalibrate_and_saturation_is_separate() {
     assert_eq!(high.normalized, [Some(5.0); N]);
     assert_eq!(high.displayed, [Some(1.0); N]);
     assert_eq!(high.saturated, [true; N]);
-    let mut s = s;
     assert!(s.approve(&high).is_err());
     // Preview cannot be passed back to preview(): it requires FirmwareSample.
 }
@@ -274,4 +273,18 @@ fn finite_phase_values_cannot_hide_mean_overflow() {
         assess(0, &[t.clone(), t], limits()),
         Assessment::Inconclusive("phase mean/difference overflow")
     ));
+}
+
+#[test]
+fn rejected_preview_request_revokes_previous_confirmation() {
+    let mut s = session();
+    let old = s.preview(&sample([10.0; N])).unwrap();
+    s.approve(&old).unwrap();
+    s.revoke_preview();
+    assert!(s.draft().is_err());
+    assert!(s.approve(&old).is_err());
+    let fresh = s.preview(&sample([10.0; N])).unwrap();
+    assert_eq!(fresh.revision, old.revision);
+    s.approve(&fresh).unwrap();
+    assert!(!s.draft().unwrap().control_ready());
 }

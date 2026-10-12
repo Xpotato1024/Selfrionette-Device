@@ -24,3 +24,6 @@ tmp/
 # OS
 .DS_Store
 Thumbs.db
+
+# Generated Tauri schemas
+apps/device-manager/src-tauri/gen/

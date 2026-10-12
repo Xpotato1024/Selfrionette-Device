@@ -36,9 +36,11 @@ Xpotato-Simから見たSelfrionetteはGamepad / Keyboardと同格のInput Source
 ## Device Managerのローカル確認
 
 Tauri GUIと、Nodeだけで表示を確認できる手順は[app README](apps/device-manager/README.md)を参照してください。
-native buildはBuild Tools不足で未検証です。表示確認は合成fixtureのみで、実機校正・接続を行いません。
+Windows native Debug build・起動・Rust IPC・合成記録の保存/再読込を確認しました。実機校正・接続・実機受入は未実施です。
 
     cd D:\Xpotato-apps\Selfrionette-Device\apps\device-manager
-    npm run preview
+    npm ci
+    .\run-native.cmd build
+    .\src-tauri\target\debug\selfrionette-device-manager.exe
 
-同じPCで http://127.0.0.1:4173 を開き、終了はCtrl+Cです。Rustの校正判定や保存を行うnative GUIとは区別します。
+終了はnative windowを閉じます。Nodeだけの表示確認はapp READMEの npm run preview を参照してください。
