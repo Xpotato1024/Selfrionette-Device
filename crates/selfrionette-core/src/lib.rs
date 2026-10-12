@@ -1,3 +1,4 @@
+pub mod calibration;
 pub mod identity;
 pub mod legacy;
 pub mod protocol;

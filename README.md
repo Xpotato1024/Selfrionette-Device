@@ -31,3 +31,14 @@ Xpotato-Simから見たSelfrionetteはGamepad / Keyboardと同格のInput Source
 実装前に[AGENTS.md](AGENTS.md)を確認する。
 
 旧Simのmonitor/measureはDeviceのRust CLIが所有する。[build・help・採用順](docs/operations/legacy-sim-host-tools.md)を参照する。
+
+
+## Device Managerのローカル確認
+
+Tauri GUIと、Nodeだけで表示を確認できる手順は[app README](apps/device-manager/README.md)を参照してください。
+native buildはBuild Tools不足で未検証です。表示確認は合成fixtureのみで、実機校正・接続を行いません。
+
+    cd D:\Xpotato-apps\Selfrionette-Device\apps\device-manager
+    npm run preview
+
+同じPCで http://127.0.0.1:4173 を開き、終了はCtrl+Cです。Rustの校正判定や保存を行うnative GUIとは区別します。
