@@ -7,7 +7,7 @@ export function createTrace(document,clock=()=>performance.now()) {
   if(!points.length){$('trace-line').setAttribute('d','');$('trace-top').textContent='—';$('trace-bottom').textContent='—';return;}
   const maximum=Math.max(...points.map(p=>Math.abs(p.values[ch])),1),scale=maximum;
   $('trace-top').textContent='+'+scale.toPrecision(3);$('trace-bottom').textContent='−'+scale.toPrecision(3);
-  $('trace-line').setAttribute('d',points.map((p,i)=>(i?'L':'M')+Math.max(0,Math.min(640,(p.time-(now-30000))/30000*640)).toFixed(2)+' '+(150-p.values[ch]/scale*120).toFixed(2)).join(' '));
+  $('trace-line').setAttribute('d',points.map((p,i)=>(i?'L':'M')+Math.max(0,Math.min(640,(p.time-(now-30000))/30000*640)).toFixed(2)+' '+(150-p.values[ch]/scale*150).toFixed(2)).join(' '));
  }
  $('trace-channel').onchange=draw;
  return {update(view){now=clock();history.add(view,now);draw();},clear(){history.clear();draw();}};
