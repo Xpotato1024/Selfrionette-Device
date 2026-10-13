@@ -12,7 +12,7 @@ related:
 ## 対象と配布物
 Windows 11 x64向けの合成試験版です。実機接続・実機校正・Firmware書込みは未対応です。
 Rust、Node.js、Visual Studio、Windows SDK、Git、ソースのcloneは使用者に不要です。
-ソースの開発・ローカルブランチの検証は[開発者向けREADME](../../apps/device-manager/README.md)に従ってください。
+ソースの開発・ローカルブランチの検証は[開発者向けREADME](https://github.com/Xpotato1024/Selfrionette-Device/blob/main/apps/device-manager/README.md)に従ってください。
 
 | 配布物 | 使い方 | 実行時の前提 |
 |---|---|---|

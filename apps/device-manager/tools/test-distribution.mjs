@@ -21,5 +21,9 @@ const report={result:'PASS',source_commit:info.source_commit,executable_sha256:i
   scope:'Extracted Release executable; system-only child PATH, isolated working directory; synthetic Rust IPC + GUI regression tests',
   limitations:['Build tools still installed on host disk','WebView2 already installed','No clean VM or missing-runtime install test','No physical device access']};
 writeFileSync(join(distribution.directory,'VALIDATION.json'),JSON.stringify(report,null,2)+'\n');
+const sums=join(distribution.directory,'SHA256SUMS.txt');
+const old=readFileSync(sums,'utf8').split('\n').filter(line=>line && !line.endsWith('  VALIDATION.json'));
+old.push(sha256(readFileSync(join(distribution.directory,'VALIDATION.json')))+'  VALIDATION.json');
+writeFileSync(sums,old.join('\n')+'\n');
 writeFileSync(join(run,'report.json'),JSON.stringify(report,null,2)+'\n');
 console.log('Extracted Release distribution PASS:',run);

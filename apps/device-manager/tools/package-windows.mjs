@@ -1,5 +1,5 @@
 // Maintainer-only packaging. Users run the resulting binary, never this script.
-import {readFileSync,writeFileSync,mkdirSync,readdirSync,cpSync,copyFileSync,existsSync} from 'node:fs';
+import {readFileSync,writeFileSync,mkdirSync,readdirSync,cpSync,copyFileSync,existsSync,rmSync} from 'node:fs';
 import {resolve,join} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {execFileSync,spawnSync} from 'node:child_process';
@@ -16,15 +16,17 @@ if(reference.startsWith('refs/tags/device-manager-v') && reference.slice('refs/t
 const stem='Selfrionette-Device-Manager_'+version+'_'+commit.slice(0,8)+'_windows-x64';
 const destination=resolve('dist',stem);
 if(existsSync(destination))throw Error('Distribution already exists; use a fresh output directory or remove only the old generated distribution explicitly.');
-mkdirSync(destination,{recursive:true});
-const resources=resolve('dist/bundle-resources');mkdirSync(resources,{recursive:true});
+
+const resources=resolve('dist/bundle-resources');
+// These are build-owned staging directories only; never reuse stale notices/assets.
+rmSync(resources,{recursive:true,force:true});mkdirSync(resources,{recursive:true});
 const metadata=JSON.parse(output('cargo',['metadata','--locked','--format-version','1','--manifest-path','src-tauri/Cargo.toml','--filter-platform','x86_64-pc-windows-msvc']));
 const notices=collectNotices(metadata,resources);
 writeFileSync(join(resources,'THIRD-PARTY-NOTICES.txt'),notices.text);
 writeFileSync(join(resources,'DEPENDENCIES.json'),JSON.stringify(notices.inventory,null,2)+'\n');
 copyFileSync(join(repo,'docs/operations/device-manager-distribution.md'),join(resources,'README.md'));
 // Explicit file allowlist: development tests are not embedded into the Release executable.
-const frontend=resolve('dist/frontend');mkdirSync(frontend,{recursive:true});
+const frontend=resolve('dist/frontend');rmSync(frontend,{recursive:true,force:true});mkdirSync(frontend,{recursive:true});
 for(const name of ['index.html','style.css','app.mjs','controller.mjs','design-preview.mjs','navigation.mjs'])copyFileSync(join(root,'frontend',name),join(frontend,name));
 const info={schema:1,application_version:version,source_commit:commit,source_tree:git('rev-parse','HEAD^{tree}'),source_dirty:false,
   built_at_utc:new Date().toISOString(),target:'x86_64-pc-windows-msvc',profile:'release',mode:'synthetic-only',hardware_verified:false,
@@ -38,6 +40,7 @@ const result=spawnSync(process.execPath,[cli,'build','--config','src-tauri/tauri
 if(result.error)throw result.error;if(result.status!==0)throw Error('Tauri packaging failed: '+result.status);
 const exe=resolve('src-tauri/target/release/selfrionette-device-manager.exe');
 info.pe=inspectPE(readFileSync(exe));info.executable_sha256=sha256(readFileSync(exe));
+mkdirSync(destination,{recursive:true});
 const portable=join(destination,'portable');mkdirSync(portable);copyFileSync(exe,join(portable,'selfrionette-device-manager.exe'));
 cpSync(resources,portable,{recursive:true});
 writeFileSync(join(portable,'BUILD-INFO.json'),JSON.stringify(info,null,2)+'\n');

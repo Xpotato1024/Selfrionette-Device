@@ -28,7 +28,7 @@ npm/native Cargoのlockfileを同梱しています。PowerShellで次を実行�
 起動だけでは接続も校正も行いません。共通の「対象」で合成個体を選び、横タブの「調整」で開始します。
 左右の選択は表示対象だけを変え、各個体の基準・候補・確認を保持します。やり直しは別の明示操作です。
 終了はnative windowを閉じます。devでは開発terminalもCtrl+Cで停止します。
-今回確認したのはDebug executableであり、Release/bundle配布や実機受入は未実施です。
+この節は開発用Debug executableの手順です。配布用Release・インストーラーの生成と検証は[バイナリ利用・配布](../../docs/operations/device-manager-distribution.md)で分離します。実機受入は未実施です。
 
 ## 合成記録の保存・閲覧・再開
 基準 → 品質を満たす7ch候補 → preview → 確認、の順で保存を許可します。
