@@ -36,12 +36,12 @@ Xpotato-Simから見たSelfrionetteはGamepad / Keyboardと同格のInput Source
 ## Device Managerを使う人（ビルド不要）
 
 ビルド済みのWindows用setup.exeまたはZIPを使います。[取得・起動・保存先](docs/operations/device-manager-distribution.md)を参照してください。
-Rust、Node.js、Visual Studio、Gitの導入やcloneは不要です。現在は合成試験版で、実機機能は未対応です。
+Rust、Node.js、Visual Studio、Gitの導入やcloneは不要です。現在は実機受信モニターと合成調整のプレビュー版です。実機校正・Firmware更新は未対応です。
 
 ## Device Managerを開発・ローカル検証する人
 
 Tauri GUIと、Nodeだけで表示を確認できる手順は[app README](apps/device-manager/README.md)を参照してください。
-Windows native Debug build・起動・Rust IPC・合成記録の保存/再読込を確認しました。実機校正・接続・実機受入は未実施です。
+Windows native Debug build・起動・Rust IPC・合成記録の保存/再読込を確認しました。実機受信モニターの実装はありますが、対象実機での受入と物理校正は未実施です。
 
     # 自分のclone・作業用ローカルブランチのrepository rootから
     cd apps/device-manager

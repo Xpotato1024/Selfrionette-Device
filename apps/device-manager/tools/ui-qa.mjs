@@ -1,9 +1,11 @@
 // Native WebView2 QA. Each assertion concerns real rendered UI; synthetic data only.
 import assert from 'node:assert/strict';
 import {join} from 'node:path';
+import {readFileSync} from 'node:fs';
+const appConfig=JSON.parse(readFileSync(new URL('../src-tauri/tauri.conf.json',import.meta.url),'utf8'));
 export async function checkUI(page,run,report,call) {
   await call('select',{role:'left'}); await call('begin');
-  await page.reload(); await page.waitForFunction(()=>!document.getElementById('role').disabled);
+  await page.reload(); await page.waitForFunction(()=>document.getElementById('source-mode')&&!document.getElementById('source-mode').disabled); await page.locator('#source-mode').selectOption('synthetic'); await page.waitForFunction(()=>!document.getElementById('role').disabled);
   const metrics=await page.evaluate(()=>({
     body:getComputedStyle(document.body).fontSize,
     label:getComputedStyle(document.querySelector('label')).fontSize,
@@ -18,6 +20,19 @@ export async function checkUI(page,run,report,call) {
   assert.deepEqual(metrics.missingLabels,[]); assert.equal(metrics.errorsLive,false); assert(metrics.columns);
   assert.equal(metrics.modeCount,1); assert(metrics.taskTabs.every(t=>t.panel==='tabpanel'));
   const beforeTabs=await call('status');
+  assert.equal(await page.locator('.app-header').count(),0,'Native title must not be repeated as a page banner');
+  assert.equal(await page.locator('body').innerText().then(t=>t.includes('Selfrionette')),false);
+  await page.locator('#about').click();
+  const appInfo=await page.evaluate(()=>window.__TAURI__.core.invoke('application_info'));
+  report.application_info=appInfo; console.log('Application metadata: '+JSON.stringify(appInfo));
+  assert.equal(appInfo.publisher,'Xpotato.net');
+  await page.waitForFunction(()=>document.getElementById('about-publisher').textContent==='Xpotato.net');
+  assert.equal(await page.locator('#about-version').innerText(),appConfig.version);
+  assert.equal(await page.locator('#about-homepage').innerText(),'https://xpotato.net');
+  assert.deepEqual((await call('status')).token,beforeTabs.token,'App information cannot mutate calibration state');
+  await page.screenshot({path:join(run,'ui-about.png'),fullPage:true});
+  await page.keyboard.press('Escape');
+  assert.equal(await page.evaluate(()=>document.activeElement.id),'about');
   await page.locator('#tab-device').focus(); await page.keyboard.press('ArrowRight');
   assert.equal(await page.evaluate(()=>document.activeElement.id),'tab-adjust');
   assert.equal(await page.locator('#tab-device').getAttribute('aria-selected'),'true','Arrow key must only move focus');
@@ -28,12 +43,20 @@ export async function checkUI(page,run,report,call) {
   await page.locator('#steps [data-step-link="record"]').focus(); await page.keyboard.press('Enter');
   assert.equal(await page.locator('.step-panel:visible').getAttribute('data-step'),'baseline','Future navigation must be blocked');
   assert.deepEqual((await call('status')).token,beforeTabs.token);
+  const density=await page.evaluate(()=>({
+    width:innerWidth,headingTop:document.querySelector('.step-panel:not([hidden]) h2').getBoundingClientRect().top,
+    toolbarHeight:document.querySelector('.context-bar').getBoundingClientRect().height,
+    controlHeight:document.getElementById('baseline').getBoundingClientRect().height
+  }));
+  if(density.width>=900) assert(density.headingTop<=120,'Toolbar and navigation consume too much work area');
+  assert(density.controlHeight>=32&&density.controlHeight<=36,'Desktop control sizing changed unexpectedly');
+  report.desktop_density=density;
   const sequence=[['baseline','assessment'],['assess','preview'],['preview','confirmation'],['confirm','record']];
   for(const [id,next] of sequence) {
     assert.equal(await page.locator('#page-adjust button.primary:visible').count(),1);
     assert.equal(await page.locator('#page-adjust button.primary:visible').getAttribute('id'),id);
     await page.locator('#'+id).focus();
-    assert.equal(await page.locator('#'+id).evaluate(e=>getComputedStyle(e).outlineWidth),'3px');
+    assert.equal(await page.locator('#'+id).evaluate(e=>getComputedStyle(e).outlineWidth),'2px');
     await page.screenshot({path:join(run,'ui-step-'+(await page.locator('.step-panel:visible').getAttribute('data-step'))+'.png'),fullPage:true});
     await page.keyboard.press(id==='baseline'?'Space':'Enter');
     await page.waitForFunction(step=>document.querySelector('.step-panel:not([hidden])')?.dataset.step===step,next);

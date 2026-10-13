@@ -16,7 +16,7 @@ related:
 Selfrionetteの各個体を、装置固有設定を保持して正しい意味の入力を出力するデバイスとして構成し、その設定・校正・診断・Firmware更新を管理する。通常利用の必須中継processにはしない。
 GUIはその操作窓口であり、校正機能を一画面へ並べることを製品の目的にしない。
 
-現実装は合成fixture専用。実機接続、物理校正の成功判定、firmware変更、EEPROM、ロボット制御は提供しない。
+実機モードはOSのport列挙と明示接続による受信確認を提供する。実機の物理校正、firmware変更、EEPROM、ロボット制御は提供しない。合成調整と実機モニターの状態・値は別経路。実機受信の正本は[GUI実機モニター契約](../contracts/gui-live-monitor.md)。
 hardware_verified / control_readyは常にfalse。プレビューの確認・記録保存を実機の利用可能性と同一視しない。
 Device / Xpotato-Simの既存境界を維持し、channel→XYZ/joint、ロボット速度gain、座標系・実験はSimが所有する。
 
@@ -26,9 +26,9 @@ Device / Xpotato-Simの既存境界を維持し、channel→XYZ/joint、ロボ�
 
 | 作業種別 | 今回の公開範囲 | 内部の構成 |
 |---|---|---|
-| 入力確認 | 合成個体の入力・状態 | 監視はwizardにしない。選択ch詳細は必要時に開く |
+| 入力確認 | 実機の受信値 / 明示選択した合成個体の入力・状態 | 監視はwizardにしない。選択ch詳細は必要時に開く |
 | 調整 | 合成基準・応答・比較・確認・PC記録 | 1 基準 / 2 応答 / 3 比較 / 4 確認 / 5 保存 |
-| 診断・記録 | 演算値・根拠・保存履歴・合成試験条件 | 観測/閲覧は自由に移動。調整を暗黙に再開しない |
+| 診断・記録 | 実機の機器情報・診断 / 合成演算値・根拠・保存履歴 | 観測/閲覧は自由に移動。調整を暗黙に再開しない |
 | 保守（後続） | 実機更新backendができるまでは未公開 | firmware-update.mdの対象/ファイル/保護/書込み/確認 |
 
 製品全体では装置設定と使用前調整を別workflowとする。実機未対応の段階で合成処理を物理校正と称さない。
@@ -40,7 +40,7 @@ Rustのphase/steps/operationsが達成状態と実行許可の正本。frontend�
 作業種別を切り替えても調整を再開/保存しない。再開後に依存状態が失効したら、古い閲覧位置から未達工程へ飛び越させない。
 
 ### 重複を減らす規則
-- 個体選択とIDは共通contextに一度、合成/実機未接続は共通headerに一度だけ表示する。
+- 個体選択とIDは共通contextに一度、合成/実機未接続は共通toolbarに一度だけ表示する。
 - 同じ由来・未検証・次操作をheader、本文、footerで繰り返さない。常設の成功message欄を置かない。
 - 現在手順の説明は一つ、主操作は一つ。保存手順に7ch結果表を再掲しない。
 - エラーは操作の近傍に原因と復帰操作を一度示す。技術詳細は展開式。数値の未測定や範囲超過は数値に関連づける。
@@ -93,6 +93,16 @@ resumeは明示確認後に現在の調整を失効させ、閲覧した記録�
 過去の基準・符号・span・readinessは自動復元しない。失敗後も旧承認を使えない。
 単なる閲覧との違いをボタンと確認dialogで説明し、現実装は設定値の取り込みを提供していないことを明示する。
 
+## デスクトップ用の画面構成
+製品名はWindows標準タイトルバーに集約し、作業面にWebサイト型のブランドheaderを重ねない。
+標準のウィンドウ枠・移動・最大化・システムメニューを維持し、自作caption buttonやdrag領域は追加しない。
+作業面は上端の対象/ID/mode toolbar、横の作業tab、手順と操作paneの順。アプリ情報は要求時だけdialogで表示する。
+本文16pxを維持しながら、マウス/keyboard用controlは32px以上へpaddingを縮める。coarse pointerは44px以上を維持する。
+stepに固定の310px空白を作らず、非表示commandの案内や空footerは表示しない。開始前の閲覧可能な第1手順は「開始前」と表示する。
+keyboard focusは2pxの可視枠を維持。tab/step内側へ置き、headingのfocus枠は文字幅に合わせる。
+初期windowは1000×680、最小720×520。CSS reflowとWindows DPIの実機受入は別々に扱う。
+Tauri/WebView2を維持するため、WinUI等のOS標準control自体への置換ではない。OS完全一致が要件になる場合は別途frameworkを選定する。
+
 ## ローカルスタイル
 デジタル庁の指針を基盤に、装置の情報密度へ適合させる。政府ロゴ・認定表示を使わない。
 白と中立灰の作業面、細い罫線、控えめな青緑の操作色を基本とする。影付きカードや大見出しのキャッチコピーを並べない。
@@ -119,3 +129,6 @@ resumeは明示確認後に現在の調整を失効させ、閲覧した記録�
 
 - [デジタル庁: ステップナビゲーション](https://design.digital.go.jp/dads/components/step-navigation/)
 - [W3C: Tabs Pattern](https://www.w3.org/WAI/ARIA/apg/patterns/tabs/)
+
+- [Microsoft: タイトルバー](https://learn.microsoft.com/ja-jp/windows/apps/design/basics/titlebar-design)
+- [Microsoft: デスクトップ用のコンパクト密度](https://learn.microsoft.com/en-us/windows/apps/develop/ui/controls/compact-sizing)

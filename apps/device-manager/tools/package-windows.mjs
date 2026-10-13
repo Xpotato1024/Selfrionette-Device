@@ -3,14 +3,15 @@ import {readFileSync,writeFileSync,mkdirSync,readdirSync,cpSync,copyFileSync,exi
 import {resolve,join} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {execFileSync,spawnSync} from 'node:child_process';
-import {sha256,inspectPE,collectNotices,zipDirectory} from './distribution-lib.mjs';
+import {sha256,inspectPE,collectNotices,zipDirectory,executableMetadata} from './distribution-lib.mjs';
 if(process.platform!=='win32'||process.arch!=='x64')throw Error('Package on Windows x64 with the MSVC toolchain.');
 const root=resolve(fileURLToPath(new URL('..',import.meta.url))),repo=resolve(root,'../..');
 process.chdir(root);
 const output=(program,args,cwd=root)=>execFileSync(program,args,{cwd,encoding:'utf8',maxBuffer:24*1024*1024,timeout:180000}).trim();
 const git=(...args)=>output('git',['-C',repo,...args]);
 if(git('status','--porcelain','--untracked-files=normal'))throw Error('Commit or stash changes before creating a traceable distribution. Developer build/dev accepts an ordinary working tree.');
-const commit=git('rev-parse','HEAD'),version=JSON.parse(readFileSync('src-tauri/tauri.conf.json','utf8')).version;
+const config=JSON.parse(readFileSync('src-tauri/tauri.conf.json','utf8'));
+const commit=git('rev-parse','HEAD'),version=config.version;
 const reference=process.env.GITHUB_REF??'';
 if(reference.startsWith('refs/tags/device-manager-v') && reference.slice('refs/tags/device-manager-v'.length)!==version)throw Error('Release tag and application version differ.');
 const stem='Selfrionette-Device-Manager_'+version+'_'+commit.slice(0,8)+'_windows-x64';
@@ -27,9 +28,9 @@ writeFileSync(join(resources,'DEPENDENCIES.json'),JSON.stringify(notices.invento
 copyFileSync(join(repo,'docs/operations/device-manager-distribution.md'),join(resources,'README.md'));
 // Explicit file allowlist: development tests are not embedded into the Release executable.
 const frontend=resolve('dist/frontend');rmSync(frontend,{recursive:true,force:true});mkdirSync(frontend,{recursive:true});
-for(const name of ['index.html','style.css','app.mjs','controller.mjs','design-preview.mjs','navigation.mjs'])copyFileSync(join(root,'frontend',name),join(frontend,name));
-const info={schema:1,application_version:version,source_commit:commit,source_tree:git('rev-parse','HEAD^{tree}'),source_dirty:false,
-  built_at_utc:new Date().toISOString(),target:'x86_64-pc-windows-msvc',profile:'release',bundle_binary_patching:false,mode:'synthetic-only',hardware_verified:false,
+for(const name of ['index.html','style.css','app.mjs','controller.mjs','design-preview.mjs','navigation.mjs','hardware-ui.mjs','hardware-controller.mjs'])copyFileSync(join(root,'frontend',name),join(frontend,name));
+const info={schema:1,application_version:version,publisher:config.bundle.publisher,homepage:config.bundle.homepage,application_identifier:config.identifier,source_commit:commit,source_tree:git('rev-parse','HEAD^{tree}'),source_dirty:false,
+  built_at_utc:new Date().toISOString(),target:'x86_64-pc-windows-msvc',profile:'release',bundle_binary_patching:false,mode:'serial-monitor-and-synthetic',hardware_verified:false,
   runtime:'Microsoft Edge WebView2 Evergreen',installer_runtime_mode:'offlineInstaller',code_signing:'unsigned',
   toolchain:{rust:output('rustc',['-Vv']),cargo:output('cargo',['-V']),node:process.version},
   lockfiles:{cargo:sha256(readFileSync('src-tauri/Cargo.lock')),npm:sha256(readFileSync('package-lock.json'))},
@@ -40,6 +41,9 @@ const cli=join(root,'node_modules/@tauri-apps/cli/tauri.js');
 const result=spawnSync(process.execPath,[cli,'build','--config','src-tauri/tauri.release.conf.json','--bundles','nsis','--ci','--no-binary-patching','--','--locked'],{cwd:root,stdio:'inherit',timeout:30*60*1000});
 if(result.error)throw result.error;if(result.status!==0)throw Error('Tauri packaging failed: '+result.status);
 const exe=resolve('src-tauri/target/release/selfrionette-device-manager.exe');
+info.windows_metadata=executableMetadata(exe);
+if(info.windows_metadata.company_name!==config.bundle.publisher || info.windows_metadata.product_name!==config.productName)throw Error('Executable publisher/product metadata mismatch');
+if(info.windows_metadata.signature_status!=='NotSigned')throw Error('Update signing metadata/policy before distributing a signed executable');
 info.pe=inspectPE(readFileSync(exe));info.executable_sha256=sha256(readFileSync(exe));
 mkdirSync(destination,{recursive:true});
 const portable=join(destination,'portable');mkdirSync(portable);copyFileSync(exe,join(portable,'selfrionette-device-manager.exe'));

@@ -28,3 +28,12 @@ test('ZIP round trip keeps Japanese, spaces and quotes as path data',{skip:proce
 test('ZIP and NSIS use identical unstamped application bytes',()=>{const packaging=readFileSync(new URL('./package-windows.mjs',import.meta.url),'utf8');assert(packaging.includes("'--no-binary-patching'"));});
 
 test('CI-only debugger policy is off locally and refuses ordinary machines',()=>{assert.equal(ciPolicyEnabled({}),false);assert.throws(()=>ciPolicyEnabled({SELFRIONETTE_CI_WEBVIEW_POLICY:'1'}),/restricted/);assert.throws(()=>ciPolicyEnabled({SELFRIONETTE_CI_WEBVIEW_POLICY:'1',GITHUB_ACTIONS:'true',RUNNER_ENVIRONMENT:'self-hosted'}),/restricted/);assert.equal(ciPolicyEnabled({SELFRIONETTE_CI_WEBVIEW_POLICY:'1',GITHUB_ACTIONS:'true',RUNNER_ENVIRONMENT:'github-hosted'}),true);});
+
+test('publisher is configured without replacing the data/installation identity or pretending to sign',()=>{
+ const c=JSON.parse(readFileSync(new URL('../src-tauri/tauri.conf.json',import.meta.url)));
+ const r=JSON.parse(readFileSync(new URL('../src-tauri/tauri.release.conf.json',import.meta.url)));
+ assert.equal(c.bundle.publisher,'Xpotato.net'); assert.equal(c.bundle.homepage,'https://xpotato.net');
+ assert.equal(c.identifier,'dev.selfrionette.manager'); assert.equal(c.productName,'Selfrionette Device Manager');
+ assert.equal(c.app.windows[0].decorations,true); assert.match(c.app.windows[0].title,/Selfrionette Device Manager/);
+ assert.equal(r.bundle.windows.certificateThumbprint,undefined); assert.equal(r.bundle.windows.signCommand,undefined);
+});

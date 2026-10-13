@@ -4,7 +4,7 @@ import {resolve,join} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {spawnSync} from 'node:child_process';
 import assert from 'node:assert/strict';
-import {inspectPE,sha256,extractZip} from './distribution-lib.mjs';
+import {inspectPE,sha256,extractZip,executableMetadata} from './distribution-lib.mjs';
 const root=resolve(fileURLToPath(new URL('..',import.meta.url)));process.chdir(root);
 const distribution=JSON.parse(readFileSync('dist/latest-distribution.json','utf8'));
 const zip=readdirSync(distribution.directory).find(n=>n.endsWith('-portable.zip'));assert(zip);
@@ -19,12 +19,18 @@ if(process.env.SELFRIONETTE_INSTALLED_EXE) {
   assert.equal(sha256(readFileSync(installed)),info.executable_sha256);
   executables.push(installed);
 }
+const metadata=[];
 for(const binary of executables) {
+  const value=executableMetadata(binary);
+  assert.equal(value.company_name,info.publisher);
+  assert.equal(value.product_name,'Selfrionette Device Manager');
+  assert.equal(value.signature_status,'NotSigned');
+  metadata.push(value);
   const test=spawnSync(process.execPath,['tools/native-smoke.mjs'],{cwd:root,stdio:'inherit',timeout:180000,
     env:{...process.env,SELFRIONETTE_GUI_EXE:binary,SELFRIONETTE_GUI_RUNTIME_ONLY:'1'}});
   if(test.error)throw test.error;assert.equal(test.status,0);
 }
-const report={result:'PASS',source_commit:info.source_commit,executable_sha256:info.executable_sha256,pe,
+const report={result:'PASS',windows_metadata:metadata,source_commit:info.source_commit,executable_sha256:info.executable_sha256,pe,
   tested_binaries:executables.length,installer_tested:executables.length===2,
   scope:'Release executable; system-only child PATH, isolated working directory; synthetic Rust IPC + GUI regression tests',
   limitations:['Build tools still installed on host disk','Local mode uses an existing WebView2 Runtime; CI installs through the packaged setup','No clean VM or missing-runtime install test','No physical device access']};

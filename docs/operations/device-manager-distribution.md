@@ -10,7 +10,7 @@ related:
 # Device Managerをビルドせずに使う
 
 ## 対象と配布物
-Windows 11 x64向けの合成試験版です。実機接続・実機校正・Firmware書込みは未対応です。
+Windows 11 x64向けの開発中プレビューです。実機のシリアル入力確認と合成調整試験を提供します。実機校正・装置設定保存・Firmware書込みは未対応です。
 Rust、Node.js、Visual Studio、Windows SDK、Git、ソースのcloneは使用者に不要です。
 ソースの開発・ローカルブランチの検証は[開発者向けREADME](https://github.com/Xpotato1024/Selfrionette-Device/blob/main/apps/device-manager/README.md)に従ってください。
 
@@ -33,14 +33,30 @@ setup.exeは現在の利用者向けにインストールします。組織の�
 WebView2は実行時依存です。ZIP版で起動しない場合は同じ版のsetup.exeかMicrosoft公式のWebView2 Runtimeを利用してください。
 WebView2同梱インストーラーは初回のRuntime導入にネット接続を要求しない設定です。Runtimeの将来の自動更新にはネット接続が必要です。
 
-起動後、共通の対象欄で合成個体を選び、「調整」の手順を進めます。終了はウィンドウを閉じます。
+起動時は「実機」です。USB接続後に「再検索」、接続先を選んで「接続」、確認画面で「接続する」を押します。一覧取得だけではポートを開きません。選択ポートを一台だけ115200 baudで開き、7chのvector形式を受信します。
+値が届くまで「受信待ち」、更新が止まれば旧値を消します。OS一覧にない場合と、ポートはあるが接続/受信できない場合を分けて確認してください。機器時刻後退や不正データでは停止し、自動で別個体へ接続しません。
+「診断・記録」の個体情報取得はProtocol v2のinfoだけを送信します。旧Firmwareの7ch入力も受信できますが、個体IDは応答しない場合があります。
+GUI操作確認は入力元を「合成試験」へ切り替え、対象個体と「調整」を選びます。実機接続中は先に切断してください。終了はウィンドウを閉じます。
 合成モードの成功は実機の使用可能性を意味しません。
+
+## 認識しない場合
+この版より前の0.1.0-preview.1は合成専用で、USBを接続しても一覧は変わりません。
+この版で一覧にない場合は、Windowsのデバイスマネージャーのポート表示とUSB接続を確認します。ポートはあるが接続できない場合は、シリアルモニターやSimなどによる占有を確認します。受信待ちの場合は通信形式/Firmwareを確認します。ドライバー不良やFirmware書換えが必要とは、GUIの未表示だけで決めつけません。
 
 ## 保存先と更新
 PC記録は原則として %APPDATA%\dev.selfrionette.manager\synthetic-fixtures\ に保存します。exeのある場所は書込み先にしません。
 開発者・試験者がSELFRIONETTE_GUI_FIXTURE_DIRを設定した場合だけ保存先を変更します。通常使用では環境変数設定は不要です。
 更新はアプリを終了してから行います。ZIP版は旧版へ上書きせず新しいフォルダーへ展開すると比較できます。
 記録の互換性は別契約です。版が異なる記録を読み込めると無条件に保証しません。
+
+## 製品情報と発行元
+表示名はXpotato.net、Webサイトはhttps://xpotato.net。正本はtauri.conf.jsonのbundle.publisher/homepageで、exeのCompanyName、NSISのPublisher、アプリ情報dialogへ反映する。
+製品名とバージョンは通常の作業面へ常設せず、Windowsタイトルバーと右上の「アプリ情報」で確認する。
+アプリ情報は読取り専用であり、表示によって対象個体・調整・確認・記録を変更しない。
+製品のidentifierはdev.selfrionette.managerを維持し、発行元表示の変更で既存記録の保存先を変えない。
+名称の設定だけでは、UAC/SmartScreenの「確認済みの発行元」やデジタル署名は設定できない。信頼されたコード署名証明書による署名が別途必要で、証明書の本人確認に沿う名称を使用する。
+自作証明書の信頼登録、警告抑止、署名用credentialの作成はこの変更で行わない。
+配布処理はexeの実CompanyNameと署名状態を検査し、CIではインストール後のPublisherも照合する。
 
 ## 未署名の試験版と出所確認
 現在の配布候補は未署名です。WindowsのSmartScreenや組織のポリシーによって警告・実行拒否が起こり得ます。
@@ -65,3 +81,6 @@ CIはPR・手動実行・device-manager-v* tagで配布候補を生成し、成�
 ## 一次資料
 - [Tauri Windows Installer](https://v2.tauri.app/distribute/windows-installer/)
 - [Microsoft WebView2の配布](https://learn.microsoft.com/microsoft-edge/webview2/concepts/distribution)
+
+- [Tauri: publisher](https://v2.tauri.app/reference/config/#publisher)
+- [Microsoft: コード署名](https://learn.microsoft.com/en-us/windows/apps/package-and-deploy/code-signing-options)

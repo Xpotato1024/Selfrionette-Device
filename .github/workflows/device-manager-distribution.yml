@@ -5,6 +5,7 @@ on:
     paths:
       - 'apps/device-manager/**'
       - 'crates/selfrionette-core/**'
+      - 'crates/selfrionette-serial/**'
       - 'docs/operations/device-manager-distribution.md'
       - '.github/workflows/device-manager-distribution.yml'
   push:
@@ -65,6 +66,9 @@ jobs:
           Write-Output "Installed SHA-256: $actual"
           Write-Output "Packaged SHA-256: $expected"
           if ($actual -ne $expected) { throw 'Installed executable differs from packaged executable' }
+          $entry = Get-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\Selfrionette Device Manager'
+          if ($entry.Publisher -ne 'Xpotato.net') { throw 'Installed publisher metadata is incorrect' }
+          Write-Output "Installed publisher: $($entry.Publisher)"
           Write-Output 'WebView2 after installation:'
           Get-ItemProperty $keys -ErrorAction SilentlyContinue | Where-Object name -Match 'WebView' | Select-Object name,pv
       - name: Test extracted release without developer PATH

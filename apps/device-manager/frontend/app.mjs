@@ -1,3 +1,4 @@
+import { createHardwareUI } from './hardware-ui.mjs';
 import { createDesignPreview } from './design-preview.mjs';
 import { createController } from './controller.mjs';
 import { createStepNavigation, stepKeys, currentStep, canVisit } from './navigation.mjs';
@@ -5,13 +6,15 @@ const stepNavigation = createStepNavigation();
 const native = typeof window.__TAURI__?.core?.invoke === 'function';
 const transport = native ? request => window.__TAURI__.core.invoke('device_command', { request }) : createDesignPreview();
 const $ = id => document.getElementById(id);
+let sourceMode = native ? 'hardware' : 'synthetic';
+const hardware = createHardwareUI(request => window.__TAURI__.core.invoke('hardware_command', {request}));
 const phaseNames = { not_started: '未開始', baseline: '基準の確認待ち', assessment: '応答の確認待ち', preview: '入力の比較待ち', confirmation: '結果の確認待ち', record: '合成結果を確認済み' };
 const numbers = new Intl.NumberFormat('ja-JP', { maximumFractionDigits: 4 });
 const number = value => value === null || value === undefined ? '—' : numbers.format(value);
 const normalized = row => !row ? '—' : row.normalized === null ? '未測定' : number(row.normalized);
 const status = row => !row ? '未比較' : row.saturated ? '表示範囲超過' : row.normalized === null ? '逆方向未測定' : '—';
 let currentPage = 'device', selectedChannel = 0, currentView = null, isBusy = false, lastTarget = null, pendingConfirmation = null;
-$('environment').textContent = native ? '合成試験 · 実機未接続' : '表示見本 · 判定と保存は無効';
+$('environment').textContent = native ? '未接続' : '表示見本 · 判定と保存は無効';
 function clearError() {
   $('error-panel').hidden = true;
   $('reason').removeAttribute('aria-invalid'); $('flip-channel').removeAttribute('aria-invalid');
@@ -39,7 +42,7 @@ function controls() {
     const permission = permissions.get(button.dataset.command);
     button.disabled = isBusy || !permission?.enabled;
     const help = $(button.id + '-help');
-    if (help) help.textContent = button.id === 'save' && currentView?.saved_current ? '' : permission?.reason ?? '';
+    if (help) help.textContent = button.hidden || (button.id === 'save' && currentView?.saved_current) ? '' : permission?.reason ?? '';
     button.classList.toggle('primary', button.id === primary && !button.disabled);
   });
   $('back-to-comparison').classList.toggle('primary', primary === 'back-to-comparison');
@@ -59,7 +62,7 @@ function renderNavigation() {
     if (position === key) button.setAttribute('aria-current', 'step');
     const number = document.createElement('span'); number.className = 'step-number'; number.textContent = String(index + 1); number.setAttribute('aria-hidden','true');
     const title = document.createElement('span'); title.className = 'step-label'; title.textContent = step.label;
-    const state = document.createElement('span'); state.className = 'step-state'; state.textContent = {complete:'完了',current:'未完了',pending:'未到達'}[step.state];
+    const state = document.createElement('span'); state.className = 'step-state'; state.textContent = currentView.phase === 'not_started' && index === 0 ? '開始前' : {complete:'完了',current:'未完了',pending:'未到達'}[step.state];
     button.setAttribute('aria-label', (index+1)+' '+step.label+' '+state.textContent);
     button.append(number,title,state); button.onclick = () => visitStep(key);
     li.append(button); $('steps').append(li);
@@ -75,6 +78,7 @@ function renderNavigation() {
   $('previous-step').onclick = () => visitStep(stepKeys[previous]);
   $('return-current').hidden = position === active || !!currentView?.saved_current;
   $('return-current').onclick = () => visitStep(active);
+  $('step-footer').hidden = $('previous-step').hidden && $('return-current').hidden;
   $('manual-controls').hidden = !(currentView?.operations.some(operation => operation.id === 'flip' && operation.enabled));
   controls();
 }
@@ -87,11 +91,17 @@ function visitStep(key) {
 function showPage(page, focus = true) {
   if (!['device','adjust','diagnostics'].includes(page)) return;
   currentPage = page;
+  hardware.showPage(page);
   document.querySelectorAll('[role="tab"]').forEach(button => {
     const selected = button.dataset.page === page;
+    button.setAttribute('aria-controls', (sourceMode === 'hardware' ? 'hardware-page-' : 'page-') + button.dataset.page);
     button.setAttribute('aria-selected', String(selected)); button.tabIndex = selected ? 0 : -1;
   });
-  for (const name of ['device','adjust','diagnostics']) $('page-' + name).hidden = !currentView || name !== page;
+  for (const name of ['device','adjust','diagnostics']) $('page-' + name).hidden = sourceMode !== 'synthetic' || !currentView || name !== page;
+  if (sourceMode === 'hardware') {
+    if (focus) $('hardware-page-' + page).querySelector('h1')?.focus({preventScroll:true});
+    return;
+  }
   if (focus && currentView) {
     const heading = page === 'adjust' ? document.querySelector('[data-step="'+stepNavigation.position(currentView)+'"] h2') : $(page+'-title');
     heading?.focus({preventScroll:true});
@@ -138,13 +148,14 @@ function renderInspector() {
 function render(view) {
   const previous = currentView; currentView = view;
   if (view && previous?.id === view.id && (previous.phase !== view.phase || previous.epoch !== view.epoch)) stepNavigation.follow(view);
-  $('unavailable').hidden = !!view;
+  $('unavailable').hidden = sourceMode !== 'synthetic' || !!view;
   if (view && view.id !== lastTarget) {
     selectedChannel = 0; lastTarget = view.id;
     $('reason').value = ''; $('scenario').value = 'good'; $('level').value = '0.5'; $('manual-controls').open = false;
   }
   if (view) $('role').value = view.role;
   $('device-id').textContent = view?.id ?? '状態不明';
+  $('device-id').title = view?.id ?? '';
   $('role-summary').textContent = view ? (view.role === 'left' ? '左入力用の合成個体' : '右入力用の合成個体') : '対象を取得できません';
   $('device-phase').textContent = phaseNames[view?.phase] ?? '状態不明';
   $('device-record').textContent = view?.saved_current ? '現在の結果を保存済み' : '未保存';
@@ -175,6 +186,7 @@ function commandFor(action) {
   return { action };
 }
 async function dispatch(command) {
+  if (sourceMode !== 'synthetic') return;
   clearError();
   const restoreTargetFocus = command.action === 'select' && document.activeElement === $('role');
   const reply = await controller.send(command);
@@ -228,5 +240,38 @@ for (const tab of tabs) tab.addEventListener('keydown', event => {
 const narrow = matchMedia('(max-width: 700px)');
 $('step-outline').open = !narrow.matches;
 narrow.addEventListener('change', event => { $('step-outline').open = !event.matches; });
+// Product information is read from the bundled config, never from device state.
+$('about').onclick = async () => {
+  for (const key of ['product','version','publisher','homepage']) $('about-'+key).textContent = '—';
+  $('about-note').textContent = '発行元の名称は製品情報です。電子署名による本人性の検証とは異なります。';
+  $('about-dialog').showModal();
+  try {
+    const info = native ? await window.__TAURI__.core.invoke('application_info') : {
+      product_name: document.title, version: 'ブラウザー表示見本', publisher: '—', homepage: '—'
+    };
+    $('about-product').textContent = info.product_name;
+    $('about-version').textContent = info.version;
+    $('about-publisher').textContent = info.publisher ?? '未設定';
+    $('about-homepage').textContent = info.homepage ?? '未設定';
+  } catch {
+    $('about-note').textContent = '製品情報を取得できませんでした。配布物のBUILD-INFO.jsonを確認してください。';
+  }
+};
+$('about-close').onclick = () => $('about-dialog').close();
+async function selectSource(value) {
+  if (hardware.connected && value !== 'hardware') { $('source-mode').value = 'hardware'; return; }
+  sourceMode = value; $('source-mode').value = value; clearError();
+  $('synthetic-target').hidden = value !== 'synthetic';
+  $('unavailable').hidden = true;
+  await hardware.activate(value === 'hardware', currentPage);
+  if (value === 'synthetic') {
+    $('source-mode').disabled = false;
+    $('environment').textContent = native ? '合成試験 · 実機未接続' : '表示見本 · 判定と保存は無効';
+    await dispatch({action:'status'});
+  }
+  showPage(currentPage, false);
+}
+$('source-mode').onchange = () => { void selectSource($('source-mode').value); };
+if (!native) $('source-mode').querySelector('[value="hardware"]').disabled = true;
 render(null);
-void dispatch({ action: 'status' });
+void selectSource(sourceMode);
