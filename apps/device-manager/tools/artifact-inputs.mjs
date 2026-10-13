@@ -3,7 +3,8 @@ import {readFileSync} from 'node:fs';
 import {createHash} from 'node:crypto';
 import {join} from 'node:path';
 export function isProductInput(path){
- return /^(crates\/.*\.(rs|toml)|Cargo\.(toml|lock)|rust-toolchain.*|\.cargo\/.*)$/.test(path)
+ return /^apps\/device-manager\/licenses\/[^/]+\.txt$/.test(path)
+ || /^(crates\/.*\.(rs|toml)|Cargo\.(toml|lock)|rust-toolchain.*|\.cargo\/.*)$/.test(path)
  || /^(apps\/device-manager\/src-tauri\/.*|apps\/device-manager\/(package(-lock)?\.json|frontend\/(?!.*\.test\.mjs$).*|tools\/(package-windows|distribution-lib|artifact-inputs)\.mjs)|docs\/operations\/device-manager-distribution\.md)$/.test(path);
 }
 export function productInputs(repo){

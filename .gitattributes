@@ -1,0 +1,2 @@
+# Preserve exact upstream license text, including its original trailing newlines.
+apps/device-manager/licenses/*.txt text eol=lf whitespace=-blank-at-eof

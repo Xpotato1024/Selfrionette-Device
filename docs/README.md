@@ -53,6 +53,7 @@ related:
 | Topic | Canonical document |
 |---|---|
 | Device Managerの検証層・再利用 | [device-manager-testing.md](operations/device-manager-testing.md) |
+| GitHub配布・最新プレビューの案内 | [device-manager-distribution.md](operations/device-manager-distribution.md) |
 | Windowsバイナリの利用・生成 | [device-manager-distribution.md](operations/device-manager-distribution.md) |
 | Git / PR workflow | [git-pr-workflow.md](operations/git-pr-workflow.md) |
 | 旧Sim firmwareの管理・build・採用順 | [legacy-sim-firmware.md](operations/legacy-sim-firmware.md) |
