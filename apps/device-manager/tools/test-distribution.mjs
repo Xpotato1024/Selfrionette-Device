@@ -4,14 +4,13 @@ import {resolve,join} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {spawnSync} from 'node:child_process';
 import assert from 'node:assert/strict';
-import {inspectPE,sha256} from './distribution-lib.mjs';
+import {inspectPE,sha256,extractZip} from './distribution-lib.mjs';
 const root=resolve(fileURLToPath(new URL('..',import.meta.url)));process.chdir(root);
 const distribution=JSON.parse(readFileSync('dist/latest-distribution.json','utf8'));
 const zip=readdirSync(distribution.directory).find(n=>n.endsWith('-portable.zip'));assert(zip);
 const parent=resolve('src-tauri/target/distribution-qa');mkdirSync(parent,{recursive:true});const run=mkdtempSync(join(parent,'run-'));
 const extracted=join(run,'日本語 空白のあるフォルダー');mkdirSync(extracted);
-const unpack=spawnSync('tar.exe',['-x','-f',join(distribution.directory,zip),'-C',extracted],{stdio:'inherit',timeout:180000});
-if(unpack.error)throw unpack.error;assert.equal(unpack.status,0);
+extractZip(join(distribution.directory,zip),extracted);
 const exe=join(extracted,'selfrionette-device-manager.exe'),info=JSON.parse(readFileSync(join(extracted,'BUILD-INFO.json'),'utf8'));
 assert.equal(sha256(readFileSync(exe)),info.executable_sha256);const pe=inspectPE(readFileSync(exe));
 const test=spawnSync(process.execPath,['tools/native-smoke.mjs'],{cwd:root,stdio:'inherit',timeout:180000,

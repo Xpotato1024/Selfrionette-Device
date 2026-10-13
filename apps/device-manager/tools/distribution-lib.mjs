@@ -1,3 +1,4 @@
+import {spawnSync} from 'node:child_process';
 import { readFileSync, readdirSync, statSync, copyFileSync, mkdirSync } from 'node:fs';
 import { dirname, join, basename } from 'node:path';
 import { createHash } from 'node:crypto';
@@ -74,4 +75,20 @@ export function collectNotices(metadata, output) {
     inventory.push(entry);
   }
   return {text:sections.join('\n')+'\n',inventory,licenseReview:inventory.filter(p=>!p.notices.length).map(p=>p.name+'@'+p.version)};
+}
+
+export function zipDirectory(source, destination) {
+  zipOperation(source,destination,'[IO.Compression.ZipFile]::CreateFromDirectory($env:SRN_ZIP_SOURCE,$env:SRN_ZIP_DESTINATION)');
+}
+export function extractZip(source,destination) {
+  zipOperation(source,destination,'[IO.Compression.ZipFile]::ExtractToDirectory($env:SRN_ZIP_SOURCE,$env:SRN_ZIP_DESTINATION)');
+}
+function zipOperation(source,destination,operation) {
+  // .NET and UTF-16 environment variables preserve Unicode on non-Japanese Windows.
+  // Paths are data, never interpolated into PowerShell source.
+  const command="$ErrorActionPreference='Stop'; Add-Type -AssemblyName System.IO.Compression.FileSystem; "+operation;
+  const result=spawnSync('powershell.exe',['-NoProfile','-NonInteractive','-Command',command],{
+    env:{...process.env,SRN_ZIP_SOURCE:source,SRN_ZIP_DESTINATION:destination},encoding:'utf8',timeout:180000,maxBuffer:1024*1024});
+  if(result.error)throw result.error;
+  if(result.status!==0)throw Error('ZIP operation failed: '+result.stderr);
 }

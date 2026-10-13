@@ -1,5 +1,6 @@
-import test from 'node:test';import assert from 'node:assert/strict';import {readFileSync} from 'node:fs';
-import {inspectPE,runtimeEnvironment,sha256} from './distribution-lib.mjs';
+import {tmpdir} from 'node:os';import {join} from 'node:path';
+import test from 'node:test';import assert from 'node:assert/strict';import {readFileSync,mkdirSync,mkdtempSync,writeFileSync,rmSync} from 'node:fs';
+import {inspectPE,runtimeEnvironment,sha256,zipDirectory,extractZip} from './distribution-lib.mjs';
 function image(dll='KERNEL32.dll') {
  const b=Buffer.alloc(1024);b.writeUInt16LE(0x5a4d,0);b.writeUInt32LE(0x80,0x3c);b.writeUInt32LE(0x4550,0x80);
  b.writeUInt16LE(0x8664,0x84);b.writeUInt16LE(1,0x86);b.writeUInt16LE(240,0x94);b.writeUInt16LE(0x20b,0x98);
@@ -14,3 +15,11 @@ test('runtime test excludes developer paths, credentials and runtime overrides',
 test('distribution config keeps developer path separate and embeds offline WebView2',()=>{const c=JSON.parse(readFileSync(new URL('../src-tauri/tauri.conf.json',import.meta.url)));const r=JSON.parse(readFileSync(new URL('../src-tauri/tauri.release.conf.json',import.meta.url)));assert.equal(c.bundle.active,false);assert.equal(c.build.windows.staticVCRuntime,true);assert.equal(r.bundle.active,true);assert.deepEqual(r.bundle.targets,['nsis']);assert.equal(r.bundle.windows.webviewInstallMode.type,'offlineInstaller');assert.equal(r.bundle.windows.nsis.installMode,'currentUser');const launcher=readFileSync(new URL('../run-native.cmd',import.meta.url),'utf8');assert(!launcher.includes('D:\\Xpotato-apps'));assert(launcher.includes('vswhere.exe'));assert(launcher.includes('run build -- --debug'));});
 test('application and bundle version remain identical',()=>{const c=JSON.parse(readFileSync(new URL('../src-tauri/tauri.conf.json',import.meta.url)));const cargo=readFileSync(new URL('../src-tauri/Cargo.toml',import.meta.url),'utf8');assert(cargo.includes('version = "'+c.version+'"'));});
 test('checksums are SHA-256 over actual bytes',()=>assert.equal(sha256(Buffer.from('abc')),'ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad'));
+
+test('ZIP round trip keeps Japanese, spaces and quotes as path data',{skip:process.platform!=='win32'},()=>{
+ const run=mkdtempSync(join(tmpdir(),'srn-zip-'));try{
+ const source=join(run,"日本語 space's"),dest=join(run,'展開 先'),archive=join(run,'配布物.zip');
+ mkdirSync(source);writeFileSync(join(source,'試験.txt'),'入力確認','utf8');zipDirectory(source,archive);extractZip(archive,dest);
+ assert.equal(readFileSync(join(dest,'試験.txt'),'utf8'),'入力確認');
+ }finally{rmSync(run,{recursive:true,force:true});}
+});

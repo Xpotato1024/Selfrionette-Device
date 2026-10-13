@@ -3,7 +3,7 @@ import {readFileSync,writeFileSync,mkdirSync,readdirSync,cpSync,copyFileSync,exi
 import {resolve,join} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {execFileSync,spawnSync} from 'node:child_process';
-import {sha256,inspectPE,collectNotices} from './distribution-lib.mjs';
+import {sha256,inspectPE,collectNotices,zipDirectory} from './distribution-lib.mjs';
 if(process.platform!=='win32'||process.arch!=='x64')throw Error('Package on Windows x64 with the MSVC toolchain.');
 const root=resolve(fileURLToPath(new URL('..',import.meta.url))),repo=resolve(root,'../..');
 process.chdir(root);
@@ -49,9 +49,7 @@ const setups=readdirSync(bundle).filter(n=>n.includes(version)&&n.endsWith('-set
 if(setups.length!==1)throw Error('Expected exactly one matching NSIS installer, found '+setups.length);
 copyFileSync(join(bundle,setups[0]),join(destination,stem+'-setup.exe'));
 const zip=join(destination,stem+'-portable.zip');
-// Windows tar creates zip from the staged directory without relying on a developer shell.
-const archive=spawnSync('tar.exe',['-a','-c','-f',zip,'-C',portable,'.'],{stdio:'inherit',timeout:180000});
-if(archive.error)throw archive.error;if(archive.status!==0)throw Error('ZIP creation failed');
+zipDirectory(portable,zip);
 writeFileSync(join(destination,'BUILD-INFO.json'),JSON.stringify(info,null,2)+'\n');
 copyFileSync(join(resources,'README.md'),join(destination,'README.md'));
 const files=readdirSync(destination).filter(n=>/\.(exe|zip|json|md)$/.test(n));
