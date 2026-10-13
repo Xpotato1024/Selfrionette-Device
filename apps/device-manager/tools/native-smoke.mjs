@@ -1,3 +1,4 @@
+import {waitForAppPage} from './native-session.mjs';
 import {installCIPolicy,removeCIPolicy} from './ci-webview-policy.mjs';
 import {runtimeEnvironment} from './distribution-lib.mjs';
 // Windows-only native Tauri IPC smoke test. Synthetic records; no device I/O.
@@ -34,7 +35,7 @@ async function launch(){
  if(!ready)throw Error('WebView2 CDP did not become ready within 20 seconds. '+diagnostic);
  const browser=await chromium.connectOverCDP('http://127.0.0.1:'+port);
  active.browser=browser;
- const page=browser.contexts().flatMap(c=>c.pages()).find(p=>p.url().includes('tauri.localhost'))||browser.contexts()[0].pages()[0];
+ const page=await waitForAppPage(browser,{check:()=>{if(child.exitCode!==null)throw Error('Native exit '+child.exitCode+': '+diagnostic);}});
  await page.waitForFunction(()=>typeof window.__TAURI__?.core?.invoke==='function');
  await page.waitForFunction(()=>document.getElementById('source-mode') && !document.getElementById('source-mode').disabled);
  assert.equal(await page.locator('#source-mode').inputValue(),'hardware');

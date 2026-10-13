@@ -38,3 +38,5 @@ nativeでは実機モードで起動してport列挙を確認し、接続handle�
 
 ## 配布CIのPowerShell境界修正
 Windows hosted runnerのpwshからNode経由でpowershell.exeを起動すると、PS7のPSModulePathが継承され、Get-AuthenticodeSignatureのmodule読込みが失敗した。metadata確認の子processだけからPSModulePathを除外し、Windows PowerShellが標準値を構築するように修正。署名/Publisherチェックは削除せず、親の環境を変更しない回帰試験を追加した。根拠: https://learn.microsoft.com/powershell/module/microsoft.powershell.core/about/about_psmodulepath#starting-windows-powershell-from-powershell-7
+
+CIの初回WebView起動ではCDP endpoint確立直後にpage targetがまだ存在せず、旧試験コードがundefinedを参照した。実アプリのtauri.localhost pageが公開されるまで最大20秒の有限待機を追加。別pageを生成せず、未公開/無関係なpage/早期process終了を拒否する3件の回帰試験を追加した。アプリ本体の動作・検証assertionは変更していない。

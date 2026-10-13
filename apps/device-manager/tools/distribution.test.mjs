@@ -1,3 +1,4 @@
+import {waitForAppPage} from './native-session.mjs';
 import {ciPolicyEnabled} from './ci-webview-policy.mjs';
 import {tmpdir} from 'node:os';import {join} from 'node:path';
 import test from 'node:test';import assert from 'node:assert/strict';import {readFileSync,mkdirSync,mkdtempSync,writeFileSync,rmSync} from 'node:fs';
@@ -51,4 +52,18 @@ test('Windows metadata uses its own modules even when a parent process supplies 
     assert(result.signature_status.length>0);
     assert.equal(typeof result.product_name,'string');
   } finally {rmSync(run,{recursive:true,force:true});}
+});
+
+
+test('native harness waits for a delayed app page instead of treating a live CDP port as page readiness',async()=>{
+  let polls=0;const page={url:()=> 'http://tauri.localhost/'};
+  const browser={contexts:()=>polls<2?[]:[{pages:()=>polls<4?[{url:()=> 'about:blank'}]:[page]}]};
+  assert.equal(await waitForAppPage(browser,{attempts:5,wait:async()=>{polls++;}}),page);assert.equal(polls,4);
+});
+test('native harness rejects missing or unrelated pages after a finite wait',async()=>{
+  let polls=0;const browser={contexts:()=>[{pages:()=>[{url:()=> 'https://example.org/'}]}]};
+  await assert.rejects(waitForAppPage(browser,{attempts:3,wait:async()=>{polls++;}}),/bounded startup/);assert.equal(polls,3);
+});
+test('native harness preserves early process failure during page discovery',async()=>{
+  await assert.rejects(waitForAppPage({contexts:()=>[]},{check:()=>{throw Error('Process exited');}}),/Process exited/);
 });
