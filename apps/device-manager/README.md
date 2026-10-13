@@ -4,15 +4,22 @@ Rust coreを共有するTauri v2 GUIです。製品の目的・状態・操作�
 Windows native Debug build・起動・Rust IPC・合成記録の保存/再読込をLLM-01で確認しました。
 合成fixture専用です。実機ID/番号/極性/校正値は未測定で、hardware_verified/control_readyは常にfalseです。
 
-## native GUIのsetup/start/stop
+## 使用者向け（ビルド不要）
+
+[バイナリの取得・起動・更新](../../docs/operations/device-manager-distribution.md)を参照してください。setup.exeとZIPを提供する構成です。
+以下は開発者向けの手順です。使用者にビルド用環境変数やMSVCの設定を求めません。
+
+## 開発者向け: native GUIのsetup/start/stop
 Rust stable、Node.js 24、MSVC v143 x64/x86、Windows SDK、WebView2が必要です。
 [公式prerequisites](https://v2.tauri.app/start/prerequisites/)を確認してください。
-LLM-01の確認済みtoolchainは D:\Xpotato-apps\toolchains\vs2022-msvc です。
-既存の別保存先を使う場合は当該processの SELFRIONETTE_VS_ROOT に指定します。
+標準のVisual Studio/Build Toolsはvswhereで自動検出し、Developer Command Promptの環境も利用できます。
+カスタム保存先は当該terminalのSELFRIONETTE_VS_ROOTに指定します。特定PCのDドライブをデフォルトにしません。
+LLM-01固有の既存検証環境は、必要なときだけ$env:SELFRIONETTE_VS_ROOT = 'D:\Xpotato-apps\toolchains\vs2022-msvc'と明示します。
 run-native.cmdはsetlocal/VsDevCmdで環境を設定し、global PATHや認証設定を変更しません。
 npm/native Cargoのlockfileを同梱しています。PowerShellで次を実行します。
 
-    cd D:\Xpotato-apps\Selfrionette-Device\apps\device-manager
+    # 任意のclone・作業用ローカルブランチのrepository rootから
+    cd apps/device-manager
     npm ci
     .\run-native.cmd build
     .\src-tauri\target\debug\selfrionette-device-manager.exe

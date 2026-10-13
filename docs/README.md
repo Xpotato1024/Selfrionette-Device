@@ -50,6 +50,7 @@ related:
 
 | Topic | Canonical document |
 |---|---|
+| Windowsバイナリの利用・生成 | [device-manager-distribution.md](operations/device-manager-distribution.md) |
 | Git / PR workflow | [git-pr-workflow.md](operations/git-pr-workflow.md) |
 | 旧Sim firmwareの管理・build・採用順 | [legacy-sim-firmware.md](operations/legacy-sim-firmware.md) |
 | 旧Sim monitor / measure操作 | [legacy-sim-host-tools.md](operations/legacy-sim-host-tools.md) |

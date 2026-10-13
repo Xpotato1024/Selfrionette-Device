@@ -1,3 +1,4 @@
+import {runtimeEnvironment} from './distribution-lib.mjs';
 // Windows-only native Tauri IPC smoke test. Synthetic records; no device I/O.
 import {chromium} from 'playwright-core';
 import {checkUI} from './ui-qa.mjs';
@@ -18,7 +19,8 @@ const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 async function freePort(){const s=net.createServer();await new Promise(r=>s.listen(0,'127.0.0.1',r));const p=s.address().port;await new Promise(r=>s.close(r));return p;}
 async function launch(){
  const port=await freePort();
- const child=spawn(exe,[],{windowsHide:true,env:{...process.env,SELFRIONETTE_GUI_FIXTURE_DIR:store,WEBVIEW2_USER_DATA_FOLDER:join(run,'webview'),WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS:'--remote-debugging-port='+port+' --remote-debugging-address=127.0.0.1'}});
+ const runtimeOnly=process.env.SELFRIONETTE_GUI_RUNTIME_ONLY==='1';
+ const child=spawn(exe,[],{cwd:run,windowsHide:true,env:{...(runtimeOnly?runtimeEnvironment(process.env):process.env),SELFRIONETTE_GUI_FIXTURE_DIR:store,WEBVIEW2_USER_DATA_FOLDER:join(run,'webview'),WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS:'--remote-debugging-port='+port+' --remote-debugging-address=127.0.0.1'}});
  let diagnostic='';child.stderr.on('data',v=>{diagnostic=(diagnostic+v).slice(-8000)});child.stdout.on('data',v=>{diagnostic=(diagnostic+v).slice(-8000)});
  active={child,port};
  for(let i=0;i<100;i++){

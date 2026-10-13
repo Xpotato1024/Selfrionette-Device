@@ -1,0 +1,70 @@
+name: Device Manager Windows distribution
+
+on:
+  pull_request:
+    paths:
+      - 'apps/device-manager/**'
+      - 'crates/selfrionette-core/**'
+      - 'docs/operations/device-manager-distribution.md'
+      - '.github/workflows/device-manager-distribution.yml'
+  push:
+    tags: ['device-manager-v*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  windows-package:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@v7.1.0
+        with:
+          node-version: '24'
+      - name: Install Rust toolchain
+        run: rustup toolchain install stable --profile minimal
+      - name: Install locked build dependencies
+        working-directory: apps/device-manager
+        run: npm ci
+      - name: Test frontend and distribution invariants
+        working-directory: apps/device-manager
+        run: |
+          npm test
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          npm run test:package
+          exit $LASTEXITCODE
+      - name: Build release EXE, offline installer and ZIP
+        working-directory: apps/device-manager
+        run: npm run package:windows
+      - name: Test extracted release without developer PATH
+        working-directory: apps/device-manager
+        run: npm run test:distribution
+      - name: Upload binary distribution
+        uses: actions/upload-artifact@v7.0.2
+        with:
+          name: device-manager-windows-x64-${{ github.event.pull_request.head.sha || github.sha }}
+          path: |
+            apps/device-manager/dist/Selfrionette-Device-Manager*/*.exe
+            apps/device-manager/dist/Selfrionette-Device-Manager*/*.zip
+            apps/device-manager/dist/Selfrionette-Device-Manager*/*.json
+            apps/device-manager/dist/Selfrionette-Device-Manager*/*.md
+            apps/device-manager/dist/Selfrionette-Device-Manager*/*.txt
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 30
+      - name: Keep scoped validation evidence
+        if: always()
+        uses: actions/upload-artifact@v7.0.2
+        with:
+          name: distribution-qa-${{ github.run_id }}
+          path: |
+            apps/device-manager/src-tauri/target/distribution-qa/run-*/report.json
+            apps/device-manager/src-tauri/target/native-qa/run-*/report.json
+            apps/device-manager/src-tauri/target/native-qa/run-*/*.png
+          if-no-files-found: ignore
+          retention-days: 14
