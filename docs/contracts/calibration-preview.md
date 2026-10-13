@@ -1,7 +1,7 @@
 ---
 status: draft
 owner: architecture
-last_verified: 2026-10-12
+last_verified: 2026-10-13
 related:
   - docs/contracts/device-host-boundary.md
   - docs/contracts/sample-monitor.md
@@ -61,7 +61,8 @@ recordのhardware_verified/control_readyはfalseを必須とし、synthetic firm
 確認時のtimestamp、元7ch、履歴baseline、差分、補正後値、正規化値を別々に保存する。
 firmware timestampはu32範囲。元値-baseline=差分、符号×差分=補正後、spanによる正規化の整合性を検証する。
 履歴baselineは証拠の比較専用。active baseline/符号/span/readinessの復元とは区別する。
-再読込でID/firmware/組立/ユーザー/姿勢を照合し、新epochの空sessionを作る。失敗でも旧確認を失効させる。
+閲覧専用read_historyはID/firmware/組立/ユーザー/姿勢を照合し、成功・失敗ともactive sessionを変更しない。失敗時は以前の閲覧記録を消す。
+明示操作resumeは同じ条件を照合して新epochの空sessionを作り、失敗時も旧確認を失効させる。閲覧と再開を兼ねるload commandは使わない。
 次回の基準と品質観測から候補を作り直す。通常入力や保存済み値だけで校正済みにしない。
 
 ## 再判定と失敗後の状態
@@ -69,3 +70,8 @@ firmware timestampはu32範囲。元値-baseline=差分、符号×差分=補正�
 assess失敗後はqualified stageを失い、手動flipで旧候補へ復帰できない。新しい品質観測が必要になる。
 GUIはエラー後にRustの現在状態を読み取り、旧active rowsや確認ボタンを成功状態のまま残さない。
 この失効は基準・符号・spanの自動再校正を意味しない。coreのrevoke_previewは確認状態だけを消す。
+
+## 操作モデル
+[Device Manager製品・操作設計](../architecture/device-manager-workflow.md)を正とする。
+左右合成個体の選択はsessionを失効させない。やり直し・再開は明示操作とし、target/epoch/revisionを照合する。
+coreから工程状態を導出し、アプリケーション層が許可操作と理由を返す。構造不正なIPCと、解釈済み変更の値検証失敗を区別する。

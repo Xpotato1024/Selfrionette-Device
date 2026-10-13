@@ -29,6 +29,7 @@ related:
 | Topic | Canonical document |
 |---|---|
 | repository ownership / directory boundary | [repository-boundaries.md](architecture/repository-boundaries.md) |
+| Device Manager製品・操作体系（合成実装） | [device-manager-workflow.md](architecture/device-manager-workflow.md) |
 
 ## Contracts
 
@@ -61,7 +62,7 @@ related:
 
 - calibration / tare / persistent calibration
 - firmware update
-- Device Manager GUI
+- Device Manager GUIの実機接続・校正・保守
 - dual-device role binding
 
 未確定項目をこのindexだけで仕様化しない。
