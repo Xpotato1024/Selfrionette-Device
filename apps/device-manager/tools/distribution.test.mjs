@@ -67,3 +67,24 @@ test('native harness rejects missing or unrelated pages after a finite wait',asy
 test('native harness preserves early process failure during page discovery',async()=>{
   await assert.rejects(waitForAppPage({contexts:()=>[]},{check:()=>{throw Error('Process exited');}}),/Process exited/);
 });
+
+
+test('installer paths are not derived from the displayed publisher',()=>{
+ const c=JSON.parse(readFileSync(new URL('../src-tauri/tauri.release.conf.json',import.meta.url)));
+ const t=readFileSync(new URL('../src-tauri/windows/installer.nsi',import.meta.url),'utf8');
+ assert.equal(c.bundle.windows.nsis.template,'windows/installer.nsi');
+ assert(t.includes('!define MANUKEY "Software\\${BUNDLEID}"'));
+ assert(t.includes('ReadRegStr $1 SHCTX "${UNINSTKEY}" "InstallLocation"'));
+ assert(!t.includes('ReadRegStr $4 SHCTX "${MANUPRODUCTKEY}" ""'));
+ assert(t.includes('StrCpy $R1 "$R1 _?=$4"'));
+ assert(t.includes('StrCpy $4 $SRNRegisteredDirectory'));
+ const body=t.match(/Function SRNReadRegisteredDirectory[\s\S]*?FunctionEnd/)[0];
+ assert(!/WriteReg|DeleteReg|Exec|RMDir/.test(body),'Path resolution must have no side effects');
+ assert(body.includes('GetFullPathName'));
+});
+test('vendored installer template follows the locked Tauri CLI',()=>{
+ const lock=JSON.parse(readFileSync(new URL('../package-lock.json',import.meta.url)));
+ const origin=JSON.parse(readFileSync(new URL('../src-tauri/windows/UPSTREAM.json',import.meta.url)));
+ assert.equal(origin.cli_version,lock.packages['node_modules/@tauri-apps/cli'].version);
+ assert.match(origin.upstream_sha256,/^[a-f0-9]{64}$/);
+});

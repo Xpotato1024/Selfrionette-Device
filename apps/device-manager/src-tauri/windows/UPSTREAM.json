@@ -1,0 +1,5 @@
+{
+  "source": "https://raw.githubusercontent.com/tauri-apps/tauri/tauri-cli-v2.12.2/crates/tauri-bundler/src/bundle/windows/nsis/installer.nsi",
+  "cli_version": "2.12.2",
+  "upstream_sha256": "166f9677d42e81c7f712a1bf80d9d8c089c21d2967d8398474768b5eac14b494"
+}

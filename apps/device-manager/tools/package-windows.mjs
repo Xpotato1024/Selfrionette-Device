@@ -23,6 +23,10 @@ const resources=resolve('dist/bundle-resources');
 rmSync(resources,{recursive:true,force:true});mkdirSync(resources,{recursive:true});
 const metadata=JSON.parse(output('cargo',['metadata','--locked','--format-version','1','--manifest-path','src-tauri/Cargo.toml','--filter-platform','x86_64-pc-windows-msvc']));
 const notices=collectNotices(metadata,resources);
+const installerUpstream=JSON.parse(readFileSync('src-tauri/windows/UPSTREAM.json','utf8'));
+const cliVersion=JSON.parse(readFileSync('node_modules/@tauri-apps/cli/package.json','utf8')).version;
+if(cliVersion!==installerUpstream.cli_version)throw Error('Review the custom NSIS template before changing Tauri CLI.');
+notices.text+='\n\nTauri NSIS installer template (local path-resolution changes):\n'+readFileSync('src-tauri/windows/LICENSE-MIT.tauri','utf8');
 writeFileSync(join(resources,'THIRD-PARTY-NOTICES.txt'),notices.text);
 writeFileSync(join(resources,'DEPENDENCIES.json'),JSON.stringify(notices.inventory,null,2)+'\n');
 copyFileSync(join(repo,'docs/operations/device-manager-distribution.md'),join(resources,'README.md'));
@@ -30,7 +34,7 @@ copyFileSync(join(repo,'docs/operations/device-manager-distribution.md'),join(re
 const frontend=resolve('dist/frontend');rmSync(frontend,{recursive:true,force:true});mkdirSync(frontend,{recursive:true});
 for(const name of ['index.html','style.css','app.mjs','controller.mjs','design-preview.mjs','navigation.mjs','hardware-ui.mjs','hardware-controller.mjs'])copyFileSync(join(root,'frontend',name),join(frontend,name));
 const info={schema:1,application_version:version,publisher:config.bundle.publisher,homepage:config.bundle.homepage,application_identifier:config.identifier,source_commit:commit,source_tree:git('rev-parse','HEAD^{tree}'),source_dirty:false,
-  built_at_utc:new Date().toISOString(),target:'x86_64-pc-windows-msvc',profile:'release',bundle_binary_patching:false,mode:'serial-monitor-and-synthetic',hardware_verified:false,
+  built_at_utc:new Date().toISOString(),target:'x86_64-pc-windows-msvc',profile:'release',installer_template_sha256:sha256(readFileSync('src-tauri/windows/installer.nsi')),installer_bookkeeping:'Software\\dev.selfrionette.manager\\Installer',bundle_binary_patching:false,mode:'serial-monitor-and-synthetic',hardware_verified:false,
   runtime:'Microsoft Edge WebView2 Evergreen',installer_runtime_mode:'offlineInstaller',code_signing:'unsigned',
   toolchain:{rust:output('rustc',['-Vv']),cargo:output('cargo',['-V']),node:process.version},
   lockfiles:{cargo:sha256(readFileSync('src-tauri/Cargo.lock')),npm:sha256(readFileSync('package-lock.json'))},

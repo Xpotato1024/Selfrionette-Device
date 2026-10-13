@@ -42,6 +42,9 @@ jobs:
       - name: Build release EXE, offline installer and ZIP
         working-directory: apps/device-manager
         run: npm run package:windows
+      - name: Test NSIS path resolution with isolated registry fixtures
+        working-directory: apps/device-manager
+        run: node tools/test-installer-state.mjs
       - name: Install the packaged application on the ephemeral runner
         shell: pwsh
         working-directory: apps/device-manager
@@ -76,6 +79,9 @@ jobs:
           SELFRIONETTE_CI_WEBVIEW_POLICY: '1'
         working-directory: apps/device-manager
         run: npm run test:distribution
+      - name: Test upgrade, cancellation and same-version repair
+        shell: pwsh
+        run: ./apps/device-manager/tools/test-installer-upgrade.ps1
       - name: Uninstall only the test application
         if: always() && env.SELFRIONETTE_INSTALLED_EXE != ''
         shell: pwsh
@@ -111,6 +117,7 @@ jobs:
         with:
           name: distribution-qa-${{ github.run_id }}
           path: |
+            apps/device-manager/src-tauri/target/upgrade-qa/*.json
             apps/device-manager/src-tauri/target/distribution-qa/run-*/report.json
             apps/device-manager/src-tauri/target/native-qa/run-*/report.json
             apps/device-manager/src-tauri/target/native-qa/run-*/*.png

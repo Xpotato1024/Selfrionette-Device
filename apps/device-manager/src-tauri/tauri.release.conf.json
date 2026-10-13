@@ -21,7 +21,8 @@
           "Japanese",
           "English"
         ],
-        "displayLanguageSelector": false
+        "displayLanguageSelector": false,
+        "template": "windows/installer.nsi"
       }
     }
   },

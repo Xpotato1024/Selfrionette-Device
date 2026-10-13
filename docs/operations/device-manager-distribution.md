@@ -49,6 +49,12 @@ PC記録は原則として %APPDATA%\dev.selfrionette.manager\synthetic-fixtures
 更新はアプリを終了してから行います。ZIP版は旧版へ上書きせず新しいフォルダーへ展開すると比較できます。
 記録の互換性は別契約です。版が異なる記録を読み込めると無条件に保証しません。
 
+## 旧版からの更新とアンインストール
+0.1.0-preview.1からpreview.2への更新では、発行元変更に伴う旧保存先の参照不一致により、インストール前のアンインストーラーが「Error launching installer」で停止し得ます。
+preview.3以降は表示用の発行元とインストーラー内部の識別を分離し、同じ製品のInstallLocationとUninstallStringを照合してから旧版を呼び出します。空・相対・不一致の保存先で削除を続行しません。
+旧版のアプリを終了し、新しいsetup.exeで更新します。登録先が壊れている場合は更新を中止し、ZIP版を別フォルダーで利用してください。レジストリやAppDataを手動削除したり、CRC検査やセキュリティ機能を無効化したりする必要はありません。
+更新時は「アプリデータを削除」を選択しないでください。記録のschema互換性は、ファイルが保持されることとは別です。
+
 ## 製品情報と発行元
 表示名はXpotato.net、Webサイトはhttps://xpotato.net。正本はtauri.conf.jsonのbundle.publisher/homepageで、exeのCompanyName、NSISのPublisher、アプリ情報dialogへ反映する。
 製品名とバージョンは通常の作業面へ常設せず、Windowsタイトルバーと右上の「アプリ情報」で確認する。
