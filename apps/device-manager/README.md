@@ -25,7 +25,7 @@ npm/native Cargoのlockfileを同梱しています。PowerShellで次を実行�
     .\src-tauri\target\debug\selfrionette-device-manager.exe
 
 開発中は .\run-native.cmd dev を使えます。
-起動時は実機portのOS列挙だけを行い、接続も校正も行いません。合成試験は入力元で明示選択します。共通の「対象」で合成個体を選び、横タブの「調整」で開始します。
+起動時は実機portのOS列挙だけを行い、接続も校正も行いません。合成試験は「ヘルプ → 開発者向け機能を有効にする」で確認後、「開発 → 合成試験」で明示選択します。「試験個体」で個体を選び、横タブの「調整」で開始します。
 左右の選択は表示対象だけを変え、各個体の基準・候補・確認を保持します。やり直しは別の明示操作です。
 終了はnative windowを閉じます。devでは開発terminalもCtrl+Cで停止します。
 この節は開発用Debug executableの手順です。配布用Release・インストーラーの生成と検証は[バイナリ利用・配布](../../docs/operations/device-manager-distribution.md)で分離します。実機受入は未実施です。
@@ -93,3 +93,6 @@ Nodeだけで npm run preview を実行し、同じPCの http://127.0.0.1:4173 �
 
 ## 高速なUI検証
 開発用build/devは従来通り自分のcloneと作業用ブランチで実行します。表示変更の反復では npm run check:fast を先に使います。Rust/NSISを生成せず、並列に単体/表示試験を実施します。層別CIと成果物再利用は[検証設計](../../docs/operations/device-manager-testing.md)を参照してください。
+
+### 通常起動と開発用オプション
+通常の起動では合成試験は表示しません。ヘルプから開発者機能を明示有効化するか、ビルド済みEXEへ --developer-mode を渡します。--developer-mode --synthetic は合成画面で開始します。dev/build手順とclone/ローカルブランチ運用は変更しません。合成試験のIPCは通常モードではRust側で拒否されます。

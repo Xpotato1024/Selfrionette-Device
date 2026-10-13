@@ -42,6 +42,7 @@ related:
 | stable device identity / provisioning | [device-identity.md](contracts/device-identity.md) |
 | firmware memory budget | [firmware-memory-budget.md](contracts/firmware-memory-budget.md) |
 | 旧Sim monitor / measure host処理 | [legacy-sim-host-tools.md](contracts/legacy-sim-host-tools.md) |
+| 通常/開発者モード・native menu・USB候補 | [device-manager-session.md](contracts/device-manager-session.md) |
 | GUIの実機列挙・受信確認 | [gui-live-monitor.md](contracts/gui-live-monitor.md) |
 | host device core | [host-device-core.md](contracts/host-device-core.md) |
 | serial transport | [serial-transport.md](contracts/serial-transport.md) |

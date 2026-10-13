@@ -5,6 +5,7 @@ export function classifyChanges(paths,full=false){
  const result={frontend:full,core:full,native:full};
  for(const path of paths){
   if(/^(docs\/|README\.md$)/.test(path)){if(path.startsWith('docs/contracts/'))result.core=result.native=true;continue;}
+  if(/^apps\/device-manager\/frontend\/(app|hardware-ui|hardware-controller)\.mjs$/.test(path)){result.frontend=result.native=true;continue;}
   if(path.startsWith('apps/device-manager/frontend/')||path.startsWith('apps/device-manager/tools/')||path==='apps/device-manager/preview-server.mjs'){result.frontend=true;continue;}
   if(path.startsWith('apps/device-manager/src-tauri/')){result.native=true;continue;}
   if(path.startsWith('apps/device-manager/')){result.frontend=result.native=true;continue;}

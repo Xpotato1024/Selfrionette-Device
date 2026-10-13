@@ -501,9 +501,29 @@ mod tests {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PortKind {
+    Usb,
+    Pci,
+    Bluetooth,
+    Unknown,
+}
+impl PortKind {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Usb => "usb",
+            Self::Pci => "pci",
+            Self::Bluetooth => "bluetooth",
+            Self::Unknown => "unknown",
+        }
+    }
+}
+
 /// OS enumeration only: no serial handles are opened and USB labels are not identities.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PortSummary {
+    pub kind: PortKind,
+    pub serial_number: Option<String>,
     pub name: String,
     pub product: Option<String>,
     pub manufacturer: Option<String>,
@@ -515,13 +535,26 @@ pub fn available_port_summaries() -> Result<Vec<PortSummary>, TransportError> {
         .map_err(|e| TransportError::Serial(e.to_string()))?
         .into_iter()
         .map(|p| {
-            let (product, manufacturer, vid, pid) = match p.port_type {
-                serialport::SerialPortType::UsbPort(u) => {
-                    (u.product, u.manufacturer, Some(u.vid), Some(u.pid))
+            let (kind, serial_number, product, manufacturer, vid, pid) = match p.port_type {
+                serialport::SerialPortType::UsbPort(u) => (
+                    PortKind::Usb,
+                    u.serial_number,
+                    u.product,
+                    u.manufacturer,
+                    Some(u.vid),
+                    Some(u.pid),
+                ),
+                serialport::SerialPortType::PciPort => {
+                    (PortKind::Pci, None, None, None, None, None)
                 }
-                _ => (None, None, None, None),
+                serialport::SerialPortType::BluetoothPort => {
+                    (PortKind::Bluetooth, None, None, None, None, None)
+                }
+                _ => (PortKind::Unknown, None, None, None, None, None),
             };
             PortSummary {
+                kind,
+                serial_number,
                 name: p.port_name,
                 product,
                 manufacturer,

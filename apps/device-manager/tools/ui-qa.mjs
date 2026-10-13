@@ -3,9 +3,9 @@ import assert from 'node:assert/strict';
 import {join} from 'node:path';
 import {readFileSync} from 'node:fs';
 const appConfig=JSON.parse(readFileSync(new URL('../src-tauri/tauri.conf.json',import.meta.url),'utf8'));
-export async function checkUI(page,run,report,call) {
+export async function checkUI(page,run,report,call,menu) {
   await call('select',{role:'left'}); await call('begin');
-  await page.reload(); await page.waitForFunction(()=>document.getElementById('source-mode')&&!document.getElementById('source-mode').disabled); await page.locator('#source-mode').selectOption('synthetic'); await page.waitForFunction(()=>!document.getElementById('role').disabled);
+  await page.reload(); await page.waitForFunction(()=>document.getElementById('workspace').dataset.source==='synthetic'&&!document.getElementById('role').disabled);
   const metrics=await page.evaluate(()=>({
     body:getComputedStyle(document.body).fontSize,
     label:getComputedStyle(document.querySelector('label')).fontSize,
@@ -22,7 +22,7 @@ export async function checkUI(page,run,report,call) {
   const beforeTabs=await call('status');
   assert.equal(await page.locator('.app-header').count(),0,'Native title must not be repeated as a page banner');
   assert.equal(await page.locator('body').innerText().then(t=>t.includes('Selfrionette')),false);
-  await page.locator('#about').click();
+  await menu('about');
   const appInfo=await page.evaluate(()=>window.__TAURI__.core.invoke('application_info'));
   report.application_info=appInfo; console.log('Application metadata: '+JSON.stringify(appInfo));
   assert.equal(appInfo.publisher,'Xpotato.net');
@@ -32,7 +32,7 @@ export async function checkUI(page,run,report,call) {
   assert.deepEqual((await call('status')).token,beforeTabs.token,'App information cannot mutate calibration state');
   await page.screenshot({path:join(run,'ui-about.png'),fullPage:true});
   await page.keyboard.press('Escape');
-  assert.equal(await page.evaluate(()=>document.activeElement.id),'about');
+  assert.equal(await page.locator('#about-dialog').isVisible(),false,'Escape closes the menu-opened information dialog');
   await page.locator('#tab-device').focus(); await page.keyboard.press('ArrowRight');
   assert.equal(await page.evaluate(()=>document.activeElement.id),'tab-adjust');
   assert.equal(await page.locator('#tab-device').getAttribute('aria-selected'),'true','Arrow key must only move focus');

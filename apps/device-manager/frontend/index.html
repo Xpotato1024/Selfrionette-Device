@@ -4,17 +4,17 @@
 <body>
 <a class="skip-link" href="#workspace">作業内容へ移動</a>
 <main id="workspace" tabindex="-1">
-  <section class="context-bar" aria-label="共通の操作対象">
-    <div class="target-picker"><label for="source-mode">入力元</label><select id="source-mode"><option value="hardware">実機</option><option value="synthetic">合成試験</option></select></div>
-    <div id="synthetic-target" class="target-group" hidden><div class="target-picker"><label for="role">対象</label><select id="role" aria-describedby="role-help"><option value="left">左入力用の合成個体</option><option value="right">右入力用の合成個体</option></select></div>
-    <code id="device-id" aria-label="個体ID">—</code><span id="role-summary" class="sr-only"></span><span id="role-help" class="sr-only">表示の切替だけでは各個体の調整を変更しません。</span>
-    </div>
+  <section class="context-bar" aria-label="操作対象">
     <div id="hardware-target" class="target-group">
-      <label class="sr-only" for="hardware-port">接続先ポート</label><select id="hardware-port"><option value="">接続先を選択</option></select>
-      <button id="hardware-scan" type="button">再検索</button><button id="hardware-connect" type="button" disabled>接続</button><button id="hardware-disconnect" type="button" disabled>切断</button>
+      <span class="toolbar-label">デバイス</span><span id="device-summary">—</span>
+      <button id="hardware-choose" type="button" aria-haspopup="dialog" disabled>接続先を選ぶ…</button>
+      <button id="hardware-disconnect" type="button" disabled>切断</button>
     </div>
-    <span id="environment" class="mode">未接続</span>
-    <button id="about" type="button" class="toolbar-button" aria-haspopup="dialog">アプリ情報</button>
+    <div id="synthetic-target" class="target-group" hidden>
+      <label for="role">試験個体</label><select id="role" aria-describedby="role-help"><option value="left">左入力用の合成個体</option><option value="right">右入力用の合成個体</option></select>
+      <code id="device-id" aria-label="個体ID">—</code><span id="role-summary" class="sr-only"></span><span id="role-help" class="sr-only">表示切替では個体の調整を変更しません。</span>
+    </div>
+    <span id="developer-badge" hidden>開発者モード</span><span id="environment" class="mode" role="status">起動中</span>
   </section>
   <nav class="task-tabs" role="tablist" aria-label="作業種別">
     <button id="tab-device" type="button" role="tab" data-page="device" aria-controls="page-device" aria-selected="true" tabindex="0">入力確認</button>
@@ -37,10 +37,10 @@
         <p class="measurement-note">Firmware処理後の値<br>物理単位・極性・品質は未検証</p>
       </section>
       <section class="trace-pane" aria-labelledby="trace-title">
-        <div class="pane-heading"><h2 id="trace-title">表示履歴</h2><label class="trace-channel-label" for="trace-channel">ch <select id="trace-channel"><option>0</option><option>1</option><option>2</option><option>3</option><option>4</option><option>5</option><option>6</option></select></label></div>
+        <div class="pane-heading"><h2 id="trace-title">ch 0 の履歴</h2><label class="trace-scale-label" for="trace-scale">縦軸<select id="trace-scale"><option value="auto">自動</option><option value="fixed">固定</option></select></label></div>
         <div class="trace-plot"><svg id="trace" viewBox="0 0 640 300" preserveAspectRatio="none" role="img" aria-label="選択チャンネルの表示用サンプル履歴"><path class="trace-grid" d="M0 50H640 M0 150H640 M0 250H640"/><path id="trace-line" d=""/></svg><span id="trace-top" class="axis-label axis-top">—</span><span id="trace-bottom" class="axis-label axis-bottom">—</span><span id="trace-empty">入力待ち</span></div>
-        <div class="trace-axis"><span>−30秒</span><span>現在</span></div>
-        <p class="measurement-note">表示用サンプル・縦軸自動調整。受信全件の記録ではありません。</p>
+        <div class="trace-axis"><span>−30秒</span><span id="trace-end">現在</span></div>
+        <p class="measurement-note"><span id="trace-state">入力待ち</span> · 表示用サンプル（受信全件の記録ではありません）</p>
       </section>
     </div>
   </section>
@@ -103,7 +103,7 @@
   </section>
   </div>
 </main>
-<dialog id="confirm-dialog" aria-labelledby="dialog-title"><h2 id="dialog-title">変更の確認</h2><p id="dialog-target"></p><p id="dialog-message"></p><div class="actions"><button id="dialog-cancel" autofocus>取り消す</button><button id="dialog-apply">変更して続ける</button></div></dialog>
+<dialog id="confirm-dialog" aria-labelledby="dialog-title"><h2 id="dialog-title">変更の確認</h2><p id="dialog-target"></p><p id="dialog-message"></p><div class="dialog-actions"><button id="dialog-cancel" autofocus>取り消す</button><button id="dialog-apply" class="primary">変更して続ける</button></div></dialog>
 <dialog id="about-dialog" aria-labelledby="about-title">
   <h2 id="about-title">アプリ情報</h2>
   <dl class="about-values">
@@ -115,6 +115,19 @@
   <p id="about-note" class="caption-note">発行元の名称は製品情報です。電子署名による本人性の検証とは異なります。</p>
   <div class="dialog-actions"><button id="about-close" type="button" autofocus>閉じる</button></div>
 </dialog>
-<dialog id="hardware-connect-dialog" aria-labelledby="hardware-connect-title"><h2 id="hardware-connect-title">接続先の確認</h2><p id="hardware-connect-target"></p><p>選択した機器へ115200 baudで接続します。通信開始に伴い機器が初期化される場合があります。別アプリで使用中の接続は先に解放してください。</p><p>基準変更・設定保存・Firmware書込みは行いません。</p><div class="dialog-actions"><button id="hardware-connect-cancel" autofocus>取り消す</button><button id="hardware-connect-confirm">接続する</button></div></dialog>
+<dialog id="hardware-connect-dialog" class="device-picker" aria-labelledby="hardware-connect-title">
+  <div class="dialog-heading"><h2 id="hardware-connect-title">接続先を選ぶ</h2><button id="hardware-scan" type="button">再検索</button></div>
+  <p id="port-count" class="caption-note">候補を検索しています。</p>
+  <div class="port-list-scroll"><table class="port-table"><colgroup><col class="port-radio-col"><col class="port-name-col"><col><col class="port-state-col"></colgroup><thead><tr><th scope="col"><span class="sr-only">選択</span></th><th scope="col">接続先</th><th scope="col">機器</th><th scope="col">判定</th></tr></thead><tbody id="port-rows"></tbody></table></div>
+  <p id="port-empty" class="caption-note" hidden></p>
+  <label class="check-line"><input id="show-other-ports" type="checkbox">その他のポートも表示</label>
+  <details class="port-details"><summary>選択した接続先の詳細</summary><dl id="port-details" class="about-values"></dl></details>
+  <label class="check-line"><input id="query-on-connect" type="checkbox">接続後に個体情報を照会（info）</label>
+  <p class="caption-note">115200 baudで選択した一台に接続します。機器が初期化される場合があります。他のアプリとの接続は先に解放してください。</p>
+  <p id="port-error" class="field-error" role="status" hidden></p>
+  <div class="dialog-actions"><button id="hardware-connect-cancel" autofocus>取り消す</button><button id="hardware-connect-confirm" class="primary" disabled>接続する</button></div>
+</dialog>
+<dialog id="developer-dialog" aria-labelledby="developer-title"><h2 id="developer-title">開発者向け機能を有効にする</h2><p>模擬入力による調整や異常条件の試験を利用できます。実機の校正結果は得られません。</p><p>有効なのは今回の起動中だけです。入力画面は自動で切り替わりません。</p><div class="dialog-actions"><button id="developer-cancel" autofocus>取り消す</button><button id="developer-enable" class="primary">有効にする</button></div></dialog>
+<dialog id="help-dialog" aria-labelledby="help-title"><h2 id="help-title">使い方</h2><p>「接続先を選ぶ」から対象を選択して接続します。USB情報からの候補表示は、機器の用途や校正状態を保証しません。</p><p>入力確認ではch行を選ぶと履歴が切り替わります。受信が止まると現在値は—になり、過去の履歴は更新停止として残ります。</p><p>この版では入力監視と診断を提供します。実機校正・設定書込み・Firmware更新は未対応です。</p><div class="dialog-actions"><button id="help-close" autofocus>閉じる</button></div></dialog>
 <script type="module" src="app.mjs"></script>
 </body></html>
