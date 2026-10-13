@@ -23,3 +23,5 @@ test('ZIP round trip keeps Japanese, spaces and quotes as path data',{skip:proce
  assert.equal(readFileSync(join(dest,'試験.txt'),'utf8'),'入力確認');
  }finally{rmSync(run,{recursive:true,force:true});}
 });
+
+test('ZIP and NSIS use identical unstamped application bytes',()=>{const packaging=readFileSync(new URL('./package-windows.mjs',import.meta.url),'utf8');assert(packaging.includes("'--no-binary-patching'"));});

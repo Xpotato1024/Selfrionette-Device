@@ -59,10 +59,14 @@ jobs:
           if ($process.ExitCode -ne 0) { throw "Installer failed: $($process.ExitCode)" }
           $exe = Join-Path $target 'selfrionette-device-manager.exe'
           if (-not (Test-Path $exe)) { throw 'Installed executable is missing' }
-          if ((Get-FileHash $exe).Hash -ne (Get-FileHash $build.executable).Hash) { throw 'Installed executable differs from packaged executable' }
+          "SELFRIONETTE_INSTALLED_EXE=$exe" >> $env:GITHUB_ENV
+          $actual = (Get-FileHash $exe).Hash
+          $expected = (Get-FileHash $build.executable).Hash
+          Write-Output "Installed SHA-256: $actual"
+          Write-Output "Packaged SHA-256: $expected"
+          if ($actual -ne $expected) { throw 'Installed executable differs from packaged executable' }
           Write-Output 'WebView2 after installation:'
           Get-ItemProperty $keys -ErrorAction SilentlyContinue | Where-Object name -Match 'WebView' | Select-Object name,pv
-          "SELFRIONETTE_INSTALLED_EXE=$exe" >> $env:GITHUB_ENV
       - name: Test extracted release without developer PATH
         working-directory: apps/device-manager
         run: npm run test:distribution

@@ -29,14 +29,15 @@ copyFileSync(join(repo,'docs/operations/device-manager-distribution.md'),join(re
 const frontend=resolve('dist/frontend');rmSync(frontend,{recursive:true,force:true});mkdirSync(frontend,{recursive:true});
 for(const name of ['index.html','style.css','app.mjs','controller.mjs','design-preview.mjs','navigation.mjs'])copyFileSync(join(root,'frontend',name),join(frontend,name));
 const info={schema:1,application_version:version,source_commit:commit,source_tree:git('rev-parse','HEAD^{tree}'),source_dirty:false,
-  built_at_utc:new Date().toISOString(),target:'x86_64-pc-windows-msvc',profile:'release',mode:'synthetic-only',hardware_verified:false,
+  built_at_utc:new Date().toISOString(),target:'x86_64-pc-windows-msvc',profile:'release',bundle_binary_patching:false,mode:'synthetic-only',hardware_verified:false,
   runtime:'Microsoft Edge WebView2 Evergreen',installer_runtime_mode:'offlineInstaller',code_signing:'unsigned',
   toolchain:{rust:output('rustc',['-Vv']),cargo:output('cargo',['-V']),node:process.version},
   lockfiles:{cargo:sha256(readFileSync('src-tauri/Cargo.lock')),npm:sha256(readFileSync('package-lock.json'))},
   license_review_required:notices.licenseReview,validation:'Not a hardware acceptance or clean-VM certification'};
 writeFileSync(join(resources,'BUILD-INFO.json'),JSON.stringify(info,null,2)+'\n');
 const cli=join(root,'node_modules/@tauri-apps/cli/tauri.js');
-const result=spawnSync(process.execPath,[cli,'build','--config','src-tauri/tauri.release.conf.json','--bundles','nsis','--ci','--','--locked'],{cwd:root,stdio:'inherit',timeout:30*60*1000});
+// No updater is used: ship exactly the same executable in ZIP and NSIS, without a bundle-type stamp.
+const result=spawnSync(process.execPath,[cli,'build','--config','src-tauri/tauri.release.conf.json','--bundles','nsis','--ci','--no-binary-patching','--','--locked'],{cwd:root,stdio:'inherit',timeout:30*60*1000});
 if(result.error)throw result.error;if(result.status!==0)throw Error('Tauri packaging failed: '+result.status);
 const exe=resolve('src-tauri/target/release/selfrionette-device-manager.exe');
 info.pe=inspectPE(readFileSync(exe));info.executable_sha256=sha256(readFileSync(exe));
