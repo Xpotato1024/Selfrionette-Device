@@ -671,27 +671,113 @@ mod tests {
     use super::*;
     use std::{
         fs,
-        time::{SystemTime, UNIX_EPOCH},
+        io::Write,
+        path::{Path, PathBuf},
+        sync::atomic::{AtomicU64, Ordering},
     };
-    struct Store(std::path::PathBuf);
+    // The first path is deliberately absent until a test saves a record.
+    // The second path is an exclusively claimed parent owned by this guard.
+    struct Store(PathBuf, PathBuf);
     impl Store {
         fn new() -> Self {
-            Self(std::env::temp_dir().join(format!(
-                    "srn-workflow-{}-{}",
-                    std::process::id(),
-                    SystemTime::now()
-                        .duration_since(UNIX_EPOCH)
-                        .unwrap()
-                        .as_nanos()
-                )))
+            static SEQUENCE: AtomicU64 = AtomicU64::new(0);
+            Self::new_in(&std::env::temp_dir(), &SEQUENCE)
+        }
+        fn new_in(parent: &Path, sequence: &AtomicU64) -> Self {
+            for _ in 0..128 {
+                let serial = sequence
+                    .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |n| n.checked_add(1))
+                    .expect("test store sequence exhausted");
+                let reservation =
+                    parent.join(format!("srn-workflow-{}-{serial}", std::process::id()));
+                match fs::create_dir(&reservation) {
+                    Ok(()) => return Self(reservation.join("records"), reservation),
+                    Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
+                    Err(error) => panic!("cannot reserve test store: {error}"),
+                }
+            }
+            panic!("test store reservation attempts exhausted");
         }
     }
     impl Drop for Store {
         fn drop(&mut self) {
-            if self.0.exists() {
-                fs::remove_dir_all(&self.0).unwrap();
+            if let Err(error) = fs::remove_dir_all(&self.1) {
+                if std::thread::panicking() {
+                    // Preserve the primary failure instead of aborting on a second panic.
+                    let _ = writeln!(std::io::stderr(), "test store cleanup failed: {error}");
+                } else {
+                    panic!("test store cleanup failed: {error}");
+                }
             }
         }
+    }
+    #[test]
+    fn store_reservation_retries_existing_names_without_touching_them() {
+        let owner = Store::new();
+        fs::create_dir(&owner.0).unwrap();
+        let first = Store::new_in(&owner.0, &AtomicU64::new(0));
+        let marker = first.1.join("owned-by-first");
+        fs::write(&marker, "unchanged").unwrap();
+        // Reuse exactly the same candidate sequence, like a reused process ID.
+        let second = Store::new_in(&owner.0, &AtomicU64::new(0));
+        assert_ne!(first.1, second.1);
+        assert!(!first.0.exists());
+        assert!(!second.0.exists());
+        let removed = second.1.clone();
+        drop(second);
+        assert!(!removed.exists());
+        assert_eq!(fs::read_to_string(marker).unwrap(), "unchanged");
+    }
+    #[test]
+    fn parallel_stores_keep_records_and_cleanup_independent() {
+        let owner = Store::new();
+        fs::create_dir(&owner.0).unwrap();
+        let sequence = AtomicU64::new(0);
+        let mut stores = std::thread::scope(|scope| {
+            let handles: Vec<_> = (0..16)
+                .map(|_| scope.spawn(|| Store::new_in(&owner.0, &sequence)))
+                .collect();
+            handles
+                .into_iter()
+                .map(|h| h.join().unwrap())
+                .collect::<Vec<_>>()
+        });
+        let paths: std::collections::HashSet<_> = stores.iter().map(|s| &s.1).collect();
+        assert_eq!(paths.len(), stores.len());
+        for (i, store) in stores.iter().enumerate() {
+            fs::create_dir(&store.0).unwrap();
+            fs::write(store.0.join("record"), i.to_string()).unwrap();
+        }
+        let removed = stores.pop().unwrap();
+        let removed_path = removed.1.clone();
+        drop(removed);
+        assert!(!removed_path.exists());
+        for (i, store) in stores.iter().enumerate() {
+            assert_eq!(
+                fs::read_to_string(store.0.join("record")).unwrap(),
+                i.to_string()
+            );
+        }
+    }
+    #[test]
+    fn cleanup_error_during_unwind_preserves_primary_failure() {
+        let owner = Store::new();
+        fs::create_dir(&owner.0).unwrap();
+        let store = Store::new_in(&owner.0, &AtomicU64::new(0));
+        // Make cleanup fail deterministically, only inside this test's reservation.
+        fs::remove_dir(&store.1).unwrap();
+        fs::write(&store.1, "not a directory").unwrap();
+        let failed_cleanup_path = store.1.clone();
+        let failure = std::panic::catch_unwind(move || {
+            let _store = store;
+            panic!("primary test failure");
+        })
+        .unwrap_err();
+        assert_eq!(
+            failure.downcast_ref::<&str>(),
+            Some(&"primary test failure")
+        );
+        assert!(failed_cleanup_path.is_file(), "cleanup must actually fail");
     }
     fn run(w: &mut Workspace, store: &Store, command: Command) -> Reply {
         w.execute(

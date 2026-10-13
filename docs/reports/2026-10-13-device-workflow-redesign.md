@@ -56,3 +56,22 @@ native画面QAはローカルでありCIに混同しない。試験processだけ
 
 未実施: 実機接続・配線/荷重方向照合・物理校正・firmware書込み・EEPROM、モデル導入、利用者による操作性評価、スクリーンリーダー、native 200%/Windows DPI、Release/bundle配布。
 日常準備と個体校正の実機workflow、複数世代を選べる履歴ブラウザー、利用側への引渡し、保守機構は後続であり、今回の合成実装を完成品とは扱わない。
+
+## Windows CIの一時保存先衝突の修正
+PR #10のhead e7e614ab38f06855672cc46a6930e183b3687991で、[PR側のWindows job](https://github.com/Xpotato1024/Selfrionette-Device/actions/runs/38277768957/job/114907340425)がexplicit_resume_and_failed_resume_revoke_confirmationの失敗後に0xc0000409で終了した。同じheadのpush側jobは成功していた。
+
+LLM-01で既存9テストを16スレッドで反復すると、115回目に同じテストのSaveがos error 3（保存先欠落）で失敗した。
+一時的な保存先の診断出力を加えた反復では、26回目に別のテストがos error 5で失敗した。
+この回はall_quality_failures_block_old_candidatesとcorrupt_history_clears_only_history_not_active_confirmationが、同じPID・同じSystemTimeの値から同一保存先を生成していたことを記録した。
+時刻だけではテスト間の一意性を保証できず、一方のDropが他方の保存先を削除する干渉を確認した。診断用の出力は修正から除去している。
+
+修正はworkflow.rsのcfg(test)内だけに限定した。PIDとatomic連番から候補名を作り、create_dirで親ディレクトリを排他的に確保する。
+既存名との衝突は最大128回再試行し、その配下の未作成recordsを各テストの保存先とする。未保存時に保存先が存在しないという既存の検証も維持した。
+Dropは自分が確保した親だけを削除する。通常の削除失敗は引き続きテスト失敗とし、既にpanic中の場合は二重panicで元の原因を隠さず、削除エラーを出力する。
+
+追加回帰テストは、同一候補連番の衝突と既存記録の保護、16スレッドでの保存先・削除の独立性、後始末の実際の失敗中にも元のpanicを保持することの3件。
+GUI use caseは既存9件を含む12件PASS。修正後はWindowsで16スレッドの12件を1,000回反復し、全12,000件PASSした。fmtとapplication Clippy全targetもPASS。
+production部分と既存9テストの本文は修正前と一致することを検査した。校正意味論、通常の保存処理、UI、依存、workflow設定は変更していない。
+調査・反復ログはdevice-pr10-windows-ciのローカル作業記録に保存し、生成ログはcommitしない。最終headのCIはPR #10のchecksで確認する。
+
+0xc0000409は[Microsoftのfast-fail説明](https://learn.microsoft.com/en-us/cpp/intrinsics/fastfail?view=msvc-170)にも使われる終了コードであり、CIログに例外パラメータがないため、コードだけでスタック破損の詳細を確定しない。ローカルで確認した直接原因はテスト保存先の衝突である。
