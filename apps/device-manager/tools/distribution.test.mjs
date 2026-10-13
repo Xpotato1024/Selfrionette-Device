@@ -1,3 +1,4 @@
+import {ciPolicyEnabled} from './ci-webview-policy.mjs';
 import {tmpdir} from 'node:os';import {join} from 'node:path';
 import test from 'node:test';import assert from 'node:assert/strict';import {readFileSync,mkdirSync,mkdtempSync,writeFileSync,rmSync} from 'node:fs';
 import {inspectPE,runtimeEnvironment,sha256,zipDirectory,extractZip} from './distribution-lib.mjs';
@@ -25,3 +26,5 @@ test('ZIP round trip keeps Japanese, spaces and quotes as path data',{skip:proce
 });
 
 test('ZIP and NSIS use identical unstamped application bytes',()=>{const packaging=readFileSync(new URL('./package-windows.mjs',import.meta.url),'utf8');assert(packaging.includes("'--no-binary-patching'"));});
+
+test('CI-only debugger policy is off locally and refuses ordinary machines',()=>{assert.equal(ciPolicyEnabled({}),false);assert.throws(()=>ciPolicyEnabled({SELFRIONETTE_CI_WEBVIEW_POLICY:'1'}),/restricted/);assert.throws(()=>ciPolicyEnabled({SELFRIONETTE_CI_WEBVIEW_POLICY:'1',GITHUB_ACTIONS:'true',RUNNER_ENVIRONMENT:'self-hosted'}),/restricted/);assert.equal(ciPolicyEnabled({SELFRIONETTE_CI_WEBVIEW_POLICY:'1',GITHUB_ACTIONS:'true',RUNNER_ENVIRONMENT:'github-hosted'}),true);});

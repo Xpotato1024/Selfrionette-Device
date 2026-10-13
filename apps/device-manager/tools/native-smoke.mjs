@@ -1,3 +1,4 @@
+import {installCIPolicy,removeCIPolicy} from './ci-webview-policy.mjs';
 import {runtimeEnvironment} from './distribution-lib.mjs';
 // Windows-only native Tauri IPC smoke test. Synthetic records; no device I/O.
 import {chromium} from 'playwright-core';
@@ -19,15 +20,18 @@ const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 async function freePort(){const s=net.createServer();await new Promise(r=>s.listen(0,'127.0.0.1',r));const p=s.address().port;await new Promise(r=>s.close(r));return p;}
 async function launch(){
  const port=await freePort();
+ const policy=installCIPolicy(port,join(run,'webview'));
  const runtimeOnly=process.env.SELFRIONETTE_GUI_RUNTIME_ONLY==='1';
  const child=spawn(exe,[],{cwd:run,windowsHide:true,env:{...(runtimeOnly?runtimeEnvironment(process.env):process.env),SELFRIONETTE_GUI_FIXTURE_DIR:store,WEBVIEW2_USER_DATA_FOLDER:join(run,'webview'),WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS:'--remote-debugging-port='+port+' --remote-debugging-address=127.0.0.1'}});
  let diagnostic='';child.stderr.on('data',v=>{diagnostic=(diagnostic+v).slice(-8000)});child.stdout.on('data',v=>{diagnostic=(diagnostic+v).slice(-8000)});
- active={child,port};
+ active={child,port,policy};
+ let ready=false;
  for(let i=0;i<100;i++){
   if(child.exitCode!==null)throw Error('Native exit '+child.exitCode+': '+diagnostic);
-  try{const r=await fetch('http://127.0.0.1:'+port+'/json/version');if(r.ok)break;}catch{}
+  try{const r=await fetch('http://127.0.0.1:'+port+'/json/version');if(r.ok){ready=true;break;}}catch{}
   await sleep(200);
  }
+ if(!ready)throw Error('WebView2 CDP did not become ready within 20 seconds. '+diagnostic);
  const browser=await chromium.connectOverCDP('http://127.0.0.1:'+port);
  active.browser=browser;
  const page=browser.contexts().flatMap(c=>c.pages()).find(p=>p.url().includes('tauri.localhost'))||browser.contexts()[0].pages()[0];
@@ -47,7 +51,8 @@ async function launch(){
 }
 async function close(){
  if(!active)return;
- const {child,browser}=active;
+ const {child,browser,policy}=active;
+ try {
  if(child.exitCode===null){
   const r=spawnSync('powershell.exe',['-NoProfile','-Command','(Get-Process -Id '+child.pid+').CloseMainWindow()'],{windowsHide:true,encoding:'utf8',timeout:5000});
   assert.match(r.stdout,/True/,'Owned native window did not accept graceful close');
@@ -56,7 +61,7 @@ async function close(){
   assert.equal(child.exitCode,0,'Native app crashed during close');
  }
  await browser?.close().catch(()=>{});
- active=null;
+ } finally { if(policy)removeCIPolicy(); active=null; }
 }
 
 async function rejected(call,action,fields={}){await assert.rejects(()=>call(action,fields));}

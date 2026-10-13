@@ -68,6 +68,8 @@ jobs:
           Write-Output 'WebView2 after installation:'
           Get-ItemProperty $keys -ErrorAction SilentlyContinue | Where-Object name -Match 'WebView' | Select-Object name,pv
       - name: Test extracted release without developer PATH
+        env:
+          SELFRIONETTE_CI_WEBVIEW_POLICY: '1'
         working-directory: apps/device-manager
         run: npm run test:distribution
       - name: Uninstall only the test application
@@ -75,6 +77,10 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
+          foreach ($sub in @('AdditionalBrowserArguments','UserDataFolder')) {
+            $key = 'HKLM:\SOFTWARE\Policies\Microsoft\Edge\WebView2\' + $sub
+            if (Test-Path $key) { Remove-ItemProperty $key -Name 'selfrionette-device-manager.exe' -ErrorAction SilentlyContinue }
+          }
           $folder = Split-Path $env:SELFRIONETTE_INSTALLED_EXE
           $uninstall = Join-Path $folder 'uninstall.exe'
           if (-not (Test-Path $uninstall)) { throw 'Test uninstaller is missing' }
