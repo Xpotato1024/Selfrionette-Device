@@ -42,7 +42,7 @@ details+details {border-top:1px solid var(--line);margin-top:12px;padding-top:8p
 .page {padding:20px 24px;min-height:100%;min-width:0;background:var(--paper);}
 #hardware-page-device {height:100%;padding:0;overflow:auto;}
 .monitor-workbench {display:grid;grid-template-columns:22rem minmax(20rem,1fr);height:100%;min-height:390px;min-width:44rem;}
-.readings-pane {padding:20px 16px;border-right:1px solid var(--line);overflow:auto;}
+.readings-pane {padding:20px 16px;border-right:1px solid var(--line);overflow:auto;scrollbar-gutter:stable;}
 .trace-pane {padding:20px 24px;display:flex;flex-direction:column;min-width:0;min-height:0;overflow:auto;}
 .pane-heading {display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:34px;margin-bottom:12px;}
 .pane-heading h2 {margin:0;}
@@ -64,7 +64,7 @@ details+details {border-top:1px solid var(--line);margin-top:12px;padding-top:8p
 #hardware-values th {font-size:14px;font-weight:500;}
 .numeric-heading {text-align:right;}
 .value-cell {text-align:right;}
-.readout {display:inline-grid;grid-template-columns:1ch 11ch 3ch 5ch;font-family:Consolas,'Cascadia Mono',monospace;font-size:15px;font-variant-numeric:tabular-nums;white-space:nowrap;line-height:22px;}
+.readout {display:grid;width:max-content;height:22px;margin-left:auto;align-items:center;grid-template-columns:1ch 11ch 3ch 5ch;font-family:Consolas,'Cascadia Mono',monospace;font-size:15px;font-variant-numeric:tabular-nums;white-space:nowrap;line-height:22px;}
 .readout-sign,.readout-integer {text-align:right;}.readout-fraction,.readout-exponent {text-align:left;}.readout-exponent {font-size:12px;align-self:center;}
 .page-heading {display:flex;align-items:center;justify-content:flex-end;gap:16px;}
 .status-line {display:flex;gap:12px 32px;padding:10px 0;margin:0;}

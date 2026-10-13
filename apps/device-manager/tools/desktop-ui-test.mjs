@@ -14,7 +14,7 @@ try {
   await page.goto('http://127.0.0.1:'+server.address().port);await page.waitForFunction(()=>document.querySelectorAll('.readout-integer')[0]?.textContent==='2,207');
   await page.evaluate(()=>{window.originalRows=[...document.querySelectorAll('#hardware-value-rows tr')];});
   for(const width of [800,1100,1600]){
-   await page.setViewportSize({width,height:720});
+   await page.setViewportSize({width,height:width===800?520:720});
    const metric=await page.evaluate(()=>({bodyOverflow:document.documentElement.scrollWidth-innerWidth,table:document.getElementById('hardware-values').getBoundingClientRect().width,pane:document.querySelector('.readings-pane').getBoundingClientRect().width}));assert(metric.bodyOverflow<=1);assert.equal(Math.round(metric.pane),352);
    const anchor=await page.locator('.readout-fraction').first().evaluate(e=>e.getBoundingClientRect().x);
    for(const value of [-123456.78,0,99999999.99,1e100,-0.001,133411.67]){
