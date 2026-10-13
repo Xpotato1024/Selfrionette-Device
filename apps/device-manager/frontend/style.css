@@ -64,7 +64,7 @@ details+details {border-top:1px solid var(--line);margin-top:12px;padding-top:8p
 #hardware-values th {font-size:14px;font-weight:500;}
 .numeric-heading {text-align:right;}
 .value-cell {text-align:right;}
-.readout {display:grid;width:max-content;height:22px;margin-left:auto;align-items:center;grid-template-columns:1ch 11ch 3ch 5ch;font-family:Consolas,'Cascadia Mono',monospace;font-size:15px;font-variant-numeric:tabular-nums;white-space:nowrap;line-height:22px;}
+.readout {display:grid;width:max-content;height:22px;margin-left:auto;align-items:center;grid-template-columns:0 12ch 3ch 5ch;font-family:Consolas,'Cascadia Mono',monospace;font-size:15px;font-variant-numeric:tabular-nums;white-space:nowrap;line-height:22px;}
 .readout-sign,.readout-integer {text-align:right;}.readout-fraction,.readout-exponent {text-align:left;}.readout-exponent {font-size:12px;align-self:center;}
 .page-heading {display:flex;align-items:center;justify-content:flex-end;gap:16px;}
 .status-line {display:flex;gap:12px 32px;padding:10px 0;margin:0;}

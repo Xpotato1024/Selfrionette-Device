@@ -11,7 +11,7 @@ export function readingParts(value) {
 export function createReadout(document) {
  const root=document.createElement('span');root.className='readout';const fields=['sign','integer','fraction','exponent'];
  const nodes=Object.fromEntries(fields.map(name=>{const node=document.createElement('span');node.className='readout-'+name;root.append(node);return [name,node];}));
- return {element:root,update(value){const p=readingParts(value);for(const k of fields)if(nodes[k].textContent!==p[k])nodes[k].textContent=p[k];root.title=p.raw;root.setAttribute('aria-label',p.raw||'未受信');}};
+ return {element:root,update(value){const p=readingParts(value);const text={...p,sign:'',integer:p.sign+p.integer};for(const k of fields)if(nodes[k].textContent!==text[k])nodes[k].textContent=text[k];root.title=p.raw;root.setAttribute('aria-label',p.raw||'未受信');}};
 }
 export function createDisplayHistory(limit=200,windowMs=30000) {
  let points=[],lastFrame=null,lastConnection=null;
