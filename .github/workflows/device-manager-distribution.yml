@@ -10,6 +10,11 @@ on:
       - 'apps/device-manager/tools/package-windows.mjs'
       - 'apps/device-manager/tools/distribution-lib.mjs'
       - 'apps/device-manager/tools/artifact-inputs.mjs'
+      - 'apps/device-manager/tools/stage-release.mjs'
+      - 'apps/device-manager/tools/verify-release-assets.mjs'
+      - 'apps/device-manager/licenses/**'
+      - 'docs/releases/**'
+      - 'docs/operations/device-manager-distribution.md'
       - '.github/workflows/device-manager-distribution.yml'
   push:
     tags: ['device-manager-v*']
@@ -182,3 +187,62 @@ jobs:
             apps/device-manager/src-tauri/target/native-qa/run-*/*.png
           if-no-files-found: ignore
           retention-days: 14
+
+  publish:
+    name: Publish verified GitHub prerelease
+    if: startsWith(github.ref, 'refs/tags/device-manager-v')
+    needs: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Require the tag to point to committed main history
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin main:refs/remotes/origin/main
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          git merge-base --is-ancestor "$GITHUB_SHA" origin/main
+      - uses: actions/setup-node@v7.1.0
+        with:
+          node-version: '24'
+      - uses: actions/download-artifact@v5
+        with:
+          name: device-manager-windows-x64-${{ github.sha }}
+          path: dist/release-assets
+      - uses: actions/download-artifact@v5
+        with:
+          name: distribution-qa-${{ github.run_id }}
+          path: dist/release-qa
+      - name: Verify checksums, source, version, licenses and release notes
+        run: node apps/device-manager/tools/stage-release.mjs
+      - name: Upload only verified assets into a draft release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          tag="$GITHUB_REF_NAME"
+          mapfile -d '' assets < <(find dist/release-upload -maxdepth 1 -type f -print0 | sort -z)
+          test "${#assets[@]}" -eq 8
+          if gh release view "$tag" --json isDraft >/dev/null 2>&1; then
+            test "$(gh release view "$tag" --json isDraft --jq '.isDraft')" = "true"
+            gh release upload "$tag" "${assets[@]}" --clobber
+            gh release edit "$tag" --notes-file dist/release-notes.md --title "Selfrionette Device Manager ${tag#device-manager-v}" --prerelease
+          else
+            gh release create "$tag" "${assets[@]}" --verify-tag --draft --prerelease \
+              --title "Selfrionette Device Manager ${tag#device-manager-v}" \
+              --notes-file dist/release-notes.md
+          fi
+          gh api "repos/$GITHUB_REPOSITORY/releases/tags/$tag" > dist/release-response.json
+          node apps/device-manager/tools/verify-release-assets.mjs
+          gh release edit "$tag" --draft=false --prerelease
+          test "$(gh release view "$tag" --json isDraft --jq '.isDraft')" = "false"
+          test "$(gh release view "$tag" --json isPrerelease --jq '.isPrerelease')" = "true"
+          echo "Release published: https://github.com/$GITHUB_REPOSITORY/releases/tag/$tag"

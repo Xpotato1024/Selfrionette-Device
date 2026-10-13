@@ -33,6 +33,12 @@ Xpotato-Simから見たSelfrionetteはGamepad / Keyboardと同格のInput Source
 旧Simのmonitor/measureはDeviceのRust CLIが所有する。[build・help・採用順](docs/operations/legacy-sim-host-tools.md)を参照する。
 
 
+## Windows用Device Managerをダウンロード
+
+**[Selfrionette Device Manager — GitHub Releases](https://github.com/Xpotato1024/Selfrionette-Device/releases)**
+
+Windows 11 x64向けのインストーラー版（推奨）と、インストール不要のZIP版を公開します。現在の配布版は[0.1.0-preview.5](https://github.com/Xpotato1024/Selfrionette-Device/releases/tag/device-manager-v0.1.0-preview.5)です。プレビュー版のため実機校正・Firmware書込みは未実装です。
+
 ## Device Managerを使う人（ビルド不要）
 
 ビルド済みのWindows用setup.exeまたはZIPを使います。[取得・起動・保存先](docs/operations/device-manager-distribution.md)を参照してください。

@@ -25,9 +25,11 @@ VCランタイムは静的リンクし、画面のHTML/CSS/JavaScriptはexe内�
 Windows ARM64/x86、Windows 10、未導入WebView2環境への実インストールは別途受入対象です。
 
 ## 取得と起動
-公開版は[GitHub Releases](https://github.com/Xpotato1024/Selfrionette-Device/releases)のAssetsから取得します。
-まだ公開版がない場合、[Windows distribution workflow](https://github.com/Xpotato1024/Selfrionette-Device/actions/workflows/device-manager-distribution.yml)の成功したrunのArtifactsを使用します。Artifactsの取得はGitHubへのログインが必要で、保持期限があります。
-Draft Releaseは一般利用者には見えません。Source code.zipは実行バイナリではありません。
+**[GitHub Releases（Windows用バイナリのダウンロード）](https://github.com/Xpotato1024/Selfrionette-Device/releases)**
+
+現在の配布版は[Selfrionette Device Manager v0.1.0-preview.5](https://github.com/Xpotato1024/Selfrionette-Device/releases/tag/device-manager-v0.1.0-preview.5)です。Releaseページの「Assets」で`-setup.exe`（通常はこちら）または`-portable.zip`を選びます。GitHubが自動で付ける`Source code.zip`は実行バイナリではありません。
+
+プレビュー版のため、GitHub上でもPre-releaseとして表示します。`/releases/latest`ではプレビュー版が表示されない場合があるため、上記のRelease一覧を入口にしてください。
 
 setup.exeは現在の利用者向けにインストールします。組織の実行・インストール制限を回避するものではありません。
 WebView2は実行時依存です。ZIP版で起動しない場合は同じ版のsetup.exeかMicrosoft公式のWebView2 Runtimeを利用してください。
@@ -68,7 +70,7 @@ preview.3以降は表示用の発行元とインストーラー内部の識別�
 現在の配布候補は未署名です。WindowsのSmartScreenや組織のポリシーによって警告・実行拒否が起こり得ます。
 配布元、BUILD-INFO.jsonのsource_commit、SHA256SUMS.txtを照合してください。ハッシュ一致は発行者の本人性を証明しません。
 セキュリティ機能や証明書検証を無効化する手順は提供しません。
-THIRD-PARTY-NOTICES.txtとDEPENDENCIES.jsonを同梱します。公開crateにライセンス本文がない依存は原本ソースも同梱し、公開Release前の確認対象をBUILD-INFO.jsonへ残します。
+THIRD-PARTY-NOTICES.txtとDEPENDENCIES.jsonを同梱します。crate本体にライセンス本文がない依存は、バージョンを照合した上流のライセンス本文と原本の`.crate`を添付します。[上流ライセンスの取得元](../../apps/device-manager/licenses/UPSTREAM.md)を記録し、未確認の依存が一件でも残る場合はGitHub Releaseの公開を停止します。
 
 ## 保守担当者が配布物を作る
 開発環境のあるWindows x64で、対象のclone・ローカルブランチに移動し、変更をcommitしてから実行します。
@@ -81,8 +83,9 @@ THIRD-PARTY-NOTICES.txtとDEPENDENCIES.jsonを同梱します。公開crateに�
 Developer Command Promptではnpm run package:windowsでも同じ処理を実行できます。
 出力はapps/device-manager/dist/配下です。版・source commit・lockfile hash・ビルド環境を保存し、dirtyな作業ツリーから配布候補を作りません。
 通常のDebug build/devは従来どおり未commitの開発作業に使用できます。
-CIはPR・手動実行・device-manager-v* tagで配布候補を生成し、成功した検証の後にArtifactsへ保存します。自動公開Release・自動マージは行いません。
-公開前に署名方針、同梱依存の表示条件、クリーンPC、WebView2未導入/オフライン導入、インストール・アンインストールを確認します。
+CIはPR・手動実行・`device-manager-v*`タグで配布候補を生成します。タグ実行では、Windows配布のビルド・別runnerでの検証がすべて成功し、source commit・SHA-256・第三者ライセンス通知を確認できた場合だけ、日本語Release NotesとともにGitHubの**Pre-release**を公開します。既存の配布物を再利用するだけでなく、タグに対応するソースで一度ビルドし直します。
+
+通常PRからの公開は行わず、公開処理だけに最小限の`contents:write`権限を与えます。署名は未導入であり、クリーンPC・完全オフライン初回導入の確認は引き続き必要です。
 
 ## 一次資料
 - [Tauri Windows Installer](https://v2.tauri.app/distribute/windows-installer/)

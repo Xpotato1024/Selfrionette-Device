@@ -2,6 +2,7 @@ import {spawnSync} from 'node:child_process';
 import { readFileSync, readdirSync, statSync, copyFileSync, mkdirSync } from 'node:fs';
 import { dirname, join, basename } from 'node:path';
 import { createHash } from 'node:crypto';
+import { fileURLToPath } from 'node:url';
 
 export const sha256 = data => createHash('sha256').update(data).digest('hex');
 export function runtimeEnvironment(env) {
@@ -53,6 +54,16 @@ export function inspectPE(bytes) {
   if(subsystem!==2)throw Error('Distribution executable must use Windows GUI subsystem');
   return {machine:'x86_64',subsystem:'windows_gui',imports:[...new Set(imports)].sort()};
 }
+// These exact published crates omit a top-level license file. The upstream license
+// texts are pinned in ../licenses/ and are bundled as additional notices.
+export const supplementalCrateLicenses = Object.freeze({
+  'alloc-stdlib@0.3.0': {declared:'BSD-3-Clause',file:'alloc-stdlib-BSD-3-Clause.txt'},
+  'defmt-parser@1.0.0': {declared:'MIT OR Apache-2.0',file:'defmt-MIT.txt'},
+  'selectors@0.38.0': {declared:'MPL-2.0',file:'servo-MPL-2.0.txt'},
+  'webview2-com-macros@0.8.1': {declared:'MIT',file:'webview2-rs-MIT.txt'},
+  'webview2-com-sys@0.39.1': {declared:'MIT',file:'webview2-rs-MIT.txt'},
+  'webview2-com@0.39.1': {declared:'MIT',file:'webview2-rs-MIT.txt'},
+});
 export function collectNotices(metadata, output) {
   mkdirSync(join(output,'dependency-sources'),{recursive:true});
   const sections=['Third-party notices / exact dependency sources',
@@ -65,16 +76,24 @@ export function collectNotices(metadata, output) {
     const entry={name:p.name,version:p.version,license:p.license,source:'https://crates.io/crates/'+p.name+'/'+p.version,repository:p.repository,notices:files};
     sections.push('\n============================================================\n'+p.name+' '+p.version+'\nLicense: '+p.license+'\nSource: '+entry.source+'\nRepository: '+(p.repository||'See source archive'));
     for(const name of files)sections.push('\n--- '+name+' ---\n'+readFileSync(join(dir,name),'utf8'));
+    const supplemental = !files.length && supplementalCrateLicenses[p.name+'@'+p.version];
+    if (supplemental) {
+      if (p.license !== supplemental.declared) throw Error('Re-review changed license declaration for '+p.name+'@'+p.version);
+      const licenseText = readFileSync(fileURLToPath(new URL('../licenses/'+supplemental.file,import.meta.url)));
+      entry.supplemental_license = supplemental.file;
+      entry.supplemental_sha256 = sha256(licenseText);
+      sections.push('\n--- Upstream license: '+supplemental.file+' (pinned copy) ---\n'+licenseText.toString('utf8'));
+    }
     if(!files.length || /MPL/.test(p.license??'')) {
       const archive=p.name+'-'+p.version+'.crate';
       const cache=join(dirname(dirname(dirname(dir))),'cache',basename(dirname(dir)),archive);
       copyFileSync(cache,join(output,'dependency-sources',archive));
       entry.archive='dependency-sources/'+archive;entry.archive_sha256=sha256(readFileSync(cache));
-      if(!files.length)sections.push('The published crate has no top-level license text. Its original source archive is included; consult the pinned package/upstream license before public redistribution.');
+      if(!files.length && !supplemental)sections.push('The published crate has no top-level license text. Its original source archive is included; review the upstream license before public redistribution.');
     }
     inventory.push(entry);
   }
-  return {text:sections.join('\n')+'\n',inventory,licenseReview:inventory.filter(p=>!p.notices.length).map(p=>p.name+'@'+p.version)};
+  return {text:sections.join('\n')+'\n',inventory,licenseReview:inventory.filter(p=>!p.notices.length&&!p.supplemental_license).map(p=>p.name+'@'+p.version)};
 }
 
 export function zipDirectory(source, destination) {
