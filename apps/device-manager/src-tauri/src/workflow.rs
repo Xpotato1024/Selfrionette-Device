@@ -685,9 +685,8 @@ mod tests {
         }
         fn new_in(parent: &Path, sequence: &AtomicU64) -> Self {
             for _ in 0..128 {
-                let serial = sequence
-                    .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |n| n.checked_add(1))
-                    .expect("test store sequence exhausted");
+                // Candidate numbers may wrap; exclusive creation still prevents sharing.
+                let serial = sequence.fetch_add(1, Ordering::Relaxed);
                 let reservation =
                     parent.join(format!("srn-workflow-{}-{serial}", std::process::id()));
                 match fs::create_dir(&reservation) {
@@ -726,6 +725,11 @@ mod tests {
         let removed = second.1.clone();
         drop(second);
         assert!(!removed.exists());
+        let rollover = AtomicU64::new(u64::MAX);
+        let last = Store::new_in(&owner.0, &rollover);
+        let wrapped = Store::new_in(&owner.0, &rollover);
+        assert_ne!(last.1, wrapped.1);
+        assert_ne!(first.1, wrapped.1);
         assert_eq!(fs::read_to_string(marker).unwrap(), "unchanged");
     }
     #[test]

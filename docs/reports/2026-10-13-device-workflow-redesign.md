@@ -75,3 +75,6 @@ production部分と既存9テストの本文は修正前と一致することを
 調査・反復ログはdevice-pr10-windows-ciのローカル作業記録に保存し、生成ログはcommitしない。最終headのCIはPR #10のchecksで確認する。
 
 0xc0000409は[Microsoftのfast-fail説明](https://learn.microsoft.com/en-us/cpp/intrinsics/fastfail?view=msvc-170)にも使われる終了コードであり、CIログに例外パラメータがないため、コードだけでスタック破損の詳細を確定しない。ローカルで確認した直接原因はテスト保存先の衝突である。
+
+CIのRust 1.99ではfetch_updateが非推奨となっており、最初の修正headのClippyが停止した。ローカルのRust 1.94で出なかった互換性差である。
+警告抑止・toolchain変更はせず、共通のfetch_addへ変更した。連番が再利用・wrapした場合も、排他的create_dirと衝突再試行が既存保存先との共有を防ぐ。
