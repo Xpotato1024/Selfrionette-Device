@@ -1,77 +1,71 @@
 <!doctype html>
 <html lang="ja">
-<head>
-  <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Selfrionette Device Manager</title><link rel="stylesheet" href="style.css">
-</head>
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Selfrionette Device Manager</title><link rel="stylesheet" href="style.css"></head>
 <body>
 <a class="skip-link" href="#workspace">作業内容へ移動</a>
-<header class="app-header"><strong>Selfrionette <span>Device Manager</span></strong><span class="mode">合成データ / 実機未接続</span></header>
+<header class="app-header"><strong>Selfrionette <span>Device Manager</span></strong><span id="environment" class="mode">合成試験 · 実機未接続</span></header>
+<main id="workspace" tabindex="-1">
+  <section class="context-bar" aria-label="共通の操作対象">
+    <div class="target-picker"><label for="role">対象</label><select id="role" aria-describedby="role-help"><option value="left">左入力用の合成個体</option><option value="right">右入力用の合成個体</option></select></div>
+    <code id="device-id">—</code><span id="role-summary" class="sr-only"></span><span id="role-help" class="sr-only">表示の切替だけでは各個体の調整を変更しません。</span>
+  </section>
+  <nav class="task-tabs" role="tablist" aria-label="作業種別">
+    <button id="tab-device" type="button" role="tab" data-page="device" aria-controls="page-device" aria-selected="true" tabindex="0">入力確認</button>
+    <button id="tab-adjust" type="button" role="tab" data-page="adjust" aria-controls="page-adjust" aria-selected="false" tabindex="-1">調整</button>
+    <button id="tab-diagnostics" type="button" role="tab" data-page="diagnostics" aria-controls="page-diagnostics" aria-selected="false" tabindex="-1">診断・記録</button>
+  </nav>
+  <span id="announcer" class="sr-only" role="status" aria-live="polite"></span>
+  <section id="error-panel" class="error-panel" aria-labelledby="error-title" hidden><h2 id="error-title" tabindex="-1">操作を完了できませんでした</h2><p id="error-message"></p><details id="error-details"><summary>技術情報</summary><pre id="error-detail"></pre></details></section>
+  <div id="unavailable" hidden><p>状態を取得できません。変更操作は停止しています。</p><button id="refresh">再取得</button></div>
 
-<div class="shell">
-  <aside class="sidebar">
-    <nav aria-label="作業場所">
-      <button type="button" data-page="device" aria-current="page">デバイス</button>
-      <button type="button" data-page="adjust">調整</button>
-      <button type="button" data-page="diagnostics">診断・記録</button>
-    </nav>
-    <p class="scope-note">7ch 入力デバイス<br>合成試験版</p>
-  </aside>
-  <main id="workspace" tabindex="-1">
-    <section class="context-bar" aria-label="共通の操作対象">
-      <div><label for="role">合成個体を選択</label><select id="role" aria-describedby="role-help"><option value="left">左入力用の合成個体</option><option value="right">右入力用の合成個体</option></select></div>
-      <div class="identity"><p id="role-summary">対象を取得中</p><code id="device-id">—</code></div>
-      <span id="role-help" class="sr-only">切替は表示対象だけを変えます。各個体の調整状態は保持されます。</span>
-    </section>
-    <span id="announcer" class="sr-only" role="status" aria-live="polite"></span>
-    <section id="error-panel" class="error-panel" aria-labelledby="error-title" hidden>
-      <h2 id="error-title" tabindex="-1">操作を完了できませんでした</h2><p id="error-message"></p>
-      <details id="error-details"><summary>判定理由・技術情報</summary><pre id="error-detail"></pre></details>
-    </section>
-    <div id="unavailable" hidden><p>状態が不明なため、変更操作を停止しています。</p><button id="refresh">状態を再取得</button></div>
-    <section id="page-device" class="page" aria-labelledby="device-title">
-      <h1 id="device-title" tabindex="-1">デバイス</h1>
-      <dl class="status-line"><div><dt>接続</dt><dd>実機未接続</dd></div><div><dt>調整</dt><dd id="device-phase">未開始</dd></div><div><dt>今回の記録</dt><dd id="device-record">未保存</dd></div></dl>
-      <div class="next-task"><p id="device-guidance"></p><button type="button" data-page="adjust">調整を開く</button></div>
-      <h2>入力一覧</h2><p class="caption-note">無次元入力 / 合成データ。物理位置との対応は未確認です。</p>
-      <div class="input-layout">
-        <table class="input-table"><caption class="sr-only">合成7chの入力一覧</caption><thead><tr><th scope="col">受信ch</th><th scope="col">無次元入力</th><th scope="col">注意</th></tr></thead><tbody id="input-rows"></tbody></table>
-        <section id="channel-detail" class="inspector" aria-labelledby="channel-title"><h2 id="channel-title">ch 0 の詳細</h2><p>物理位置未確認</p><dl id="channel-values"></dl></section>
+  <section id="page-device" class="page" role="tabpanel" aria-labelledby="tab-device">
+    <div class="page-heading"><h1 id="device-title" tabindex="-1">入力確認</h1><button type="button" data-page="adjust">調整を開く</button></div>
+    <dl class="status-line"><div><dt>調整</dt><dd id="device-phase">未開始</dd></div><div><dt>PCの記録</dt><dd id="device-record">未保存</dd></div></dl>
+    <p class="caption-note">無次元入力。実物位置と受信chの対応は未確認です。</p>
+    <table class="input-table"><caption class="sr-only">合成7chの入力一覧</caption><thead><tr><th scope="col">受信ch</th><th scope="col">無次元入力</th><th scope="col">注意</th></tr></thead><tbody id="input-rows"></tbody></table>
+    <p id="input-empty" hidden>比較結果はまだありません。</p>
+    <details id="channel-detail" class="inspector"><summary id="channel-title">ch 0 の詳細</summary><dl id="channel-values"></dl></details>
+  </section>
+
+  <section id="page-adjust" class="page" role="tabpanel" aria-labelledby="tab-adjust" hidden>
+    <h1 id="adjust-title" class="sr-only" tabindex="-1">調整</h1>
+    <div class="workflow-grid">
+      <details id="step-outline" class="step-outline" open><summary>手順一覧</summary><ol id="steps" aria-label="調整の手順"></ol><button id="restart" class="quiet" data-command="begin" data-confirm="restart">最初からやり直す</button></details>
+      <div id="step-content">
+        <section data-step="baseline" class="step-panel">
+          <h2 tabindex="-1">基準を記録</h2><p>入力の変化を比較するため、今回の基準値を作成します。</p>
+          <div class="step-actions"><button id="begin" data-command="begin">合成調整を開始</button><button id="baseline" data-command="baseline" aria-describedby="baseline-help" hidden>基準を記録</button></div><p id="baseline-help" class="action-help"></p>
+        </section>
+        <section data-step="assessment" class="step-panel" hidden>
+          <h2 tabindex="-1">応答と操作範囲を確認</h2><p>既知方向への入力、繰返し、除荷後の戻りを確認します。</p>
+          <button id="assess" data-command="assess" aria-describedby="assess-help">応答を確認</button><p id="assess-help" class="action-help"></p>
+          <details id="fixture-controls" class="secondary-controls"><summary>合成試験の条件</summary><label for="scenario">品質条件</label><select id="scenario"><option value="good">正常</option><option value="noise">ノイズ付近</option><option value="disagreement">符号不一致</option><option value="unstable">基準が不安定</option><option value="release">除荷で戻らない</option><option value="crosstalk">他chへの影響が不明</option><option value="timeout">タイムアウト</option><option value="direction">既知方向なし</option></select></details>
+          <details id="manual-controls" class="secondary-controls"><summary>根拠付きの手動反転</summary><p>変更すると、後続の比較・確認はやり直しになります。</p><div class="actions"><div><label for="flip-channel">受信ch</label><select id="flip-channel"><option>0</option><option>1</option><option>2</option><option>3</option><option>4</option><option>5</option><option>6</option></select></div><div class="reason-field"><label for="reason">変更の根拠</label><input id="reason" maxlength="512" aria-describedby="reason-help reason-error"><p id="reason-help">確認した方向と理由（UTF-8で512 bytes以内）。</p><p id="reason-error" class="field-error" hidden></p></div></div><button id="flip" data-command="flip" aria-describedby="flip-help">向き候補を反転</button><p id="flip-help" class="action-help"></p></details>
+        </section>
+        <section data-step="preview" class="step-panel" hidden>
+          <h2 tabindex="-1">入力を比較</h2><p>比較する入力を選択します。計算結果は次の手順で確認します。</p>
+          <div id="comparison-controls"><label for="level">比較する合成入力</label><select id="level"><option value="0.5">0.5 / 正方向</option><option value="0">0 / 基準</option><option value="-0.5">−0.5 / 未測定の逆方向</option><option value="1.5">1.5 / 表示範囲超過</option></select><div class="step-actions"><button id="preview" data-command="preview" aria-describedby="preview-help">比較結果を表示</button></div><p id="preview-help" class="action-help"></p></div>
+        </section>
+        <section data-step="confirmation" class="step-panel" hidden>
+          <h2 tabindex="-1">結果を確認</h2>
+          <table class="input-table"><caption class="sr-only">合成7chの調整結果</caption><thead><tr><th scope="col">受信ch</th><th scope="col">無次元入力</th><th scope="col">注意</th></tr></thead><tbody id="adjust-rows"></tbody></table>
+          <p id="confirm-help" class="action-help"></p><div class="step-actions"><button id="confirm" data-command="confirm" aria-describedby="confirm-help">この結果を確認</button><button id="back-to-comparison" type="button" data-step-link="preview">入力を変えて再比較</button></div>
+        </section>
+        <section data-step="record" class="step-panel" hidden>
+          <h2 tabindex="-1">PCに記録を保存</h2><p id="record-state"></p><div class="step-actions"><button id="save" data-command="save" aria-describedby="save-help">PCに保存</button><button id="export" data-command="export" aria-describedby="export-help">JSONを書き出す</button></div><p id="save-help" class="action-help"></p><p id="export-help" class="action-help"></p>
+        </section>
+        <div class="step-footer"><button id="previous-step" type="button" class="quiet">前の手順</button><button id="return-current" type="button" class="quiet" hidden>未完了の手順へ戻る</button></div>
       </div>
-    </section>
-    <section id="page-adjust" class="page" aria-labelledby="adjust-title" hidden>
-      <h1 id="adjust-title" tabindex="-1">調整</h1>
-      <ol id="steps" aria-label="合成調整の進み具合"></ol>
-      <p id="step-guidance" class="guidance" tabindex="-1"></p>
-      <section data-phases="not_started" class="operation"><h2>合成入力の確認</h2><p>今回の基準から、応答・操作範囲・補正結果を確認します。</p><button id="begin" data-command="begin" aria-describedby="begin-help">合成調整を開始</button><p id="begin-help" class="action-help"></p></section>
-      <section data-phases="baseline" class="operation" hidden><h2>基準を確認</h2><p>合成fixtureの基準値を今回のsessionに設定します。実機へtareは送信しません。</p><button id="baseline" data-command="baseline" aria-describedby="baseline-help">合成基準を作成</button><p id="baseline-help" class="action-help"></p></section>
-      <section data-phases="assessment" class="operation" hidden><h2>応答と操作範囲を確認</h2><p>既知方向・繰返し・除荷後の戻りを、7chの合成観測で確認します。</p><p id="scenario-summary"></p><button id="assess" data-command="assess" aria-describedby="assess-help">応答・操作範囲を確認</button><p id="assess-help" class="action-help"></p></section>
-      <details id="comparison-controls" data-phases="preview confirmation record" class="operation" hidden><summary>比較する入力を変更</summary><div class="actions"><div><label for="level">次に比較する合成入力</label><select id="level"><option value="0.5">0.5 / 正方向</option><option value="0">0 / 基準</option><option value="-0.5">−0.5 / 未測定の逆方向</option><option value="1.5">1.5 / 表示範囲超過</option></select></div><button id="preview" data-command="preview" aria-describedby="preview-help">入力を比較</button></div><p id="preview-help" class="action-help"></p></details>
-      <section data-phases="confirmation record" class="operation" hidden>
-        <h2>現在の結果</h2><table class="input-table"><caption class="sr-only">合成7chの調整結果</caption><thead><tr><th scope="col">受信ch</th><th scope="col">無次元入力</th><th scope="col">注意</th></tr></thead><tbody id="adjust-rows"></tbody></table>
-        <p class="result-note">未測定方向は数値化せず、表示範囲超過を別に示します。</p>
-        <div data-phases="confirmation"><button id="confirm" data-command="confirm" aria-describedby="confirm-help">この結果を確認</button><p id="confirm-help" class="action-help"></p></div>
-      </section>
-      <section data-phases="record" class="operation" hidden><h2>合成記録を保存</h2><p id="record-state"></p><div class="actions"><button id="save" data-command="save" aria-describedby="save-help">この個体の記録を保存</button><button id="export" data-command="export" aria-describedby="export-help">未検証記録を書き出す</button></div><p id="save-help" class="action-help"></p><p id="export-help" class="action-help"></p></section>
-      <details id="retry-controls" class="secondary-controls"><summary>再確認・やり直し</summary><p>変更した値に依存するプレビュー確認は失効します。</p><div class="actions"><button id="rebaseline" data-command="baseline" aria-describedby="rebaseline-help">基準から再確認</button><button id="reassess" data-command="assess" aria-describedby="reassess-help">応答を再確認</button><button id="restart" data-command="begin" data-confirm="restart" aria-describedby="restart-help">この個体の調整をやり直す</button></div><p id="rebaseline-help" class="action-help"></p><p id="reassess-help" class="action-help"></p><p id="restart-help" class="action-help"></p>
-        <details id="manual-controls"><summary>根拠付きの手動反転</summary><div class="actions"><div><label for="flip-channel">対象の受信ch</label><select id="flip-channel"><option>0</option><option>1</option><option>2</option><option>3</option><option>4</option><option>5</option><option>6</option></select></div><div class="reason-field"><label for="reason">手動変更の根拠</label><input id="reason" maxlength="512" aria-describedby="reason-help reason-error"><p id="reason-help">合成試験で確認した方向と理由を入力してください（UTF-8で512 bytes以内）。</p><p id="reason-error" class="field-error" hidden></p></div><button id="flip" data-command="flip" aria-describedby="flip-help">向き候補を反転</button></div><p id="flip-help" class="action-help"></p></details>
-      </details>
-    </section>
-    <section id="page-diagnostics" class="page" aria-labelledby="diagnostics-title" hidden>
-      <h1 id="diagnostics-title" tabindex="-1">診断・記録</h1>
-      <h2>現在の演算値</h2><p id="source"></p><p id="table-help">横にスクロールして、元入力から表示値までを確認できます。元入力はraw ADCでもN単位の力でもありません。</p>
-      <div class="table-scroll" tabindex="0" role="region" aria-label="7chの演算値" aria-describedby="table-help"><table><caption>合成7ch：元入力と補正結果</caption><thead><tr><th scope="col">受信ch</th><th scope="col">元入力</th><th scope="col">基準</th><th scope="col">差分</th><th scope="col">極性</th><th scope="col">向き補正後</th><th scope="col">正方向範囲</th><th scope="col">無次元入力</th><th scope="col">表示 / 範囲超過</th></tr></thead><tbody id="rows"></tbody></table></div>
-      <details><summary>確認の根拠</summary><pre id="evidence"></pre></details>
-      <section class="history-section"><h2>保存記録を比較</h2><p>この個体の最新記録を表示します。閲覧では、現在の基準・確認状態を変更しません。</p><button id="read-history" data-command="read_history" aria-describedby="read-history-help">最新の保存記録を表示</button><p id="read-history-help" class="action-help"></p><p id="history-summary">記録は表示していません。</p>
-        <details id="history-data"><summary>保存記録の内容（未検証）</summary><pre id="saved-profile">記録は表示していません。</pre></details>
-        <details id="resume-controls"><summary>記録と条件を照合して調整を再開</summary><p>現在の基準・確認を失効させ、新しいsessionを開始します。過去の基準・向き・範囲は自動適用せず、再観測が必要です。</p><button id="resume" data-command="resume" data-confirm="resume" aria-describedby="resume-help">条件を照合して再開</button><p id="resume-help" class="action-help"></p></details>
-      </section>
-      <details id="fixture-controls" class="secondary-controls"><summary>合成試験の条件・失効試験</summary><p>開発用の試験操作です。閾値は実機の推奨値ではありません。</p><div class="actions"><div><label for="scenario">応答確認の品質条件</label><select id="scenario"><option value="good">正常な合成fixture</option><option value="noise">ノイズ付近</option><option value="disagreement">繰返し符号不一致</option><option value="unstable">基準が不安定</option><option value="release">除荷で戻らない</option><option value="crosstalk">他chへの影響が不明</option><option value="timeout">タイムアウト</option><option value="direction">既知方向なし</option></select></div><button id="run-scenario" data-command="assess" aria-describedby="run-scenario-help">この条件で再判定</button><button id="invalidate" data-command="invalidate" aria-describedby="invalidate-help">合成sessionを失効</button></div><p id="run-scenario-help" class="action-help"></p><p id="invalidate-help" class="action-help"></p></details>
-    </section>
-  </main>
-</div>
-<footer class="app-status"><p id="message"></p><p id="environment" class="environment">状態を読み込んでいます。</p></footer>
-<dialog id="confirm-dialog" aria-labelledby="dialog-title" aria-describedby="dialog-message"><h2 id="dialog-title">調整状態を変更します</h2><p id="dialog-target"></p><p id="dialog-message"></p><div class="actions"><button id="dialog-cancel" autofocus>戻る</button><button id="dialog-apply">変更して続ける</button></div></dialog>
+    </div>
+  </section>
+
+  <section id="page-diagnostics" class="page" role="tabpanel" aria-labelledby="tab-diagnostics" hidden>
+    <h1 id="diagnostics-title" tabindex="-1">診断・記録</h1>
+    <details id="diagnostic-values" open><summary>現在の演算値</summary><p id="source"></p><p id="table-help">元入力はFirmwareの処理後の値で、raw ADCやN単位の力ではありません。</p><div class="table-scroll" tabindex="0" role="region" aria-label="7chの演算値" aria-describedby="table-help"><table><caption class="sr-only">合成7ch：元入力と補正結果</caption><thead><tr><th scope="col">受信ch</th><th scope="col">元入力</th><th scope="col">基準</th><th scope="col">差分</th><th scope="col">極性</th><th scope="col">向き補正後</th><th scope="col">正方向範囲</th><th scope="col">無次元入力</th><th scope="col">表示値</th></tr></thead><tbody id="rows"></tbody></table></div><details><summary>判定の根拠</summary><pre id="evidence"></pre></details></details>
+    <details id="record-controls"><summary>保存記録</summary><button id="read-history" data-command="read_history">最新記録を表示</button><p id="history-summary"></p><details><summary>記録の内容</summary><pre id="saved-profile"></pre></details><button id="resume" data-command="resume" data-confirm="resume" aria-describedby="resume-help">条件を照合して調整を再開</button><p id="resume-help" class="action-help"></p></details>
+    <details id="invalidation-controls"><summary>状態失効の試験</summary><button id="invalidate" data-command="invalidate" aria-describedby="invalidate-help">この個体の調整を失効</button><p id="invalidate-help" class="action-help"></p></details>
+  </section>
+</main>
+<dialog id="confirm-dialog" aria-labelledby="dialog-title"><h2 id="dialog-title">変更の確認</h2><p id="dialog-target"></p><p id="dialog-message"></p><div class="actions"><button id="dialog-cancel" autofocus>取り消す</button><button id="dialog-apply">変更して続ける</button></div></dialog>
 <script type="module" src="app.mjs"></script>
-</body>
-</html>
+</body></html>

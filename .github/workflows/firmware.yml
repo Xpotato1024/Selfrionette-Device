@@ -39,6 +39,11 @@ jobs:
         with:
           python-version: "3.12"
 
+      - name: Test persistent-setting journal without hardware
+        run: |
+          g++ -std=c++11 -Wall -Wextra -Werror firmware/tests/device_settings.cpp -o "$RUNNER_TEMP/device-settings-test"
+          "$RUNNER_TEMP/device-settings-test"
+
       - name: Test memory budget parser
         run: python -m unittest tests/test_check_firmware_size.py
 
@@ -52,6 +57,12 @@ jobs:
           --environment pro_micro_7ch
           --max-static-ram 1024
           --max-flash 24576
+
+      - name: Compile settings contract for ATmega32U4 without linking or uploading
+        run: >-
+          "$HOME/.platformio/packages/toolchain-atmelavr/bin/avr-g++"
+          -std=gnu++11 -mmcu=atmega32u4 -Os -fno-exceptions -fno-rtti -Wall -Wextra -Werror
+          -c firmware/tests/device_settings_avr.cpp -o "$RUNNER_TEMP/device-settings-avr.o"
 
   build-legacy-reference:
     runs-on: ubuntu-latest

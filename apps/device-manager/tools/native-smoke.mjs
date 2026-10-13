@@ -65,7 +65,7 @@ async function syncUI(page){await page.reload();await page.waitForFunction(()=>!
 try {
  let {page,call,raw,invoke}=await launch();
  assert.equal((await call('status')).phase,'not_started');
- assert.match(await page.locator('#environment').innerText(),/Rust core/);
+ assert.match(await page.locator('#environment').innerText(),/合成試験.*実機未接続/);
  await page.locator('nav [data-page="adjust"]').click();
  for(const id of ['begin','baseline','assess','preview'])await page.locator('#'+id).click();
  await page.waitForFunction(()=>document.querySelectorAll('#rows tr').length===7);
@@ -85,13 +85,13 @@ try {
  await syncUI(page);await page.locator('nav [data-page="adjust"]').click();await page.locator('#save').click();
  await page.waitForFunction(()=>document.getElementById('record-state').textContent.includes('保存済み'));
  const before=await call('status');
- await page.locator('nav [data-page="diagnostics"]').click();await page.locator('#read-history').click();
+ await page.locator('nav [data-page="diagnostics"]').click();await page.locator('#record-controls > summary').click();await page.locator('#read-history').click();
  await page.waitForFunction(()=>document.getElementById('history-summary').textContent.includes('表示中'));
  v=await call('status');assert.equal(v.epoch,before.epoch);assert.equal(v.core_revision,before.core_revision);assert.equal(v.phase,'record');assert(v.saved_current);
  assert.equal(v.rows.length,7);assert.deepEqual(v.history.historical_observation.firmware_sample,original);
  assert.equal(v.history.operation.active_baseline_restored,false);
  await page.screenshot({path:join(run,'native-history.png'),fullPage:true});
- await page.locator('#resume-controls summary').click();await page.locator('#resume').click();
+ await page.locator('#resume').click();
  assert(await page.locator('#confirm-dialog').isVisible());await page.locator('#dialog-cancel').click();
  assert.equal((await call('status')).epoch,before.epoch);
  await page.locator('#resume').click();await page.locator('#dialog-apply').click();
@@ -114,8 +114,9 @@ try {
  assert.deepEqual(v.rows.map(r=>r.normalized),Array(7).fill(1.5));assert.deepEqual(v.rows.map(r=>r.displayed),Array(7).fill(1));assert(v.rows.every(r=>r.saturated));
  assert(!v.operations.find(o=>o.id==='confirm').enabled);
  await syncUI(page);await page.locator('nav [data-page="adjust"]').click();
- assert(await page.locator('#preview').isVisible());assert(await page.locator('#confirm').isDisabled());
- assert.equal(await page.locator('#page-adjust button.primary:visible').getAttribute('id'),'preview');
+ assert(await page.locator('#back-to-comparison').isVisible());assert(await page.locator('#confirm').isDisabled());
+ assert.equal(await page.locator('#page-adjust button.primary:visible').getAttribute('id'),'back-to-comparison');
+ assert.equal(await page.locator('.step-panel:visible').count(),1);
  await page.screenshot({path:join(run,'native-saturation.png'),fullPage:true});
  await rejected(call,'confirm');await rejected(call,'save');
  v=await call('preview',{level:'-0.5'});assert(v.rows.every(r=>r.normalized===null&&r.displayed===null));
@@ -133,7 +134,7 @@ try {
  result=await invoke({expected:token,command:{action:'begin'}});assert.equal(result.error.code,'stale_target');
  report.cases.push('independent left/right sessions, selection without reset, stale-target and repeated-request rejection');
  await qualified(call);await syncUI(page);await page.locator('nav [data-page="adjust"]').click();
- await page.locator('#comparison-controls > summary').click();
+ await page.locator('#previous-step').click();
  await page.locator('#level').evaluate(el=>el.add(new Option('invalid fixture','NaN')));await page.locator('#level').selectOption('NaN');await page.locator('#preview').click();
  await page.waitForFunction(()=>!document.getElementById('error-panel').hidden);
  assert.equal(await page.locator('#rows tr').count(),0);assert(await page.locator('#save').isDisabled());

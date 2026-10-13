@@ -18,7 +18,7 @@ npm/native Cargoのlockfileを同梱しています。PowerShellで次を実行�
     .\src-tauri\target\debug\selfrionette-device-manager.exe
 
 開発中は .\run-native.cmd dev を使えます。
-起動だけでは接続も校正も行いません。「デバイス」で合成個体を選び、「調整」で開始します。
+起動だけでは接続も校正も行いません。共通の「対象」で合成個体を選び、横タブの「調整」で開始します。
 左右の選択は表示対象だけを変え、各個体の基準・候補・確認を保持します。やり直しは別の明示操作です。
 終了はnative windowを閉じます。devでは開発terminalもCtrl+Cで停止します。
 今回確認したのはDebug executableであり、Release/bundle配布や実機受入は未実施です。
@@ -34,13 +34,13 @@ timestamp、元7ch、履歴baseline、差分、符号補正後、無次元値を
 元値はnegation/tare/filter後であり、raw ADCやN単位のforceではありません。
 physical draft（ID/組立/firmware/符号/revision/根拠）とoperation draft（ユーザー/姿勢/epoch/span）を分けます。
 逆方向spanは未測定のままです。表示clamp前の値とsaturationも区別します。
-「診断・記録」→「最新の保存記録を表示」は、個体/firmware/組立/ユーザー/姿勢を照合した比較専用の閲覧です。成功・失敗とも現在の調整を変更しません。
-「条件を照合して再開」は確認dialogを経て現在の調整を失効させ、新しいsessionを開始します。過去の基準・符号・span・確認は復元しません。
+「診断・記録」→「保存記録」→「最新記録を表示」は、個体/firmware/組立/ユーザー/姿勢を照合した比較専用の閲覧です。成功・失敗とも現在の調整を変更しません。
+「条件を照合して調整を再開」は確認dialogを経て現在の調整を失効させ、新しいsessionを開始します。過去の基準・符号・span・確認は復元しません。
 再判定・基準・手動変更・再開等の失敗時に、依存する旧承認を利用できない規則を維持します。
-「合成sessionを失効」は開発用のローカル試験であり、実機へtare/resetを送信しません。
+「この個体の調整を失効」は開発用のローカル試験であり、実機へtare/resetを送信しません。
 
 ## 検証
-npm testで表示専用adapterと通信controllerの回帰テストを実行します。
+npm testで表示専用adapter、通信controller、閲覧専用ステップナビゲーションの9件の回帰テストを実行します。
 cargo test --workspace --lockedでcore/serial/CLIを、cargo test --manifest-path apps/device-manager/src-tauri/Cargo.toml --lib --lockedでGUI use caseを検証します。
 npm run test:nativeは本物のTauri executable/WebView2/Rust IPCを使い、9群を実行します。
 保存・閲覧・明示再開・再起動、左右の独立session、旧tokenの拒否、失敗後の承認失効、品質不明、表示範囲超過、未測定逆方向と画面QAを含みます。
@@ -65,12 +65,21 @@ Nodeだけで npm run preview を実行し、同じPCの http://127.0.0.1:4173 �
 USB/serial、info、tare、reset、EEPROM、flash、robot接続/actuationはこのappに実装していません。
 
 ## 画面の読みやすさと操作
-「デバイス」「調整」「診断・記録」に分け、全工程の操作を常時表示しません。
-対象IDと合成モードを共通表示し、調整はRustが返した現在工程と操作可否で描画します。
-16pxの本文・ラベル・表見出し、数値の桁揃え、選択chの詳細、表示値に対応する入力バーを使います。
-未測定方向は数値・バーを捏造せず、値なしと理由を表示します。モデルや物理位置は未確認です。
+横タブは「入力確認」「調整」「診断・記録」の作業種別です。調整だけ縦の番号付き手順を持ち、本文は一手順だけを表示します。
+完了した手順へ戻るだけでは設定を変更しません。基準や応答を再実行するときは、後続確認が失効することを確認dialogで示します。
+未到達手順は実行不可です。閲覧位置とRustが持つ達成状態・操作許可を別に扱います。
+タブは左右矢印/Home/Endでフォーカスを移動し、Enter/Spaceで表示を選びます。表示移動だけではcommandを送りません。
+対象とID、合成モードはそれぞれ共通領域に一度だけ表示します。保存手順では結果表を再掲せず、PCへの保存と装置設定の変更を区別します。
+16pxの本文・ラベル・表見出しを維持し、未使用の注意列や未比較の数値表は表示しません。選択ch詳細は展開式です。
+狭幅では手順一覧を開閉でき、中央の作業内容を読める幅を確保します。
 デジタル庁のローカルデザインシステムの考え方を参考にし、政府の公式製品・認定・ロゴは表示しません。
-入力エラーを関連づけ、Tab/矢印/Enter/Space、確認dialogのcancel、320/640 CSS pxの全ページreflow、主要文字色のコントラストを検証します。
-スクリーンリーダー、native 200%/Windows DPI、Release/bundle配布、実機受入、ユーザビリティ評価は未実施です。
+入力エラーは入力欄に関連づけます。Tab/矢印/Enter/Space、対象切替後のfocus保持、確認取消、320/640 CSS pxのreflow、主要文字色のコントラストを検証します。
+スクリーンリーダー、native 200%/Windows DPI、Release/bundle配布、実機受入、利用者による操作性評価は未実施です。
 
-参照: [ローカルデザインシステム](https://design.digital.go.jp/dads/guidance/local-design-system/)、[文字](https://design.digital.go.jp/dads/foundations/typography/)、[入力欄のアクセシビリティ](https://design.digital.go.jp/dads/components/input-text/accessibility/)。
+## 装置単独利用・Firmware更新への実装計画
+[ADR-0009案](../../docs/decisions/0009-standalone-device-configuration.md)でManager常駐不要の方針を、[装置設定契約](../../docs/contracts/device-persistent-settings.md)でEEPROM recordを定義しています。
+今回追加したC++の保存journalはハードウェア非依存の部品です。現行Firmwareのserial/EEPROMへは結線していません。
+[Firmware更新契約](../../docs/contracts/firmware-update.md)は対象確認・設定保護・書込み・再接続確認の設計です。書込みbackendと実機向け保守画面は未実装です。
+現行の合成記録をEEPROMへコピーしたり、未確認のモデルから極性やch位置を推測したりしません。
+
+参照: [ローカルデザインシステム](https://design.digital.go.jp/dads/guidance/local-design-system/)、[文字](https://design.digital.go.jp/dads/foundations/typography/)、[ステップナビゲーション](https://design.digital.go.jp/dads/components/step-navigation/)、[Tabs Pattern](https://www.w3.org/WAI/ARIA/apg/patterns/tabs/)。
