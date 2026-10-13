@@ -76,3 +76,11 @@ related:
 - [GUI setup/start/stopと検証限界](../apps/device-manager/README.md)
 
 実機のverified条件は未確定で、これらのdraftをphysical calibration成功契約として扱わない。
+
+## 装置単独利用と保守（設計・実装中）
+
+- [ADR-0009案: GUI常駐不要の装置設定](decisions/0009-standalone-device-configuration.md)
+- [装置設定recordとjournal](contracts/device-persistent-settings.md)
+- [Firmware更新と設定保護](contracts/firmware-update.md)
+
+contract案とsoftware-only試験は実機受入を意味しない。現行v2の値の意味・通信は維持する。
