@@ -42,6 +42,7 @@ related:
 | stable device identity / provisioning | [device-identity.md](contracts/device-identity.md) |
 | firmware memory budget | [firmware-memory-budget.md](contracts/firmware-memory-budget.md) |
 | 旧Sim monitor / measure host処理 | [legacy-sim-host-tools.md](contracts/legacy-sim-host-tools.md) |
+| GUIの実機列挙・受信確認 | [gui-live-monitor.md](contracts/gui-live-monitor.md) |
 | host device core | [host-device-core.md](contracts/host-device-core.md) |
 | serial transport | [serial-transport.md](contracts/serial-transport.md) |
 | identity-checked sample monitor | [sample-monitor.md](contracts/sample-monitor.md) |
@@ -50,6 +51,7 @@ related:
 
 | Topic | Canonical document |
 |---|---|
+| Windowsバイナリの利用・生成 | [device-manager-distribution.md](operations/device-manager-distribution.md) |
 | Git / PR workflow | [git-pr-workflow.md](operations/git-pr-workflow.md) |
 | 旧Sim firmwareの管理・build・採用順 | [legacy-sim-firmware.md](operations/legacy-sim-firmware.md) |
 | 旧Sim monitor / measure操作 | [legacy-sim-host-tools.md](operations/legacy-sim-host-tools.md) |

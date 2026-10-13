@@ -500,3 +500,37 @@ mod tests {
         ));
     }
 }
+
+/// OS enumeration only: no serial handles are opened and USB labels are not identities.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PortSummary {
+    pub name: String,
+    pub product: Option<String>,
+    pub manufacturer: Option<String>,
+    pub vid: Option<u16>,
+    pub pid: Option<u16>,
+}
+pub fn available_port_summaries() -> Result<Vec<PortSummary>, TransportError> {
+    let mut ports = serialport::available_ports()
+        .map_err(|e| TransportError::Serial(e.to_string()))?
+        .into_iter()
+        .map(|p| {
+            let (product, manufacturer, vid, pid) = match p.port_type {
+                serialport::SerialPortType::UsbPort(u) => {
+                    (u.product, u.manufacturer, Some(u.vid), Some(u.pid))
+                }
+                _ => (None, None, None, None),
+            };
+            PortSummary {
+                name: p.port_name,
+                product,
+                manufacturer,
+                vid,
+                pid,
+            }
+        })
+        .collect::<Vec<_>>();
+    ports.sort_by(|a, b| a.name.cmp(&b.name));
+    ports.dedup_by(|a, b| a.name == b.name);
+    Ok(ports)
+}

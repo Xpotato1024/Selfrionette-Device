@@ -1,27 +1,34 @@
-# Selfrionette Device Manager（合成試験版）
+# Selfrionette Device Manager（開発者向け）
 
 Rust coreを共有するTauri v2 GUIです。製品の目的・状態・操作体系は[製品・操作設計](../../docs/architecture/device-manager-workflow.md)を正とします。
 Windows native Debug build・起動・Rust IPC・合成記録の保存/再読込をLLM-01で確認しました。
-合成fixture専用です。実機ID/番号/極性/校正値は未測定で、hardware_verified/control_readyは常にfalseです。
+実機の受信モニターと、分離した合成fixtureの調整試験を提供します。実機ID/番号/極性/校正値は未測定で、hardware_verified/control_readyは常にfalseです。
 
-## native GUIのsetup/start/stop
+## 使用者向け（ビルド不要）
+
+[バイナリの取得・起動・更新](../../docs/operations/device-manager-distribution.md)を参照してください。setup.exeとZIPを提供する構成です。
+以下は開発者向けの手順です。使用者にビルド用環境変数やMSVCの設定を求めません。
+
+## 開発者向け: native GUIのsetup/start/stop
 Rust stable、Node.js 24、MSVC v143 x64/x86、Windows SDK、WebView2が必要です。
 [公式prerequisites](https://v2.tauri.app/start/prerequisites/)を確認してください。
-LLM-01の確認済みtoolchainは D:\Xpotato-apps\toolchains\vs2022-msvc です。
-既存の別保存先を使う場合は当該processの SELFRIONETTE_VS_ROOT に指定します。
+標準のVisual Studio/Build Toolsはvswhereで自動検出し、Developer Command Promptの環境も利用できます。
+カスタム保存先は当該terminalのSELFRIONETTE_VS_ROOTに指定します。特定PCのDドライブをデフォルトにしません。
+LLM-01固有の既存検証環境は、必要なときだけ$env:SELFRIONETTE_VS_ROOT = 'D:\Xpotato-apps\toolchains\vs2022-msvc'と明示します。
 run-native.cmdはsetlocal/VsDevCmdで環境を設定し、global PATHや認証設定を変更しません。
 npm/native Cargoのlockfileを同梱しています。PowerShellで次を実行します。
 
-    cd D:\Xpotato-apps\Selfrionette-Device\apps\device-manager
+    # 任意のclone・作業用ローカルブランチのrepository rootから
+    cd apps/device-manager
     npm ci
     .\run-native.cmd build
     .\src-tauri\target\debug\selfrionette-device-manager.exe
 
 開発中は .\run-native.cmd dev を使えます。
-起動だけでは接続も校正も行いません。共通の「対象」で合成個体を選び、横タブの「調整」で開始します。
+起動時は実機portのOS列挙だけを行い、接続も校正も行いません。合成試験は入力元で明示選択します。共通の「対象」で合成個体を選び、横タブの「調整」で開始します。
 左右の選択は表示対象だけを変え、各個体の基準・候補・確認を保持します。やり直しは別の明示操作です。
 終了はnative windowを閉じます。devでは開発terminalもCtrl+Cで停止します。
-今回確認したのはDebug executableであり、Release/bundle配布や実機受入は未実施です。
+この節は開発用Debug executableの手順です。配布用Release・インストーラーの生成と検証は[バイナリ利用・配布](../../docs/operations/device-manager-distribution.md)で分離します。実機受入は未実施です。
 
 ## 合成記録の保存・閲覧・再開
 基準 → 品質を満たす7ch候補 → preview → 確認、の順で保存を許可します。
@@ -62,7 +69,7 @@ helperは空のJSON配列を誤検出しない修正を行い、PowerShell 5.1�
 ## ブラウザーの表示確認
 Nodeだけで npm run preview を実行し、同じPCの http://127.0.0.1:4173 を開きます。終了はCtrl+Cです。
 固定のpresentation表示で、Rust判定・承認・保存/再読込を実行しません。native GUIの代替にはしません。
-USB/serial、info、tare、reset、EEPROM、flash、robot接続/actuationはこのappに実装していません。
+実機モードはOS列挙、明示serial接続、受信、info、切断だけを提供します。tare/reset、EEPROM、flash、robot操作は提供しません。実機モニターは[専用契約](../../docs/contracts/gui-live-monitor.md)を参照してください。
 
 ## 画面の読みやすさと操作
 横タブは「入力確認」「調整」「診断・記録」の作業種別です。調整だけ縦の番号付き手順を持ち、本文は一手順だけを表示します。

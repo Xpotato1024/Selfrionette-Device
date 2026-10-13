@@ -1,3 +1,6 @@
+import {waitForAppPage} from './native-session.mjs';
+import {installCIPolicy,removeCIPolicy} from './ci-webview-policy.mjs';
+import {runtimeEnvironment} from './distribution-lib.mjs';
 // Windows-only native Tauri IPC smoke test. Synthetic records; no device I/O.
 import {chromium} from 'playwright-core';
 import {checkUI} from './ui-qa.mjs';
@@ -18,18 +21,41 @@ const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 async function freePort(){const s=net.createServer();await new Promise(r=>s.listen(0,'127.0.0.1',r));const p=s.address().port;await new Promise(r=>s.close(r));return p;}
 async function launch(){
  const port=await freePort();
- const child=spawn(exe,[],{windowsHide:true,env:{...process.env,SELFRIONETTE_GUI_FIXTURE_DIR:store,WEBVIEW2_USER_DATA_FOLDER:join(run,'webview'),WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS:'--remote-debugging-port='+port+' --remote-debugging-address=127.0.0.1'}});
+ const policy=installCIPolicy(port,join(run,'webview'));
+ const runtimeOnly=process.env.SELFRIONETTE_GUI_RUNTIME_ONLY==='1';
+ const child=spawn(exe,[],{cwd:run,windowsHide:true,env:{...(runtimeOnly?runtimeEnvironment(process.env):process.env),SELFRIONETTE_GUI_FIXTURE_DIR:store,WEBVIEW2_USER_DATA_FOLDER:join(run,'webview'),WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS:'--remote-debugging-port='+port+' --remote-debugging-address=127.0.0.1'}});
  let diagnostic='';child.stderr.on('data',v=>{diagnostic=(diagnostic+v).slice(-8000)});child.stdout.on('data',v=>{diagnostic=(diagnostic+v).slice(-8000)});
- active={child,port};
+ active={child,port,policy};
+ let ready=false;
  for(let i=0;i<100;i++){
   if(child.exitCode!==null)throw Error('Native exit '+child.exitCode+': '+diagnostic);
-  try{const r=await fetch('http://127.0.0.1:'+port+'/json/version');if(r.ok)break;}catch{}
+  try{const r=await fetch('http://127.0.0.1:'+port+'/json/version');if(r.ok){ready=true;break;}}catch{}
   await sleep(200);
  }
+ if(!ready)throw Error('WebView2 CDP did not become ready within 20 seconds. '+diagnostic);
  const browser=await chromium.connectOverCDP('http://127.0.0.1:'+port);
  active.browser=browser;
- const page=browser.contexts().flatMap(c=>c.pages()).find(p=>p.url().includes('tauri.localhost'))||browser.contexts()[0].pages()[0];
+ const page=await waitForAppPage(browser,{check:()=>{if(child.exitCode!==null)throw Error('Native exit '+child.exitCode+': '+diagnostic);}});
  await page.waitForFunction(()=>typeof window.__TAURI__?.core?.invoke==='function');
+ await page.waitForFunction(()=>document.getElementById('source-mode') && !document.getElementById('source-mode').disabled);
+ assert.equal(await page.locator('#source-mode').inputValue(),'hardware');
+ const hardwareStatus=await page.evaluate(()=>window.__TAURI__.core.invoke('hardware_command',{request:{expected:null,command:{action:'snapshot'}}}));
+ assert.equal(hardwareStatus.view.connected,false);assert.equal(hardwareStatus.view.received_frames,0);assert.equal(hardwareStatus.view.sample,null);
+ await page.screenshot({path:join(run,'native-hardware.png'),fullPage:true});
+ const hardwareSize=await page.evaluate(()=>({width:innerWidth,height:innerHeight}));
+ for(const width of [320,640]) {
+   await page.setViewportSize({width,height:680});
+   for(const name of ['device','adjust','diagnostics']) {
+     await page.locator('#tab-'+name).click();
+     assert.equal(await page.locator('#tab-'+name).getAttribute('aria-controls'),'hardware-page-'+name);
+     assert(await page.locator('#hardware-page-'+name).isVisible());
+     assert.equal(await page.locator('[data-command]:visible').count(),0,'Real mode must not offer synthetic calibration commands');
+     assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1),'Hardware page overflow');
+   }
+ }
+ await page.setViewportSize(hardwareSize);await page.locator('#tab-device').click();
+ await page.locator('#source-mode').selectOption('synthetic');
+ await page.waitForFunction(()=>!document.getElementById('role').disabled);
  assert.match(page.url(),/tauri.localhost/);
  const invoke=request=>page.evaluate(request=>window.__TAURI__.core.invoke('device_command',{request}),request);
  const raw=async(action, fields={})=>{
@@ -45,7 +71,8 @@ async function launch(){
 }
 async function close(){
  if(!active)return;
- const {child,browser}=active;
+ const {child,browser,policy}=active;
+ try {
  if(child.exitCode===null){
   const r=spawnSync('powershell.exe',['-NoProfile','-Command','(Get-Process -Id '+child.pid+').CloseMainWindow()'],{windowsHide:true,encoding:'utf8',timeout:5000});
   assert.match(r.stdout,/True/,'Owned native window did not accept graceful close');
@@ -54,17 +81,18 @@ async function close(){
   assert.equal(child.exitCode,0,'Native app crashed during close');
  }
  await browser?.close().catch(()=>{});
- active=null;
+ } finally { if(policy)removeCIPolicy(); active=null; }
 }
 
 async function rejected(call,action,fields={}){await assert.rejects(()=>call(action,fields));}
 async function qualified(call){await call('select',{role:'left'});await call('begin');await call('baseline');await call('assess',{scenario:'good'});return call('preview',{level:'0.5'});}
 async function approved(call){await qualified(call);await call('confirm');}
 async function noOldApproval(call){const v=await call('status');assert.equal(v.rows.length,0);assert.notEqual(v.phase,'record');await rejected(call,'export');await rejected(call,'save');}
-async function syncUI(page){await page.reload();await page.waitForFunction(()=>!document.getElementById('role').disabled);}
+async function syncUI(page){await page.reload();await page.waitForFunction(()=>document.getElementById('source-mode')&&!document.getElementById('source-mode').disabled);await page.locator('#source-mode').selectOption('synthetic');await page.waitForFunction(()=>!document.getElementById('role').disabled);}
 try {
  let {page,call,raw,invoke}=await launch();
  assert.equal((await call('status')).phase,'not_started');
+ assert.equal(await page.locator('#baseline-help').textContent(),'','A hidden baseline action must not repeat the begin instruction');
  assert.match(await page.locator('#environment').innerText(),/合成試験.*実機未接続/);
  await page.locator('nav [data-page="adjust"]').click();
  for(const id of ['begin','baseline','assess','preview'])await page.locator('#'+id).click();

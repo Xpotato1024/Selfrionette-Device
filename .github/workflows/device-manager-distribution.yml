@@ -1,0 +1,125 @@
+name: Device Manager Windows distribution
+
+on:
+  pull_request:
+    paths:
+      - 'apps/device-manager/**'
+      - 'crates/selfrionette-core/**'
+      - 'crates/selfrionette-serial/**'
+      - 'docs/operations/device-manager-distribution.md'
+      - '.github/workflows/device-manager-distribution.yml'
+  push:
+    tags: ['device-manager-v*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  windows-package:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@v7.1.0
+        with:
+          node-version: '24'
+      - name: Install Rust toolchain
+        run: rustup toolchain install stable --profile minimal
+      - name: Install locked build dependencies
+        working-directory: apps/device-manager
+        run: npm ci
+      - name: Test frontend and distribution invariants
+        working-directory: apps/device-manager
+        run: |
+          npm test
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          npm run test:package
+          exit $LASTEXITCODE
+      - name: Build release EXE, offline installer and ZIP
+        working-directory: apps/device-manager
+        run: npm run package:windows
+      - name: Test NSIS path resolution with isolated registry fixtures
+        working-directory: apps/device-manager
+        run: node tools/test-installer-state.mjs
+      - name: Install the packaged application on the ephemeral runner
+        shell: pwsh
+        working-directory: apps/device-manager
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $build = Get-Content dist/latest-distribution.json -Raw | ConvertFrom-Json
+          $setup = @(Get-ChildItem $build.directory -Filter '*-setup.exe')
+          if ($setup.Count -ne 1) { throw 'Expected one installer' }
+          $target = Join-Path $env:RUNNER_TEMP 'selfrionette-install-test'
+          if (Test-Path $target) { throw 'Installation target must be new' }
+          $keys = @('HKLM:\SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients\*', 'HKCU:\SOFTWARE\Microsoft\EdgeUpdate\Clients\*')
+          Write-Output 'WebView2 before installation:'
+          Get-ItemProperty $keys -ErrorAction SilentlyContinue | Where-Object name -Match 'WebView' | Select-Object name,pv
+          $process = Start-Process $setup[0].FullName -ArgumentList @('/S', "/D=$target") -PassThru
+          if (-not $process.WaitForExit(300000)) { throw 'Installer did not finish within five minutes' }
+          if ($process.ExitCode -ne 0) { throw "Installer failed: $($process.ExitCode)" }
+          $exe = Join-Path $target 'selfrionette-device-manager.exe'
+          if (-not (Test-Path $exe)) { throw 'Installed executable is missing' }
+          "SELFRIONETTE_INSTALLED_EXE=$exe" >> $env:GITHUB_ENV
+          $actual = (Get-FileHash $exe).Hash
+          $expected = (Get-FileHash $build.executable).Hash
+          Write-Output "Installed SHA-256: $actual"
+          Write-Output "Packaged SHA-256: $expected"
+          if ($actual -ne $expected) { throw 'Installed executable differs from packaged executable' }
+          $entry = Get-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\Selfrionette Device Manager'
+          if ($entry.Publisher -ne 'Xpotato.net') { throw 'Installed publisher metadata is incorrect' }
+          Write-Output "Installed publisher: $($entry.Publisher)"
+          Write-Output 'WebView2 after installation:'
+          Get-ItemProperty $keys -ErrorAction SilentlyContinue | Where-Object name -Match 'WebView' | Select-Object name,pv
+      - name: Test extracted release without developer PATH
+        env:
+          SELFRIONETTE_CI_WEBVIEW_POLICY: '1'
+        working-directory: apps/device-manager
+        run: npm run test:distribution
+      - name: Test upgrade, cancellation and same-version repair
+        shell: pwsh
+        run: ./apps/device-manager/tools/test-installer-upgrade.ps1
+      - name: Uninstall only the test application
+        if: always() && env.SELFRIONETTE_INSTALLED_EXE != ''
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          foreach ($sub in @('AdditionalBrowserArguments','UserDataFolder')) {
+            $key = 'HKLM:\SOFTWARE\Policies\Microsoft\Edge\WebView2\' + $sub
+            if (Test-Path $key) { Remove-ItemProperty $key -Name 'selfrionette-device-manager.exe' -ErrorAction SilentlyContinue }
+          }
+          $folder = Split-Path $env:SELFRIONETTE_INSTALLED_EXE
+          $uninstall = Join-Path $folder 'uninstall.exe'
+          if (-not (Test-Path $uninstall)) { throw 'Test uninstaller is missing' }
+          $process = Start-Process $uninstall -ArgumentList '/S' -PassThru
+          if (-not $process.WaitForExit(120000)) { throw 'Uninstaller timeout' }
+          for ($i=0; $i -lt 30 -and (Test-Path $env:SELFRIONETTE_INSTALLED_EXE); $i++) { Start-Sleep -Seconds 1 }
+          if (Test-Path $env:SELFRIONETTE_INSTALLED_EXE) { throw 'Test application was not removed' }
+      - name: Upload binary distribution
+        uses: actions/upload-artifact@v7.0.2
+        with:
+          name: device-manager-windows-x64-${{ github.event.pull_request.head.sha || github.sha }}
+          path: |
+            apps/device-manager/dist/Selfrionette-Device-Manager*/*.exe
+            apps/device-manager/dist/Selfrionette-Device-Manager*/*.zip
+            apps/device-manager/dist/Selfrionette-Device-Manager*/*.json
+            apps/device-manager/dist/Selfrionette-Device-Manager*/*.md
+            apps/device-manager/dist/Selfrionette-Device-Manager*/*.txt
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 30
+      - name: Keep scoped validation evidence
+        if: always()
+        uses: actions/upload-artifact@v7.0.2
+        with:
+          name: distribution-qa-${{ github.run_id }}
+          path: |
+            apps/device-manager/src-tauri/target/upgrade-qa/*.json
+            apps/device-manager/src-tauri/target/distribution-qa/run-*/report.json
+            apps/device-manager/src-tauri/target/native-qa/run-*/report.json
+            apps/device-manager/src-tauri/target/native-qa/run-*/*.png
+          if-no-files-found: ignore
+          retention-days: 14
