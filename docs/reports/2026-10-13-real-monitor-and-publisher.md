@@ -35,3 +35,6 @@ nativeでは実機モードで起動してport列挙を確認し、接続handle�
 ## 配布と境界
 版は0.1.0-preview.2。Release/NSIS/ZIPに同じsource commitを付け、EXEのCompanyName、setupの会社名、インストール後のPublisherを生成/配布試験で照合する。CI結果と配布物はPR #12で記録し、ローカルDebug試験と区別する。
 対象の物理デバイスに対するserial openはこの作業中に行っていない。実機から実際に値が届くこと、センサの物理極性、実機校正、Firmware更新、異なるPCでの実機受入は未検証。実機監視コードの完成と物理受入を混同しない。
+
+## 配布CIのPowerShell境界修正
+Windows hosted runnerのpwshからNode経由でpowershell.exeを起動すると、PS7のPSModulePathが継承され、Get-AuthenticodeSignatureのmodule読込みが失敗した。metadata確認の子processだけからPSModulePathを除外し、Windows PowerShellが標準値を構築するように修正。署名/Publisherチェックは削除せず、親の環境を変更しない回帰試験を追加した。根拠: https://learn.microsoft.com/powershell/module/microsoft.powershell.core/about/about_psmodulepath#starting-windows-powershell-from-powershell-7

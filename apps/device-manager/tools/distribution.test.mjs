@@ -1,7 +1,7 @@
 import {ciPolicyEnabled} from './ci-webview-policy.mjs';
 import {tmpdir} from 'node:os';import {join} from 'node:path';
 import test from 'node:test';import assert from 'node:assert/strict';import {readFileSync,mkdirSync,mkdtempSync,writeFileSync,rmSync} from 'node:fs';
-import {inspectPE,runtimeEnvironment,sha256,zipDirectory,extractZip} from './distribution-lib.mjs';
+import {inspectPE,runtimeEnvironment,sha256,zipDirectory,extractZip,executableMetadata} from './distribution-lib.mjs';
 function image(dll='KERNEL32.dll') {
  const b=Buffer.alloc(1024);b.writeUInt16LE(0x5a4d,0);b.writeUInt32LE(0x80,0x3c);b.writeUInt32LE(0x4550,0x80);
  b.writeUInt16LE(0x8664,0x84);b.writeUInt16LE(1,0x86);b.writeUInt16LE(240,0x94);b.writeUInt16LE(0x20b,0x98);
@@ -36,4 +36,19 @@ test('publisher is configured without replacing the data/installation identity o
  assert.equal(c.identifier,'dev.selfrionette.manager'); assert.equal(c.productName,'Selfrionette Device Manager');
  assert.equal(c.app.windows[0].decorations,true); assert.match(c.app.windows[0].title,/Selfrionette Device Manager/);
  assert.equal(r.bundle.windows.certificateThumbprint,undefined); assert.equal(r.bundle.windows.signCommand,undefined);
+});
+
+
+test('Windows metadata uses its own modules even when a parent process supplies an incompatible Security module',{skip:process.platform!=='win32'},()=>{
+  const run=mkdtempSync(join(tmpdir(),'srn-metadata-'));
+  try {
+    const module=join(run,'Microsoft.PowerShell.Security');mkdirSync(module);
+    writeFileSync(join(module,'Microsoft.PowerShell.Security.psm1'),"throw 'Incompatible parent PowerShell module must not load'\nfunction Get-AuthenticodeSignature {}\n");
+    const environment={...process.env,PSModulePath:run};
+    const result=executableMetadata(process.execPath,environment);
+    assert.equal(environment.PSModulePath,run,'Parent environment must remain unchanged');
+    assert.equal(typeof result.signature_status,'string');
+    assert(result.signature_status.length>0);
+    assert.equal(typeof result.product_name,'string');
+  } finally {rmSync(run,{recursive:true,force:true});}
 });

@@ -94,10 +94,13 @@ function zipOperation(source,destination,operation) {
 }
 
 // Read Windows version resources and the actual signature, not the publisher label alone.
-export function executableMetadata(file) {
+export function executableMetadata(file, environment = process.env) {
+  // pwsh -> node -> powershell.exe otherwise inherits incompatible PS7 module paths.
+  // Windows PowerShell reconstructs its own defaults; only the child environment changes.
+  const env = Object.fromEntries(Object.entries(environment).filter(([key]) => key.toUpperCase() !== 'PSMODULEPATH'));
   const command = "$ErrorActionPreference='Stop'; [Console]::OutputEncoding=[Text.UTF8Encoding]::new($false); $v=[Diagnostics.FileVersionInfo]::GetVersionInfo($env:SRN_METADATA_EXE); $s=Get-AuthenticodeSignature -LiteralPath $env:SRN_METADATA_EXE; @{company_name=$v.CompanyName; product_name=$v.ProductName; file_version=$v.FileVersion; signature_status=[string]$s.Status} | ConvertTo-Json -Compress";
   const result=spawnSync('powershell.exe',['-NoProfile','-NonInteractive','-Command',command],{
-    env:{...process.env,SRN_METADATA_EXE:file},encoding:'utf8',timeout:30000,maxBuffer:1024*1024});
+    env:{...env,SRN_METADATA_EXE:file},encoding:'utf8',timeout:30000,maxBuffer:1024*1024});
   if(result.error)throw result.error;
   if(result.status!==0)throw Error('Windows metadata inspection failed: '+result.stderr);
   return JSON.parse(result.stdout.replace(/^\uFEFF/,''));
