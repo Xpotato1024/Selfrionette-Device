@@ -42,8 +42,8 @@ try {
       $content=($children.Text -join ' | ')
       if($window.Text -match 'NSIS Error' -or $content -match 'Error launching installer'){
         $sawError=$true;$events.Add(@{kind='launch-error';pid=$window.Pid;title=$window.Text;content=$content})
-        $ok=$children|Where-Object {$_.Class -eq 'Button' -and $_.Id -eq 1}|Select-Object -First 1
-        if($ok){[void][InstallerUi]::PostMessage($ok.Handle,0xF5,[IntPtr]::Zero,[IntPtr]::Zero)}
+        $ok=$children|Where-Object {$_.Class -eq 'Button' -and $_.Text -eq 'OK'}|Select-Object -First 1
+        if($ok){[void][InstallerUi]::PostMessage($window.Handle,0x111,[IntPtr]$ok.Id,$ok.Handle)}
         continue
       }
       if($window.Pid -ne $root.Id){$sawUninstaller=$true}
@@ -52,17 +52,18 @@ try {
         $cancel=$children|Where-Object {$_.Class -eq 'Button' -and $_.Enabled -and $_.Id -eq 2}|Select-Object -First 1
         $yes=$children|Where-Object {$_.Class -eq 'Button' -and $_.Enabled -and $_.Id -eq 6}|Select-Object -First 1
         $button=if($yes){$yes}else{$cancel}
-        if($button){[void][InstallerUi]::PostMessage($button.Handle,0xF5,[IntPtr]::Zero,[IntPtr]::Zero);$lastAction=[DateTime]::Now;$cancelled=$true}
+        if($button){[void][InstallerUi]::PostMessage($window.Handle,0x111,[IntPtr]$button.Id,$button.Handle);$lastAction=[DateTime]::Now;$cancelled=$true}
         continue
       }
       # Do not start the app, create shortcuts, or request deleting app data.
       foreach($box in $children|Where-Object {$_.Class -eq 'Button' -and (($_.Style -band 15) -in @(2,3))}){
         [void][InstallerUi]::SendMessage($box.Handle,0xF1,[IntPtr]::Zero,[IntPtr]::Zero)
       }
-      $next=$children|Where-Object {$_.Class -eq 'Button' -and $_.Enabled -and $_.Id -eq 1 -and $_.Text -match '(?i)next|install|finish|close|\u6b21|\u5b8c\u4e86|\u9589\u3058|\u30a4\u30f3\u30b9\u30c8\u30fc\u30eb'}|Select-Object -First 1
+      $next=$children|Where-Object {$_.Class -eq 'Button' -and $_.Enabled -and $_.Id -eq 1 -and (($_.Text.Normalize([Text.NormalizationForm]::FormKC) -match '(?i)next|install|finish|close|\u6b21|\u5b8c\u4e86|\u9589\u3058|\u30a4\u30f3\u30b9\u30c8\u30fc\u30eb') -or ($window.Text -eq 'Installer Language' -and $_.Text -eq 'OK'))}|Select-Object -First 1
       if($next){
         $events.Add(@{kind='advance';pid=$window.Pid;title=$window.Text;button=$next.Text;content=$content})
-        [void][InstallerUi]::PostMessage($next.Handle,0xF5,[IntPtr]::Zero,[IntPtr]::Zero);$lastAction=[DateTime]::Now
+        Write-Output ("Installer step: {0}: {1}" -f $window.Text,$next.Text)
+        [void][InstallerUi]::PostMessage($window.Handle,0x111,[IntPtr]$next.Id,$next.Handle);$lastAction=[DateTime]::Now
       }
     }
     $root.Refresh();if($root.HasExited){break};Start-Sleep -Milliseconds 150
