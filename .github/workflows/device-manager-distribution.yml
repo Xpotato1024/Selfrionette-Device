@@ -3,10 +3,13 @@ name: Device Manager Windows distribution
 on:
   pull_request:
     paths:
-      - 'apps/device-manager/**'
-      - 'crates/selfrionette-core/**'
-      - 'crates/selfrionette-serial/**'
-      - 'docs/operations/device-manager-distribution.md'
+      - 'apps/device-manager/src-tauri/windows/**'
+      - 'apps/device-manager/src-tauri/tauri*.json'
+      - 'apps/device-manager/src-tauri/Cargo.*'
+      - 'apps/device-manager/package*.json'
+      - 'apps/device-manager/tools/package-windows.mjs'
+      - 'apps/device-manager/tools/distribution-lib.mjs'
+      - 'apps/device-manager/tools/artifact-inputs.mjs'
       - '.github/workflows/device-manager-distribution.yml'
   push:
     tags: ['device-manager-v*']
@@ -15,8 +18,12 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: distribution-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  windows-package:
+  build:
     runs-on: windows-latest
     timeout-minutes: 30
     steps:
@@ -27,8 +34,24 @@ jobs:
       - uses: actions/setup-node@v7.1.0
         with:
           node-version: '24'
+          cache: npm
+          cache-dependency-path: apps/device-manager/package-lock.json
       - name: Install Rust toolchain
-        run: rustup toolchain install stable --profile minimal
+        id: rust
+        shell: bash
+        run: |
+          rustup toolchain install stable --profile minimal --component rustfmt,clippy
+          echo "version=$(rustc -V | tr ' ' '-')" >> "$GITHUB_OUTPUT"
+      - name: Cache Rust release
+        uses: actions/cache@v6
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            apps/device-manager/src-tauri/target/release
+          key: device-${{ runner.os }}-release-${{ steps.rust.outputs.version }}-${{ hashFiles('**/Cargo.lock') }}-${{ github.sha }}
+          restore-keys: |
+            device-${{ runner.os }}-release-${{ steps.rust.outputs.version }}-${{ hashFiles('**/Cargo.lock') }}-
       - name: Install locked build dependencies
         working-directory: apps/device-manager
         run: npm ci
@@ -45,6 +68,42 @@ jobs:
       - name: Test NSIS path resolution with isolated registry fixtures
         working-directory: apps/device-manager
         run: node tools/test-installer-state.mjs
+      - name: Store immutable build for independent verification
+        uses: actions/upload-artifact@v7.0.2
+        with:
+          name: device-manager-build-${{ github.event.pull_request.head.sha || github.sha }}
+          path: |
+            apps/device-manager/dist/Selfrionette-Device-Manager*/*.exe
+            apps/device-manager/dist/Selfrionette-Device-Manager*/*.zip
+            apps/device-manager/dist/Selfrionette-Device-Manager*/*.json
+            apps/device-manager/dist/Selfrionette-Device-Manager*/*.md
+            apps/device-manager/dist/Selfrionette-Device-Manager*/*.txt
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14
+  verify:
+    needs: build
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@v7.1.0
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: apps/device-manager/package-lock.json
+      - run: npm ci
+        working-directory: apps/device-manager
+      - uses: actions/download-artifact@v5
+        with:
+          name: device-manager-build-${{ github.event.pull_request.head.sha || github.sha }}
+          path: apps/device-manager/dist
+      - name: Verify product fingerprint and rebind build paths (no rebuild)
+        working-directory: apps/device-manager
+        run: node tools/prepare-artifact.mjs dist
       - name: Install the packaged application on the ephemeral runner
         shell: pwsh
         working-directory: apps/device-manager

@@ -1,8 +1,9 @@
+import {productInputs,verifyProductInputs} from './artifact-inputs.mjs';
 // Test the Release executable from an extracted ZIP, not from a clone/build folder.
 import {readFileSync,mkdirSync,mkdtempSync,readdirSync,writeFileSync} from 'node:fs';
 import {resolve,join} from 'node:path';
 import {fileURLToPath} from 'node:url';
-import {spawnSync} from 'node:child_process';
+import {spawnSync,execFileSync} from 'node:child_process';
 import assert from 'node:assert/strict';
 import {inspectPE,sha256,extractZip,executableMetadata} from './distribution-lib.mjs';
 const root=resolve(fileURLToPath(new URL('..',import.meta.url)));process.chdir(root);
@@ -12,6 +13,7 @@ const parent=resolve('src-tauri/target/distribution-qa');mkdirSync(parent,{recur
 const extracted=join(run,'日本語 空白のあるフォルダー');mkdirSync(extracted);
 extractZip(join(distribution.directory,zip),extracted);
 const exe=join(extracted,'selfrionette-device-manager.exe'),info=JSON.parse(readFileSync(join(extracted,'BUILD-INFO.json'),'utf8'));
+verifyProductInputs(info.product_inputs,productInputs(resolve(root,'../..')));
 assert.equal(sha256(readFileSync(exe)),info.executable_sha256);const pe=inspectPE(readFileSync(exe));
 const executables=[exe];
 if(process.env.SELFRIONETTE_INSTALLED_EXE) {
@@ -30,7 +32,7 @@ for(const binary of executables) {
     env:{...process.env,SELFRIONETTE_GUI_EXE:binary,SELFRIONETTE_GUI_RUNTIME_ONLY:'1'}});
   if(test.error)throw test.error;assert.equal(test.status,0);
 }
-const report={result:'PASS',windows_metadata:metadata,source_commit:info.source_commit,executable_sha256:info.executable_sha256,pe,
+const report={result:'PASS',tester_commit:execFileSync('git',['rev-parse','HEAD'],{cwd:root,encoding:'utf8'}).trim(),windows_metadata:metadata,source_commit:info.source_commit,executable_sha256:info.executable_sha256,pe,
   tested_binaries:executables.length,installer_tested:executables.length===2,
   scope:'Release executable; system-only child PATH, isolated working directory; synthetic Rust IPC + GUI regression tests',
   limitations:['Build tools still installed on host disk','Local mode uses an existing WebView2 Runtime; CI installs through the packaged setup','No clean VM or missing-runtime install test','No physical device access']};

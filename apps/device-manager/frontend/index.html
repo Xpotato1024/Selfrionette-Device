@@ -21,16 +21,28 @@
     <button id="tab-adjust" type="button" role="tab" data-page="adjust" aria-controls="page-adjust" aria-selected="false" tabindex="-1">調整</button>
     <button id="tab-diagnostics" type="button" role="tab" data-page="diagnostics" aria-controls="page-diagnostics" aria-selected="false" tabindex="-1">診断・記録</button>
   </nav>
+  <div class="work-area">
   <p id="hardware-error" class="field-error hardware-message" role="status" hidden></p>
   <span id="announcer" class="sr-only" role="status" aria-live="polite"></span>
   <section id="error-panel" class="error-panel" aria-labelledby="error-title" hidden><h2 id="error-title" tabindex="-1">操作を完了できませんでした</h2><p id="error-message"></p><details id="error-details"><summary>技術情報</summary><pre id="error-detail"></pre></details></section>
   <div id="unavailable" hidden><p>状態を取得できません。変更操作は停止しています。</p><button id="refresh">再取得</button></div>
 
   <section id="hardware-page-device" class="page" role="tabpanel" aria-labelledby="tab-device">
-    <h1 tabindex="-1">入力確認</h1>
-    <p class="caption-note">Firmware処理後の受信値。物理単位・極性・センサ品質は未検証です。</p>
-    <p id="hardware-empty">ポートを検索しています。</p>
-    <table id="hardware-values" hidden><caption class="sr-only">実機から受信した7chの値</caption><thead><tr><th scope="col">受信ch</th><th scope="col">受信値</th></tr></thead><tbody id="hardware-value-rows"></tbody></table>
+    <h1 class="sr-only" tabindex="-1">入力確認</h1>
+    <div class="monitor-workbench">
+      <section class="readings-pane" aria-label="受信チャンネル">
+        <div class="pane-heading"><h2>チャンネル</h2></div>
+        <table id="hardware-values"><caption class="sr-only">実機から受信した7chの値</caption><colgroup><col class="channel-column"><col></colgroup><thead><tr><th scope="col">ch</th><th scope="col" class="numeric-heading">受信値</th></tr></thead><tbody id="hardware-value-rows"></tbody></table>
+        <p id="hardware-empty" class="monitor-guidance">接続先を選択してください。</p>
+        <p class="measurement-note">Firmware処理後の値<br>物理単位・極性・品質は未検証</p>
+      </section>
+      <section class="trace-pane" aria-labelledby="trace-title">
+        <div class="pane-heading"><h2 id="trace-title">表示履歴</h2><label class="trace-channel-label" for="trace-channel">ch <select id="trace-channel"><option>0</option><option>1</option><option>2</option><option>3</option><option>4</option><option>5</option><option>6</option></select></label></div>
+        <div class="trace-plot"><svg id="trace" viewBox="0 0 640 300" preserveAspectRatio="none" role="img" aria-label="選択チャンネルの表示用サンプル履歴"><path class="trace-grid" d="M0 50H640 M0 150H640 M0 250H640"/><path id="trace-line" d=""/></svg><span id="trace-top" class="axis-label axis-top">—</span><span id="trace-bottom" class="axis-label axis-bottom">—</span><span id="trace-empty">入力待ち</span></div>
+        <div class="trace-axis"><span>−30秒</span><span>現在</span></div>
+        <p class="measurement-note">表示用サンプル・縦軸自動調整。受信全件の記録ではありません。</p>
+      </section>
+    </div>
   </section>
   <section id="hardware-page-adjust" class="page" role="tabpanel" aria-labelledby="tab-adjust" hidden>
     <h1 tabindex="-1">実機の調整</h1><p>この版で実機に対して行えるのは入力確認と診断です。実機校正・設定保存・Firmware更新はまだ利用できません。</p>
@@ -43,7 +55,7 @@
   </section>
 
   <section id="page-device" class="page" role="tabpanel" aria-labelledby="tab-device" hidden>
-    <div class="page-heading"><h1 id="device-title" tabindex="-1">入力確認</h1><button type="button" data-page="adjust">調整を開く</button></div>
+    <div class="page-heading"><h1 id="device-title" class="sr-only" tabindex="-1">入力確認</h1><button type="button" data-page="adjust">調整を開く</button></div>
     <dl class="status-line"><div><dt>調整</dt><dd id="device-phase">未開始</dd></div><div><dt>PCの記録</dt><dd id="device-record">未保存</dd></div></dl>
     <p class="caption-note">無次元入力。実物位置と受信chの対応は未確認です。</p>
     <table class="input-table"><caption class="sr-only">合成7chの入力一覧</caption><thead><tr><th scope="col">受信ch</th><th scope="col">無次元入力</th><th scope="col">注意</th></tr></thead><tbody id="input-rows"></tbody></table>
@@ -84,11 +96,12 @@
   </section>
 
   <section id="page-diagnostics" class="page" role="tabpanel" aria-labelledby="tab-diagnostics" hidden>
-    <h1 id="diagnostics-title" tabindex="-1">診断・記録</h1>
+    <h1 id="diagnostics-title" class="sr-only" tabindex="-1">診断・記録</h1>
     <details id="diagnostic-values" open><summary>現在の演算値</summary><p id="source"></p><p id="table-help">元入力はFirmwareの処理後の値で、raw ADCやN単位の力ではありません。</p><div class="table-scroll" tabindex="0" role="region" aria-label="7chの演算値" aria-describedby="table-help"><table><caption class="sr-only">合成7ch：元入力と補正結果</caption><thead><tr><th scope="col">受信ch</th><th scope="col">元入力</th><th scope="col">基準</th><th scope="col">差分</th><th scope="col">極性</th><th scope="col">向き補正後</th><th scope="col">正方向範囲</th><th scope="col">無次元入力</th><th scope="col">表示値</th></tr></thead><tbody id="rows"></tbody></table></div><details><summary>判定の根拠</summary><pre id="evidence"></pre></details></details>
     <details id="record-controls"><summary>保存記録</summary><button id="read-history" data-command="read_history">最新記録を表示</button><p id="history-summary"></p><details><summary>記録の内容</summary><pre id="saved-profile"></pre></details><button id="resume" data-command="resume" data-confirm="resume" aria-describedby="resume-help">条件を照合して調整を再開</button><p id="resume-help" class="action-help"></p></details>
     <details id="invalidation-controls"><summary>状態失効の試験</summary><button id="invalidate" data-command="invalidate" aria-describedby="invalidate-help">この個体の調整を失効</button><p id="invalidate-help" class="action-help"></p></details>
   </section>
+  </div>
 </main>
 <dialog id="confirm-dialog" aria-labelledby="dialog-title"><h2 id="dialog-title">変更の確認</h2><p id="dialog-target"></p><p id="dialog-message"></p><div class="actions"><button id="dialog-cancel" autofocus>取り消す</button><button id="dialog-apply">変更して続ける</button></div></dialog>
 <dialog id="about-dialog" aria-labelledby="about-title">

@@ -1,3 +1,4 @@
+import {isProductInput,verifyProductInputs} from './artifact-inputs.mjs';
 import {waitForAppPage} from './native-session.mjs';
 import {ciPolicyEnabled} from './ci-webview-policy.mjs';
 import {tmpdir} from 'node:os';import {join} from 'node:path';
@@ -88,3 +89,6 @@ test('vendored installer template follows the locked Tauri CLI',()=>{
  assert.equal(origin.cli_version,lock.packages['node_modules/@tauri-apps/cli'].version);
  assert.match(origin.upstream_sha256,/^[a-f0-9]{64}$/);
 });
+
+test('artifact reuse separates production inputs from test-only scripts',()=>{assert(isProductInput('apps/device-manager/frontend/style.css'));assert(isProductInput('apps/device-manager/frontend/readout.mjs'));assert(!isProductInput('apps/device-manager/tools/ui-qa.mjs'));assert(!isProductInput('apps/device-manager/frontend/readout.test.mjs'));assert(isProductInput('apps/device-manager/src-tauri/windows/installer.nsi'));});
+test('missing, changed, added and removed product inputs reject reuse',()=>{verifyProductInputs({a:'same'},{a:'same'});for(const record of [null,{}, {a:'other'},{a:'same',b:'added'}])assert.throws(()=>verifyProductInputs(record,{a:'same'}),/rebuild/);});

@@ -90,3 +90,6 @@ Nodeだけで npm run preview を実行し、同じPCの http://127.0.0.1:4173 �
 現行の合成記録をEEPROMへコピーしたり、未確認のモデルから極性やch位置を推測したりしません。
 
 参照: [ローカルデザインシステム](https://design.digital.go.jp/dads/guidance/local-design-system/)、[文字](https://design.digital.go.jp/dads/foundations/typography/)、[ステップナビゲーション](https://design.digital.go.jp/dads/components/step-navigation/)、[Tabs Pattern](https://www.w3.org/WAI/ARIA/apg/patterns/tabs/)。
+
+## 高速なUI検証
+開発用build/devは従来通り自分のcloneと作業用ブランチで実行します。表示変更の反復では npm run check:fast を先に使います。Rust/NSISを生成せず、並列に単体/表示試験を実施します。層別CIと成果物再利用は[検証設計](../../docs/operations/device-manager-testing.md)を参照してください。

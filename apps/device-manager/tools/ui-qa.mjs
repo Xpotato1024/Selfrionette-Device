@@ -9,7 +9,7 @@ export async function checkUI(page,run,report,call) {
   const metrics=await page.evaluate(()=>({
     body:getComputedStyle(document.body).fontSize,
     label:getComputedStyle(document.querySelector('label')).fontSize,
-    heading:getComputedStyle(document.querySelector('th')).fontSize,
+    heading:getComputedStyle(document.querySelector('.input-table th')).fontSize,
     missingLabels:[...document.querySelectorAll('input,select')].filter(e=>!e.labels?.length).map(e=>e.id),
     errorsLive:document.getElementById('reason-error').hasAttribute('aria-live'),
     columns:[...document.querySelectorAll('th')].every(e=>e.scope==='col'),
@@ -96,16 +96,17 @@ export async function checkUI(page,run,report,call) {
   await page.screenshot({path:join(run,'ui-input-error.png'),fullPage:true});
   const originalSize=await page.evaluate(()=>({width:innerWidth,height:innerHeight}));
   const reflow=[];
-  for(const width of [320,640]) {
+  for(const width of [800,1100,1600]) {
     await page.setViewportSize({width,height:850});
     for(const name of ['device','adjust','diagnostics']) {
       await page.locator('#tab-'+name).click();
       const metric=await page.evaluate(()=>({width:innerWidth,overflow:document.documentElement.scrollWidth-innerWidth}));
       assert(metric.overflow<=1,'Unexpected page-wide horizontal overflow: '+JSON.stringify({name,...metric}));
-      if(name==='adjust') { assert.equal(await page.locator('.step-panel:visible').count(),1); assert.equal(await page.locator('#step-outline').getAttribute('open'),null); }
+      if(name==='adjust') { assert.equal(await page.locator('.step-panel:visible').count(),1); assert.notEqual(await page.locator('#step-outline').getAttribute('open'),null); assert.equal(Math.round(await page.locator('#step-outline').evaluate(e=>e.getBoundingClientRect().width)),176); }
       reflow.push({name,...metric}); await page.screenshot({path:join(run,'ui-'+width+'-'+name+'.png'),fullPage:true});
     }
   }
+  await page.setViewportSize({width:800,height:680});
   await page.locator('.table-scroll').focus(); await page.keyboard.press('ArrowRight');
   await page.waitForFunction(()=>document.querySelector('.table-scroll').scrollLeft>0);
   await page.setViewportSize(originalSize);
@@ -116,5 +117,5 @@ export async function checkUI(page,run,report,call) {
   });
   assert(contrast.every(v=>v.ratio>=4.5),'Sample text contrast below 4.5:1');
   report.ui={metrics,reflow,contrast,limitations:['No screen-reader test','No native 200%/Windows DPI acceptance']};
-  report.cases.push('horizontal manual-activation task tabs; one visible step; locked future steps; no side effects on back/tab/cancel; explicit repeat invalidation; keyboard/focus/errors; 320/640 reflow; sampled contrast');
+  report.cases.push('horizontal manual-activation task tabs; one visible step; locked future steps; no side effects on back/tab/cancel; explicit repeat invalidation; keyboard/focus/errors; 800/1100/1600 desktop layout and persistent navigation; sampled contrast');
 }

@@ -2626,7 +2626,7 @@ version = "0.1.0"
 
 [[package]]
 name = "selfrionette-device-manager"
-version = "0.1.0-preview.3"
+version = "0.1.0-preview.4"
 dependencies = [
  "selfrionette-core",
  "selfrionette-serial",
