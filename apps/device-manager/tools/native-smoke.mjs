@@ -1,3 +1,4 @@
+import {nativeMenu,enableSynthetic} from './native-menu.mjs';
 import {waitForAppPage} from './native-session.mjs';
 import {installCIPolicy,removeCIPolicy} from './ci-webview-policy.mjs';
 import {runtimeEnvironment} from './distribution-lib.mjs';
@@ -19,11 +20,11 @@ const report={provenance:'synthetic native Tauri IPC',hardware_verified:false,co
 let active;
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 async function freePort(){const s=net.createServer();await new Promise(r=>s.listen(0,'127.0.0.1',r));const p=s.address().port;await new Promise(r=>s.close(r));return p;}
-async function launch(){
+async function launch(startupArgs=[],onlyMode=false){
  const port=await freePort();
  const policy=installCIPolicy(port,join(run,'webview'));
  const runtimeOnly=process.env.SELFRIONETTE_GUI_RUNTIME_ONLY==='1';
- const child=spawn(exe,[],{cwd:run,windowsHide:true,env:{...(runtimeOnly?runtimeEnvironment(process.env):process.env),SELFRIONETTE_GUI_FIXTURE_DIR:store,WEBVIEW2_USER_DATA_FOLDER:join(run,'webview'),WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS:'--remote-debugging-port='+port+' --remote-debugging-address=127.0.0.1'}});
+ const child=spawn(exe,startupArgs,{cwd:run,windowsHide:true,env:{...(runtimeOnly?runtimeEnvironment(process.env):process.env),SELFRIONETTE_GUI_FIXTURE_DIR:store,WEBVIEW2_USER_DATA_FOLDER:join(run,'webview'),WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS:'--remote-debugging-port='+port+' --remote-debugging-address=127.0.0.1'}});
  let diagnostic='';child.stderr.on('data',v=>{diagnostic=(diagnostic+v).slice(-8000)});child.stdout.on('data',v=>{diagnostic=(diagnostic+v).slice(-8000)});
  active={child,port,policy};
  let ready=false;
@@ -37,8 +38,18 @@ async function launch(){
  active.browser=browser;
  const page=await waitForAppPage(browser,{check:()=>{if(child.exitCode!==null)throw Error('Native exit '+child.exitCode+': '+diagnostic);}});
  await page.waitForFunction(()=>typeof window.__TAURI__?.core?.invoke==='function');
- await page.waitForFunction(()=>document.getElementById('source-mode') && !document.getElementById('source-mode').disabled);
- assert.equal(await page.locator('#source-mode').inputValue(),'hardware');
+ await page.waitForFunction(source=>document.getElementById('workspace').dataset.source===source,startupArgs.includes('--synthetic')?'synthetic':'hardware');
+ assert.equal(await page.locator('#source-mode').count(),0);
+ const mode=await page.evaluate(()=>window.__TAURI__.core.invoke('mode_command',{request:{expected:null,command:{action:'snapshot'}}}));
+ assert.equal(mode.developer,startupArgs.includes('--developer-mode'));assert.equal(mode.source,startupArgs.includes('--synthetic')?'synthetic':'hardware');
+ if(mode.source==='hardware')await assert.rejects(()=>page.evaluate(()=>window.__TAURI__.core.invoke('device_command',{request:{expected:null,command:{action:'status'}}})));
+ else assert((await page.evaluate(()=>window.__TAURI__.core.invoke('device_command',{request:{expected:null,command:{action:'status'}}}))).view);
+ const menu=action=>nativeMenu(child.pid,action);report.native_menu=menu();
+ assert.equal(report.native_menu.some(item=>item.Text==='合成試験'),mode.developer,'Native developer menu visibility differs from Rust gate');
+ if(onlyMode)return {page,mode,menu};
+ nativeMenu(child.pid,undefined,join(run,'native-window-normal.png'));
+ await menu('choose-device');await page.waitForFunction(()=>document.getElementById('hardware-connect-dialog').open);
+ await page.screenshot({path:join(run,'native-port-picker.png')});await page.locator('#hardware-connect-cancel').click();
  const hardwareStatus=await page.evaluate(()=>window.__TAURI__.core.invoke('hardware_command',{request:{expected:null,command:{action:'snapshot'}}}));
  assert.equal(hardwareStatus.view.connected,false);assert.equal(hardwareStatus.view.received_frames,0);assert.equal(hardwareStatus.view.sample,null);
  await page.screenshot({path:join(run,'native-hardware.png'),fullPage:true});
@@ -54,8 +65,8 @@ async function launch(){
    }
  }
  await page.setViewportSize(hardwareSize);await page.locator('#tab-device').click();
- await page.locator('#source-mode').selectOption('synthetic');
- await page.waitForFunction(()=>!document.getElementById('role').disabled);
+ await enableSynthetic(page,menu);
+ nativeMenu(child.pid,undefined,join(run,'native-window-developer.png'));
  assert.match(page.url(),/tauri.localhost/);
  const invoke=request=>page.evaluate(request=>window.__TAURI__.core.invoke('device_command',{request}),request);
  const raw=async(action, fields={})=>{
@@ -67,7 +78,7 @@ async function launch(){
    if(reply.error)throw Error(JSON.stringify(reply.error));
    return {...reply.view,export:reply.export};
  };
- return {page,call,raw,invoke};
+ return {page,call,raw,invoke,menu};
 }
 async function close(){
  if(!active)return;
@@ -88,9 +99,9 @@ async function rejected(call,action,fields={}){await assert.rejects(()=>call(act
 async function qualified(call){await call('select',{role:'left'});await call('begin');await call('baseline');await call('assess',{scenario:'good'});return call('preview',{level:'0.5'});}
 async function approved(call){await qualified(call);await call('confirm');}
 async function noOldApproval(call){const v=await call('status');assert.equal(v.rows.length,0);assert.notEqual(v.phase,'record');await rejected(call,'export');await rejected(call,'save');}
-async function syncUI(page){await page.reload();await page.waitForFunction(()=>document.getElementById('source-mode')&&!document.getElementById('source-mode').disabled);await page.locator('#source-mode').selectOption('synthetic');await page.waitForFunction(()=>!document.getElementById('role').disabled);}
+async function syncUI(page){await page.reload();await page.waitForFunction(()=>document.getElementById('workspace').dataset.source==='synthetic'&&!document.getElementById('role').disabled);}
 try {
- let {page,call,raw,invoke}=await launch();
+ let {page,call,raw,invoke,menu}=await launch();
  assert.equal((await call('status')).phase,'not_started');
  assert.equal(await page.locator('#baseline-help').textContent(),'','A hidden baseline action must not repeat the begin instruction');
  assert.match(await page.locator('#environment').innerText(),/合成試験.*実機未接続/);
@@ -176,16 +187,25 @@ try {
  const beforeFailure=await call('status');await rejected(call,'read_history');v=await call('status');
  assert.equal(v.phase,'record');assert.equal(v.epoch,beforeFailure.epoch);assert.equal(v.core_revision,beforeFailure.core_revision);assert.equal(v.history,null);
  report.cases.push('corrupt history does not modify active preparation or restore an older history view');
- await checkUI(page,run,report,call);
+ await checkUI(page,run,report,call,menu);
  report.records=readdirSync(store).map(id=>({id,files:readdirSync(join(store,id))}));assert.equal(report.records.length,2);
  assert(report.records.every(r=>r.files.length===1));
- await close();({page,call,raw,invoke}=await launch());
+ await close();({page,call,raw,invoke,menu}=await launch());
  assert.equal((await call('status')).phase,'not_started');v=await call('read_history');
  assert.deepEqual(v.history.historical_observation.firmware_sample,original);assert.equal(v.phase,'not_started');assert.equal(v.epoch,0);assert.equal(v.rows.length,0);
  await rejected(call,'preview',{level:'0.5'});await rejected(call,'export');
  await assert.rejects(()=>invoke({expected:null,command:{action:'status',arbitrary:true}}));
  report.cases.push('new process reads evidence before session start without restoring readiness; strict request shape');
- await close();report.result='PASS';writeFileSync(join(run,'report.json'),JSON.stringify(report,null,2));
+ await menu('disable-developer');await page.waitForFunction(()=>document.getElementById('workspace').dataset.developer==='false');
+ await assert.rejects(()=>invoke({expected:null,command:{action:'status'}}));
+ await close();report.startup_modes=[];
+ for(const args of [['--developer-mode'],['--developer-mode','--synthetic'],[]]){
+   const initial=await launch(args,true);report.startup_modes.push({args,mode:initial.mode});await close();
+ }
+ const invalid=spawnSync(exe,['--synthetic'],{cwd:run,env:runtimeEnvironment(process.env),timeout:10000,encoding:'utf8'});
+ assert.equal(invalid.status,2,'Synthetic CLI flag without developer-mode must be rejected');
+ report.cases.push('native menus; ordinary mode rejects synthetic IPC; explicit GUI/CLI gates; disable and restart reset; invalid CLI rejected');
+ report.result='PASS';writeFileSync(join(run,'report.json'),JSON.stringify(report,null,2));
  console.log('Native Tauri smoke PASS: '+report.cases.length+' groups; report '+join(run,'report.json'));
 }catch(e){report.result='FAIL';report.error=String(e);writeFileSync(join(run,'report.json'),JSON.stringify(report,null,2));throw e;}
 finally{await close();}

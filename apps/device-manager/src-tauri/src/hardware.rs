@@ -1,4 +1,5 @@
 //! One explicitly selected serial monitor. No calibration or firmware writes.
+use crate::discovery::{PortKey, PortView};
 use selfrionette_core::{DeviceInfo, ProtocolFrame, VectorFrame, parse_line};
 use selfrionette_serial::legacy::{LegacyIo, LegacySerialTransport};
 use selfrionette_serial::{PortSummary, available_port_summaries};
@@ -33,7 +34,11 @@ impl Backend for SystemBackend {
 pub enum Command {
     Snapshot {},
     Scan {},
-    Connect { port: String },
+    Connect {
+        target: PortKey,
+        #[serde(default)]
+        query_info: bool,
+    },
     Read {},
     Info {},
     Disconnect {},
@@ -44,14 +49,6 @@ pub struct Request {
     pub expected: Option<u64>,
     pub command: Command,
 }
-#[derive(Clone, Debug, Serialize)]
-pub struct PortView {
-    pub name: String,
-    pub product: Option<String>,
-    pub manufacturer: Option<String>,
-    pub vid: Option<u16>,
-    pub pid: Option<u16>,
-}
 #[derive(Debug, Serialize)]
 pub struct Sample {
     pub timestamp_ms: u32,
@@ -61,6 +58,8 @@ pub struct Sample {
 #[derive(Debug, Serialize)]
 pub struct View {
     pub revision: u64,
+    pub connection_id: u64,
+    pub identity_state: &'static str,
     pub ports: Vec<PortView>,
     pub connected: bool,
     pub port: Option<String>,
@@ -87,6 +86,8 @@ pub struct Monitor {
     ports: Vec<PortView>,
     port: Option<String>,
     revision: u64,
+    connection_id: u64,
+    info_attempted: bool,
     frame: Option<VectorFrame>,
     received_at: Option<Instant>,
     frames: u64,
@@ -108,6 +109,8 @@ impl Monitor {
             ports: Vec::new(),
             port: None,
             revision: 0,
+            connection_id: 0,
+            info_attempted: false,
             frame: None,
             received_at: None,
             frames: 0,
@@ -139,6 +142,20 @@ impl Monitor {
         };
         View {
             revision: self.revision,
+            connection_id: self.connection_id,
+            identity_state: if let Some(metadata) = &self.metadata {
+                if metadata.identity.to_string() == "unprovisioned" {
+                    "unprovisioned"
+                } else {
+                    "identified"
+                }
+            } else if self.info_started.is_some() {
+                "querying"
+            } else if self.info_attempted {
+                "no_response"
+            } else {
+                "unqueried"
+            },
             ports: self.ports.clone(),
             connected: self.io.is_some(),
             port: self.port.clone(),
@@ -189,19 +206,14 @@ impl Monitor {
         if ports.len() > 128 {
             return Err("ポート数が上限128を超えています。".into());
         }
-        self.ports = ports
-            .into_iter()
-            .map(|p| PortView {
-                name: p.name,
-                product: p.product.map(|s| s.chars().take(128).collect()),
-                manufacturer: p.manufacturer.map(|s| s.chars().take(128).collect()),
-                vid: p.vid,
-                pid: p.pid,
-            })
-            .collect();
+        self.ports = ports.into_iter().map(PortView::from).collect();
         Ok(())
     }
+    pub fn connected(&self) -> bool {
+        self.io.is_some()
+    }
     fn clear_measurements(&mut self) {
+        self.info_attempted = false;
         self.frame = None;
         self.received_at = None;
         self.metadata = None;
@@ -222,7 +234,8 @@ impl Monitor {
         match command {
             Command::Snapshot {} => Ok(()),
             Command::Scan {} => self.scan(),
-            Command::Connect { port } => {
+            Command::Connect { target, query_info } => {
+                let port = target.name.clone();
                 if self.io.is_some() {
                     return Err("先に現在の接続を切断してください。".into());
                 }
@@ -231,16 +244,25 @@ impl Monitor {
                 self.diagnostics.clear();
                 self.failure = None;
                 self.scan()?;
-                if !self.ports.iter().any(|p| p.name == port) {
+                let selected = self.ports.iter().find(|p| p.target == target);
+                if selected.is_some_and(|p| p.category == "bootloader") {
+                    return Err("書込み待機用ポートには入力監視として接続しません。".into());
+                }
+                if selected.is_none() {
                     return Err(
-                        "選択したポートは現在のOS一覧にありません。再検索してください。".into(),
+                        "選択時からポートの情報が変わったか、切断されました。再検索して選び直してください。".into(),
                     );
                 }
                 self.port = Some(port.clone());
                 match self.backend.open(&port) {
                     Ok(io) => {
                         self.io = Some(io);
-                        Ok(())
+                        self.connection_id = self.revision;
+                        if query_info {
+                            self.apply(Command::Info {})
+                        } else {
+                            Ok(())
+                        }
                     }
                     Err(e) => {
                         let message = format!(
@@ -268,6 +290,7 @@ impl Monitor {
                     self.stop(e.clone());
                     return Err(e);
                 }
+                self.info_attempted = true;
                 self.info_started = Some(Instant::now());
                 Ok(())
             }
@@ -374,13 +397,19 @@ mod tests {
         writes: Vec<String>,
         drops: usize,
         lines: VecDeque<Result<Option<String>, String>>,
+        ports: Option<Vec<PortSummary>>,
     }
     struct FakeBackend(Arc<Mutex<Evidence>>);
     struct FakeIo(Arc<Mutex<Evidence>>);
     impl Backend for FakeBackend {
         fn ports(&mut self) -> Result<Vec<PortSummary>, String> {
+            if let Some(ports) = self.0.lock().unwrap().ports.clone() {
+                return Ok(ports);
+            }
             Ok(vec![PortSummary {
                 name: "COM_TEST".into(),
+                kind: selfrionette_serial::PortKind::Usb,
+                serial_number: Some("fixture-serial".into()),
                 product: Some("fixture".into()),
                 manufacturer: None,
                 vid: Some(0),
@@ -416,12 +445,24 @@ mod tests {
             command,
         })
     }
+    fn key(name: &str) -> PortKey {
+        PortKey {
+            name: name.into(),
+            kind: "usb".into(),
+            serial_number: Some("fixture-serial".into()),
+            product: Some("fixture".into()),
+            manufacturer: None,
+            vid: Some(0),
+            pid: Some(0),
+        }
+    }
     fn connect(m: &mut Monitor) {
         assert!(
             run(
                 m,
                 Command::Connect {
-                    port: "COM_TEST".into()
+                    target: key("COM_TEST"),
+                    query_info: false
                 }
             )
             .error
@@ -451,7 +492,8 @@ mod tests {
             run(
                 &mut m,
                 Command::Connect {
-                    port: "COM_OTHER".into()
+                    target: key("COM_OTHER"),
+                    query_info: false
                 }
             )
             .error
@@ -463,7 +505,8 @@ mod tests {
             run(
                 &mut m,
                 Command::Connect {
-                    port: "COM_TEST".into()
+                    target: key("COM_TEST"),
+                    query_info: false
                 }
             )
             .error
@@ -624,5 +667,79 @@ mod tests {
                 .is_err()
             );
         }
+    }
+    #[test]
+    fn descriptor_change_rejects_before_open_even_when_com_number_matches() {
+        let (mut m, e) = setup();
+        let mut target = key("COM_TEST");
+        target.serial_number = Some("replaced".into());
+        assert!(
+            run(
+                &mut m,
+                Command::Connect {
+                    target,
+                    query_info: false
+                }
+            )
+            .error
+            .is_some()
+        );
+        assert!(e.lock().unwrap().opens.is_empty());
+    }
+    #[test]
+    fn bootloader_port_is_not_opened_and_explicit_info_is_opt_in() {
+        let (mut m, e) = setup();
+        e.lock().unwrap().ports = Some(vec![PortSummary {
+            name: "COM8".into(),
+            kind: selfrionette_serial::PortKind::Usb,
+            serial_number: None,
+            product: None,
+            manufacturer: None,
+            vid: Some(0x1b4f),
+            pid: Some(0x9205),
+        }]);
+        let target = run(&mut m, Command::Scan {}).view.ports[0].target.clone();
+        assert!(
+            run(
+                &mut m,
+                Command::Connect {
+                    target,
+                    query_info: true
+                }
+            )
+            .error
+            .is_some()
+        );
+        assert!(e.lock().unwrap().opens.is_empty());
+        e.lock().unwrap().ports = None;
+        assert!(
+            run(
+                &mut m,
+                Command::Connect {
+                    target: key("COM_TEST"),
+                    query_info: true
+                }
+            )
+            .error
+            .is_none()
+        );
+        assert_eq!(e.lock().unwrap().writes, vec!["info\n"]);
+        assert_eq!(m.view_at(Instant::now()).identity_state, "querying");
+    }
+    #[test]
+    fn timeout_keeps_legacy_input_and_a_new_connection_gets_a_new_session() {
+        let (mut m, e) = setup();
+        connect(&mut m);
+        let previous = m.connection_id;
+        run(&mut m, Command::Info {});
+        m.info_started = Some(Instant::now() - Duration::from_secs(3));
+        line(&e, VECTOR);
+        let v = run(&mut m, Command::Read {}).view;
+        assert!(v.connected);
+        assert!(v.sample.is_some());
+        assert_eq!(v.identity_state, "no_response");
+        run(&mut m, Command::Disconnect {});
+        connect(&mut m);
+        assert_ne!(m.connection_id, previous);
     }
 }

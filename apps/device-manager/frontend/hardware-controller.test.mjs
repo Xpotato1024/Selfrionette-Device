@@ -16,3 +16,19 @@ test('transport failure erases the displayed sample instead of pretending it is 
   const views=[];let fail=false;const c=createHardwareController(async()=>{if(fail)throw Error('IPC');return {view:{revision:1,sample:[1]},error:null};},{...hooks(),render:v=>views.push(v)});
   await c.send({action:'read'});fail=true;await c.send({action:'read'});assert.equal(c.view,null);assert.equal(views.at(-1),null);
 });
+
+test('a disconnect during a poll is queued once and uses the latest revision in the same connection',async()=>{
+  const requests=[];let resolveRead;const states=[];
+  const c=createHardwareController(async req=>{requests.push(req);if(req.command.action==='read')return new Promise(resolve=>{resolveRead=resolve;});return {view:{revision:1,connection_id:7,connected:true},error:null};},{...hooks(),busy:(busy,action)=>states.push([busy,action])});
+  await c.send({action:'scan'});const poll=c.send({action:'read'});assert.deepEqual(states,[]);
+  const stop=c.send({action:'disconnect'});assert.equal(requests.length,2);assert.equal(c.pendingOperation,'disconnect');
+  resolveRead({view:{revision:2,connection_id:7,connected:true},error:null});await poll;await stop;
+  assert.deepEqual(requests.map(r=>r.command.action),['scan','read','disconnect']);assert.equal(requests[2].expected,2);
+  assert.deepEqual(states,[[true,'disconnect'],[false,'disconnect']]);
+});
+test('a queued operation is rejected instead of retargeted when the connection session changes',async()=>{
+  let resolveRead;const requests=[],messages=[];
+  const c=createHardwareController(async req=>{requests.push(req);if(req.command.action==='read')return new Promise(resolve=>{resolveRead=resolve;});return {view:{revision:1,connection_id:7},error:null};},{...hooks(),error:message=>messages.push(message)});
+  await c.send({action:'scan'});const poll=c.send({action:'read'}),stop=c.send({action:'disconnect'});
+  resolveRead({view:{revision:2,connection_id:8},error:null});await poll;assert.equal(await stop,null);assert.equal(requests.length,2);assert(messages.some(m=>m.includes('接続対象')));
+});

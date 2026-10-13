@@ -4,9 +4,10 @@ import { createController } from './controller.mjs';
 import { createStepNavigation, stepKeys, currentStep, canVisit } from './navigation.mjs';
 const stepNavigation = createStepNavigation();
 const native = typeof window.__TAURI__?.core?.invoke === 'function';
+const designPreview = !native && new URLSearchParams(location.search).get('design-preview') === '1';
 const transport = native ? request => window.__TAURI__.core.invoke('device_command', { request }) : createDesignPreview();
 const $ = id => document.getElementById(id);
-let sourceMode = native ? 'hardware' : 'synthetic';
+let sourceMode = 'hardware', sessionMode = null, modeQueue = Promise.resolve();
 const hardware = createHardwareUI(request => window.__TAURI__.core.invoke('hardware_command', {request}));
 const phaseNames = { not_started: '未開始', baseline: '基準の確認待ち', assessment: '応答の確認待ち', preview: '入力の比較待ち', confirmation: '結果の確認待ち', record: '合成結果を確認済み' };
 const numbers = new Intl.NumberFormat('ja-JP', { maximumFractionDigits: 4 });
@@ -213,6 +214,7 @@ document.querySelectorAll('[data-command]').forEach(button => {
       pendingConfirmation = { command, token: controller.view?.token };
       $('dialog-target').textContent = $('role-summary').textContent + ' / ' + (controller.view?.id ?? '不明');
       $('dialog-message').textContent = button.dataset.confirm === 'resume' ? '現在の基準・確認を失効させ、表示中の記録と条件を照合して新しい調整を開始します。過去の値は自動適用しません。' : repeated ? 'この手順を再実行すると、依存する後続の比較・確認が失効します。保存記録は削除しません。' : '現在の基準・候補・確認を破棄してやり直します。保存記録は削除しません。';
+      $('dialog-apply').textContent = repeated ? (command.action === 'baseline' ? '基準を再取得' : '応答を再確認') : command.action === 'resume' ? '新しく調整を開始' : 'やり直す';
       $('confirm-dialog').showModal();
     } else void dispatch(command);
   };
@@ -238,7 +240,7 @@ for (const tab of tabs) tab.addEventListener('keydown', event => {
   if (target !== undefined) { event.preventDefault(); tabs[target].focus(); }
 });
 // Product information is read from the bundled config, never from device state.
-$('about').onclick = async () => {
+async function showAbout() {
   for (const key of ['product','version','publisher','homepage']) $('about-'+key).textContent = '—';
   $('about-note').textContent = '発行元の名称は製品情報です。電子署名による本人性の検証とは異なります。';
   $('about-dialog').showModal();
@@ -255,20 +257,57 @@ $('about').onclick = async () => {
   }
 };
 $('about-close').onclick = () => $('about-dialog').close();
-async function selectSource(value) {
-  if (hardware.connected && value !== 'hardware') { $('source-mode').value = 'hardware'; return; }
-  sourceMode = value; $('source-mode').value = value; clearError();
-  $('synthetic-target').hidden = value !== 'synthetic';
-  $('unavailable').hidden = true;
-  await hardware.activate(value === 'hardware', currentPage);
-  if (value === 'synthetic') {
-    $('source-mode').disabled = false;
-    $('environment').textContent = native ? '合成試験 · 実機未接続' : '表示見本 · 判定と保存は無効';
-    await dispatch({action:'status'});
+async function applyMode(mode) {
+  if(sessionMode && mode.epoch <= sessionMode.epoch)return;
+  const changed=!sessionMode||mode.source!==sourceMode;sessionMode=mode;
+  sourceMode=mode.source;clearError();
+  $('developer-badge').hidden=!mode.developer;
+  $('synthetic-target').hidden=sourceMode!=='synthetic';$('unavailable').hidden=true;
+  if(changed) {
+    await hardware.activate(sourceMode==='hardware',currentPage);
+    if(sourceMode==='synthetic')await dispatch({action:'status'});
   }
-  showPage(currentPage, false);
+  if(sourceMode==='synthetic')$('environment').textContent=native?'合成試験 · 実機未接続':'表示見本 · 判定と保存は無効';
+  $('workspace').dataset.source=sourceMode;$('workspace').dataset.developer=String(mode.developer);
+  showPage(currentPage,false);
 }
-$('source-mode').onchange = () => { void selectSource($('source-mode').value); };
-if (!native) $('source-mode').querySelector('[value="hardware"]').disabled = true;
+function queueMode(mode){modeQueue=modeQueue.then(()=>applyMode(mode));return modeQueue;}
+async function changeMode(command) {
+  if(hardware.busy||isBusy){failure({code:'busy',message:'現在の操作が完了してから切り替えてください。',detail:'mode transition blocked while operation is pending'});return;}
+  try {
+    const mode=await window.__TAURI__.core.invoke('mode_command',{request:{expected:sessionMode?.epoch??null,command}});
+    await queueMode(mode);
+  } catch(error) {
+    failure({code:'mode_rejected',message:String(error),detail:'Rust mode gate'});
+    const current=await window.__TAURI__.core.invoke('mode_command',{request:{expected:null,command:{action:'snapshot'}}}).catch(()=>null);
+    if(current)await queueMode(current);
+  }
+}
+function menuAction(id) {
+  if(document.querySelector('dialog[open]'))return;
+  if(id.startsWith('view-')){showPage(id.slice(5));return;}
+  switch(id) {
+    case 'choose-device': void hardware.choose();break;
+    case 'disconnect': void hardware.disconnect();break;
+    case 'about': void showAbout();break;
+    case 'help': $('help-dialog').showModal();break;
+    case 'enable-developer': $('developer-dialog').showModal();break;
+    case 'disable-developer': void changeMode({action:'disable'});break;
+    case 'source-hardware': void changeMode({action:'select',source:'hardware'});break;
+    case 'source-synthetic': void changeMode({action:'select',source:'synthetic'});break;
+  }
+}
+$('developer-cancel').onclick=()=>$('developer-dialog').close();
+$('developer-enable').onclick=async()=>{$('developer-dialog').close();await changeMode({action:'enable'});};
+$('help-close').onclick=()=>$('help-dialog').close();
 render(null);
-void selectSource(sourceMode);
+async function initialize(){
+  if(native) {
+    await window.__TAURI__.event.listen('manager-menu',event=>menuAction(event.payload));
+    await window.__TAURI__.event.listen('manager-mode',event=>{void queueMode(event.payload);});
+    const mode=await window.__TAURI__.core.invoke('mode_command',{request:{expected:null,command:{action:'snapshot'}}});
+    await queueMode(mode);
+  } else if(designPreview) await queueMode({developer:true,source:'synthetic',epoch:0});
+  else throw Error('Native runtime is unavailable. Browser design preview requires an explicit preview launch.');
+}
+void initialize().catch(error=>failure({code:'startup',message:'画面を初期化できません。再起動してください。',detail:String(error)}));

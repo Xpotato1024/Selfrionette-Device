@@ -13,7 +13,7 @@ appディレクトリの npm run check:fast は単体試験・配布条件試験
 
 ## CIの層と並列化
 Host Rustはpull_request、mainへのpush、手動で実行する。codex branch pushとPRの二重起動をしない。同じPRの古いrunはcancelする。tools/ci-scope.mjsがbase SHAとheadの差分を分類する。
-CSS/表示JSは高速表示試験。Rust共通処理はWindows/Linuxのcore試験とnative境界。shell/configはnative境界。未知の変更は全層を選択する。型付き通信や保存/失効の既存試験を削除しない。
+CSS/描画専用JSは高速表示試験。app/hardwareのIPC結線JSは実native境界も選ぶ。試験専用tool修正は製品入力を変えないため、既存artifactを再利用してnative受入を実行できる。Rust共通処理はWindows/Linuxのcore試験とnative境界。shell/configはnative境界。未知の変更は全層を選択する。型付き通信や保存/失効の既存試験を削除しない。
 core OS間、frontend、nativeは独立job。可変の記録ディレクトリ、レジストリ、実機handleを共有して並列化しない。
 キャッシュはOS・Rust版・lockfile・profile別。依存取得物とビルド中間出力を再利用するが、キャッシュhitを試験PASSにしない。結果は毎回実行する。
 
@@ -28,3 +28,7 @@ npm run reuse:artifact -- <展開したbuild artifactのディレクトリ> はS
 
 ## 表示の受入
 符号・小数・桁上がり・指数表記・未受信/失効の系列で列境界、小数点位置、行のDOM同一性、表の矩形が不変であることを測る。800/1100/1600の論理幅と1/1.5/2のdeviceScaleFactorを試験。縦手順は常設し、ページ全体ではなく必要なペインだけスクロールする。DPIの実変更やスクリーンリーダーは別受入として残す。
+
+## 通常モード・COM候補の回帰試験
+Fast UIはtest-onlyのin-memory adapterで候補2台/その他1台、descriptor変更、明示開発者確認、接続中切替拒否、読取待機中の切断を再現する。adapterは配布frontendに含めない。
+実Tauri試験は通常起動で合成IPCが拒否されることとWin32 GetMenuによるnative menuの実在を確認する。開発者機能は実menu commandから有効化し、その後は従来の合成校正/履歴/失効試験を維持する。CLIオプションと再起動resetも別processで確認する。実機portは開かない。

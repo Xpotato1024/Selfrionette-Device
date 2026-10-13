@@ -4,3 +4,5 @@ test('test harness changes do not imply a product rebuild',()=>assert.deepEqual(
 test('core changes exercise both host platforms and native boundary',()=>assert.deepEqual(scope(['crates/selfrionette-serial/src/lib.rs']),{frontend:false,core:true,native:true}));
 test('shell/config changes require native acceptance',()=>assert.equal(scope(['apps/device-manager/src-tauri/tauri.conf.json']).native,true));
 test('unknown paths, contracts, manual full runs fail toward more checking',()=>{assert.deepEqual(scope(['new-module/file']),{frontend:true,core:true,native:true});assert.equal(scope(['docs/contracts/gui-live-monitor.md']).native,true);assert.deepEqual(scope([],true),{frontend:true,core:true,native:true});});
+
+test('UI IPC bindings select the real native boundary, not only a mock renderer',()=>{for(const p of ['apps/device-manager/frontend/app.mjs','apps/device-manager/frontend/hardware-ui.mjs','apps/device-manager/frontend/hardware-controller.mjs']){const result=scope([p]);assert(result.frontend);assert(result.native);}});

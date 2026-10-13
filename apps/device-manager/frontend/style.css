@@ -26,12 +26,8 @@ summary {cursor:default;min-height:32px;padding:4px 0;}
 summary:hover {color:var(--accent);}
 details+details {border-top:1px solid var(--line);margin-top:12px;padding-top:8px;}
 .context-bar {display:flex;align-items:center;flex:none;gap:10px;padding:8px 12px;overflow-x:auto;overflow-y:hidden;min-height:52px;}
-.target-picker,.target-group {display:flex;align-items:center;gap:8px;min-width:0;}
-.target-picker {flex:none;}
-.target-picker label {margin:0;}
+.target-group {display:flex;align-items:center;gap:8px;min-width:0;}
 #hardware-target,#synthetic-target {flex:1;}
-#hardware-port {flex:1;min-width:12rem;max-width:28rem;}
-#source-mode {width:7rem;}
 #device-id {min-width:0;max-width:13rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px;}
 .mode {margin-left:auto;flex:none;min-width:7rem;text-align:right;font-size:14px;color:var(--muted);white-space:nowrap;}
 .toolbar-button {font-size:14px;flex:none;}
@@ -46,8 +42,6 @@ details+details {border-top:1px solid var(--line);margin-top:12px;padding-top:8p
 .trace-pane {padding:20px 24px;display:flex;flex-direction:column;min-width:0;min-height:0;overflow:auto;}
 .pane-heading {display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:34px;margin-bottom:12px;}
 .pane-heading h2 {margin:0;}
-.trace-channel-label {display:flex;gap:8px;align-items:center;margin:0;font-size:14px;}
-.trace-channel-label select {width:4rem;}
 .trace-plot {position:relative;flex:1;min-height:180px;border-bottom:1px solid var(--line);}
 #trace {width:100%;height:100%;position:absolute;inset:0;overflow:hidden;}
 .trace-grid {fill:none;stroke:#e2e7eb;stroke-width:1;vector-effect:non-scaling-stroke;}
@@ -109,3 +103,30 @@ dialog::backdrop {background:#0004;}.dialog-actions {display:flex;justify-conten
 .skip-link {position:absolute;left:16px;top:-100px;padding:10px 16px;background:white;z-index:10;}.skip-link:focus {top:8px;}
 @media(pointer:coarse) {button,input,select,summary {min-height:44px;}}
 @media(forced-colors:active) {:focus-visible {outline-color:Highlight;}#steps [aria-current='step'],.task-tabs [aria-selected='true'] {border-color:Highlight;color:Highlight;}#trace-line {stroke:Highlight;}.trace-grid {stroke:GrayText;}button.primary {border:2px solid ButtonText;}}
+
+/* Normal operation uses the OS menu; no always-visible test-mode or raw COM picker. */
+#device-summary {max-width:26rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:500;}
+.toolbar-label {color:var(--muted);font-size:14px;}
+#developer-badge {font-size:13px;border:1px solid #87939c;padding:2px 8px;white-space:nowrap;}
+#synthetic-target label {margin:0;white-space:nowrap;}
+.trace-scale-label {display:flex;align-items:center;gap:8px;margin:0;font-size:14px;}
+.trace-scale-label select {width:5rem;}
+#hardware-value-rows tr[aria-selected='true'] {background:#edf4f6;}
+#hardware-value-rows .channel-select {min-width:3rem;text-align:left;}
+#hardware-values .channel-column {width:4rem;}
+.dialog-heading {display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;}
+.dialog-heading h2 {margin:0;}
+dialog.device-picker {width:720px;}
+.port-list-scroll {height:190px;overflow:auto;border:1px solid var(--line);scrollbar-gutter:stable;}
+.port-table {table-layout:fixed;}
+.port-table thead {position:sticky;top:0;z-index:1;}
+.port-radio-col {width:36px;}.port-name-col {width:80px;}.port-state-col {width:144px;}
+.port-table td {font-size:14px;overflow-wrap:anywhere;}
+.port-table tr[aria-selected='true'] {background:#edf4f6;}
+.port-table label {margin:0;font-weight:400;cursor:default;}
+.check-line {display:flex;align-items:center;gap:8px;font-size:14px;margin:12px 0;}
+input[type='checkbox'],input[type='radio'] {width:16px;min-height:16px;height:16px;flex:none;accent-color:var(--accent);}
+.port-details {font-size:13px;}.port-details .about-values {margin:6px 0;gap:4px 16px;}
+.port-details dd {font-family:Consolas,monospace;}
+#port-error {min-height:24px;}
+.task-tabs {overflow-y:hidden;}

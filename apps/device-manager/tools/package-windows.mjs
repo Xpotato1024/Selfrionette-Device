@@ -33,7 +33,7 @@ writeFileSync(join(resources,'DEPENDENCIES.json'),JSON.stringify(notices.invento
 copyFileSync(join(repo,'docs/operations/device-manager-distribution.md'),join(resources,'README.md'));
 // Explicit file allowlist: development tests are not embedded into the Release executable.
 const frontend=resolve('dist/frontend');rmSync(frontend,{recursive:true,force:true});mkdirSync(frontend,{recursive:true});
-for(const name of ['index.html','style.css','app.mjs','controller.mjs','design-preview.mjs','navigation.mjs','hardware-ui.mjs','hardware-controller.mjs','readout.mjs','trace.mjs'])copyFileSync(join(root,'frontend',name),join(frontend,name));
+for(const name of ['index.html','style.css','app.mjs','controller.mjs','design-preview.mjs','navigation.mjs','hardware-ui.mjs','hardware-controller.mjs','readout.mjs','trace.mjs','port-selection.mjs'])copyFileSync(join(root,'frontend',name),join(frontend,name));
 const info={schema:2,product_inputs:productInputs(repo),application_version:version,publisher:config.bundle.publisher,homepage:config.bundle.homepage,application_identifier:config.identifier,source_commit:commit,source_tree:git('rev-parse','HEAD^{tree}'),source_dirty:false,
   built_at_utc:new Date().toISOString(),target:'x86_64-pc-windows-msvc',profile:'release',installer_template_sha256:sha256(readFileSync('src-tauri/windows/installer.nsi')),installer_bookkeeping:'Software\\dev.selfrionette.manager\\Installer',bundle_binary_patching:false,mode:'serial-monitor-and-synthetic',hardware_verified:false,
   runtime:'Microsoft Edge WebView2 Evergreen',installer_runtime_mode:'offlineInstaller',code_signing:'unsigned',
