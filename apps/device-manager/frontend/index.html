@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="ja">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Selfrionette Device Manager</title><link rel="stylesheet" href="style.css"></head>
+<body><main>
+<header><div><p class="eyebrow">SELFRIONETTE / DEVICE MANAGER</p><h1>向きと操作範囲を、順番に確認する。</h1><p>7chの番号を保ち、基準・極性候補・操作範囲を分けて確認します。</p></div><span class="badge">OFFLINE / 未接続</span></header>
+<aside id="environment">読み込み中</aside>
+<section class="identity" aria-labelledby="identity-title">
+<h2 id="identity-title">1 対象を選ぶ</h2><p id="role-summary" class="target">対象：未開始 / 合成試験</p>
+<div class="identity-fields"><div><label for="role">対象側（host側の役割）</label><select id="role" aria-describedby="role-help"><option value="left">左（Left）</option><option value="right">右（Right）</option></select></div><div><span class="label">個体ID（stable ID・合成）</span><code id="device-id">未選択</code></div><div><span class="label">測定由来 / 基準session</span><span id="source">未選択</span></div></div>
+<p id="role-help">左右は手動で選びます。変更すると合成sessionを開始し、以前の基準・プレビュー確認を失効します。COM順では決めません。</p><button id="begin">合成試験を開始・やり直す</button>
+</section>
+<section class="flow" aria-labelledby="flow-title">
+<h2 id="flow-title">校正プレビューの手順</h2>
+<ol id="steps"><li>1 個体と対応</li><li>2 基準を確認</li><li>3 既知方向・繰返し</li><li>4 補正値を比較</li><li>5 draft確認・保存</li></ol>
+<p id="step-guidance" class="guidance">対象を選び、合成試験を開始してください。</p>
+<div class="operation-group"><h3>2 基準を確認</h3><button id="baseline">合成基準を作成</button></div>
+<div class="operation-group"><h3>3 既知方向・繰返しを確認</h3><div class="actions"><div><label for="scenario">合成試験の品質条件</label><select id="scenario"><option value="good">正常な合成fixture</option><option value="noise">ノイズ付近</option><option value="disagreement">繰返しの符号が不一致</option><option value="unstable">基準が不安定</option><option value="release">除荷で戻らない</option><option value="crosstalk">他chへの影響が不明</option><option value="timeout">タイムアウト</option><option value="direction">既知方向なし</option></select></div><button id="assess">符号候補・操作範囲を確認</button></div>
+<p>閾値は合成fixture専用で、実機の推奨値ではありません。7chを7本の独立した指とは仮定しません。</p>
+<details id="manual-controls"><summary>根拠付きの手動反転（合成試験）</summary><div class="actions"><div><label for="flip-channel">対象wirech（0–6）</label><select id="flip-channel"><option>0</option><option>1</option><option>2</option><option>3</option><option>4</option><option>5</option><option>6</option></select></div><div class="reason-field"><label for="reason">手動確認の根拠（手動変更時は必須）</label><input id="reason" aria-describedby="reason-help reason-error"><p id="reason-help">合成試験で確認した方向と理由を入力してください。実機の向きは未確認です。</p><p id="reason-error" class="field-error" hidden></p></div><button id="flip">手動反転して再確認</button></div></details></div>
+<div class="operation-group"><h3>4 元入力と補正値を比較</h3><div class="actions"><div><label for="level">合成入力</label><select id="level"><option value="0.5">0.5 / 正方向</option><option value="0">0 / 基準</option><option value="-0.5">-0.5 / 未測定の逆方向</option><option value="1.5">1.5 / 表示飽和</option></select></div><button id="preview">元入力と補正値を比較</button><button id="confirm">このプレビューを確認</button></div></div>
+<div class="operation-group"><h3>5 未検証draftを保存</h3><p>プレビュー確認後に保存できます。保存しても実機の校正済みprofileにはなりません。</p><div class="actions"><button id="save">合成profileを個体別保存</button><button id="export">未検証draftを書き出す</button></div></div>
+<details id="record-controls"><summary>過去記録の比較・状態失効の試験</summary><p>再読込しても現在の基準や確認状態は復元しません。失効試験はローカル状態だけを変更します。</p><div class="actions"><button id="load">この個体のprofileを再読込</button><button id="invalidate">tare/resetの失効を確認</button></div></details>
+</section>
+<div id="message">起動だけではserialを開きません。</div><details id="error-details" hidden><summary>判定不可の技術情報</summary><pre id="error-detail"></pre></details>
+<section aria-labelledby="comparison-title"><div class="section-title"><h2 id="comparison-title">同じwire番号で比較</h2><span class="badge neutral">実機未検証 / 制御利用不可</span></div>
+<p id="table-help">表は横にスクロールできます。元入力・向き補正後・無次元入力・表示飽和を別々に確認してください。</p><div class="table-scroll" tabindex="0" role="region" aria-label="7ch比較表" aria-describedby="table-help"><table><caption>合成7ch：元入力と補正結果</caption><thead><tr><th scope="col">wirech → 実番号*</th><th scope="col">元入力（firmware sample）</th><th scope="col">基準</th><th scope="col">差分</th><th scope="col">極性</th><th scope="col">向き補正後</th><th scope="col">正方向の操作範囲</th><th scope="col">無次元入力</th><th scope="col">表示 / 飽和</th></tr></thead><tbody id="rows"></tbody></table></div>
+<p>* 1–7は合成fixtureの対応例。本人の実配線・番号対応は未確認です。元入力はraw ADCでもN単位の力でもありません。hardware_verified: false / control_ready: false</p><details><summary>由来・保存と失効</summary><pre id="evidence">fixture未選択</pre><p>手動overrideは根拠を保存し、以前のプレビュー確認を失効させます。実機のreset、tare、reconnectでは基準とreadinessを作り直す必要があります。片方向の測定から逆方向の操作範囲や対称性は作りません。</p></details></section>
+<section><h2>再読込した合成記録（比較専用）</h2><p>過去の符号・操作範囲・元入力・補正値です。現在の基準や確認状態には適用されません。</p><pre id="saved-profile">再読込していません。</pre></section>
+<footer>実機接続・tare・EEPROM・flash・robot actuationはこのoffline GUIに実装していません。軸や荷重経路の変更は符号だけでは扱えず、対応確認が必要です。</footer>
+</main><script type="module" src="app.mjs"></script></body></html>

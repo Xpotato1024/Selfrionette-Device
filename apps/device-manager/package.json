@@ -1,0 +1,16 @@
+{
+  "name": "selfrionette-device-manager",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tauri dev",
+    "build": "tauri build --no-bundle",
+    "test": "node --test frontend/*.test.mjs",
+    "test:native": "node tools/native-smoke.mjs",
+    "preview": "node preview-server.mjs"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.0.0",
+    "playwright-core": "1.64.0"
+  }
+}

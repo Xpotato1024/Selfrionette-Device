@@ -65,3 +65,13 @@ related:
 - dual-device role binding
 
 未確定項目をこのindexだけで仕様化しない。
+
+
+## ローカルレビュー中の校正GUI
+
+- [calibration preview契約案](contracts/calibration-preview.md)
+- [後続観測手順案](operations/calibration-observation.md)
+- [ADR-0008案](decisions/0008-offline-device-manager-calibration.md)
+- [GUI setup/start/stopと検証限界](../apps/device-manager/README.md)
+
+実機のverified条件は未確定で、これらのdraftをphysical calibration成功契約として扱わない。
