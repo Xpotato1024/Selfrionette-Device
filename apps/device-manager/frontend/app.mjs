@@ -85,7 +85,7 @@ function renderNavigation() {
 function visitStep(key) {
   if (!stepNavigation.visit(currentView,key)) return;
   renderNavigation();
-  if (matchMedia('(max-width: 700px)').matches) $('step-outline').open = false;
+
   document.querySelector('[data-step="'+key+'"] h2')?.focus({preventScroll:true});
 }
 function showPage(page, focus = true) {
@@ -237,9 +237,6 @@ for (const tab of tabs) tab.addEventListener('keydown', event => {
   const target = {ArrowRight:(index+1)%tabs.length, ArrowLeft:(index+tabs.length-1)%tabs.length, Home:0, End:tabs.length-1}[event.key];
   if (target !== undefined) { event.preventDefault(); tabs[target].focus(); }
 });
-const narrow = matchMedia('(max-width: 700px)');
-$('step-outline').open = !narrow.matches;
-narrow.addEventListener('change', event => { $('step-outline').open = !event.matches; });
 // Product information is read from the bundled config, never from device state.
 $('about').onclick = async () => {
   for (const key of ['product','version','publisher','homepage']) $('about-'+key).textContent = '—';

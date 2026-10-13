@@ -43,7 +43,7 @@ async function launch(){
  assert.equal(hardwareStatus.view.connected,false);assert.equal(hardwareStatus.view.received_frames,0);assert.equal(hardwareStatus.view.sample,null);
  await page.screenshot({path:join(run,'native-hardware.png'),fullPage:true});
  const hardwareSize=await page.evaluate(()=>({width:innerWidth,height:innerHeight}));
- for(const width of [320,640]) {
+ for(const width of [800,1100,1600]) {
    await page.setViewportSize({width,height:680});
    for(const name of ['device','adjust','diagnostics']) {
      await page.locator('#tab-'+name).click();

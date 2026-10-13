@@ -10,7 +10,10 @@
     "preview": "node preview-server.mjs",
     "test:package": "node --test tools/distribution.test.mjs",
     "package:windows": "node tools/package-windows.mjs",
-    "test:distribution": "node tools/test-distribution.mjs"
+    "test:distribution": "node tools/test-distribution.mjs",
+    "check:fast": "node tools/check-fast.mjs",
+    "test:ui": "node tools/desktop-ui-test.mjs",
+    "reuse:artifact": "node tools/prepare-artifact.mjs"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2.0.0",

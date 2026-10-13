@@ -1,9 +1,16 @@
+import {createReadout} from './readout.mjs';
+import {createTrace} from './trace.mjs';
 import {createHardwareController} from './hardware-controller.mjs';
 export function createHardwareUI(invoke) {
   const $ = id => document.getElementById(id);
   let active = false, busy = false, action = '', page = 'device', timer = null, expiry = null, pending = null;
   const names = {disconnected:'未接続', waiting:'接続済み · 受信待ち', receiving:'7ch受信中', stale:'入力更新なし', error:'接続停止'};
-  const numbers = new Intl.NumberFormat('ja-JP', {maximumFractionDigits:3});
+  const trace=createTrace(document), readouts=[];
+  for(let channel=0;channel<7;channel++) {
+    const row=document.createElement('tr'),name=document.createElement('td'),value=document.createElement('td'),reading=createReadout(document);
+    name.textContent='ch '+channel;value.className='value-cell';value.append(reading.element);row.append(name,value);
+    $('hardware-value-rows').append(row);reading.update(null);readouts.push(reading);
+  }
   const controller = createHardwareController(invoke, {render, error: text => {
     const message = text || controller.view?.failure || '';
     $('hardware-error').textContent = message; $('hardware-error').hidden = !active || !message;
@@ -20,7 +27,7 @@ export function createHardwareUI(invoke) {
   function render(view) {
     clearTimeout(expiry);
     if (view?.sample) expiry = setTimeout(() => {
-      $('hardware-values').hidden = true; $('hardware-empty').hidden = false;
+      readouts.forEach(reading=>reading.update(null)); trace.clear(); $('hardware-empty').hidden = false;
       $('hardware-empty').textContent = '新しい入力を確認できないため、以前の値を消しています。';
       if (active) $('environment').textContent = '入力更新なし';
     }, Math.max(1, 501 - view.sample.received_age_ms));
@@ -38,16 +45,10 @@ export function createHardwareUI(invoke) {
       view.phase === 'disconnected' ? ports.length ? '接続先を選び「接続」を押してください。OSのポート一覧であり、すべてがSelfrionetteとは限りません。' : 'シリアルポートが見つかりません。USB接続後に再検索してください。' :
       view.phase === 'waiting' ? '7ch入力を待っています。値が届かない場合は、接続先・通信形式・Firmwareを確認してください。' :
       view.phase === 'stale' ? '500ms以上、新しい時刻の入力が届いていないため、以前の値を消しています。' : '';
-    $('hardware-empty').hidden = !view || !!view.sample;
-    $('hardware-values').hidden = !view?.sample;
-    $('hardware-value-rows').replaceChildren();
-    if (view?.sample) for (const [channel,value] of view.sample.values.entries()) {
-      const row = document.createElement('tr');
-      for (const text of ['ch ' + channel, Math.abs(value) >= 1e8 ? value.toExponential(3) : numbers.format(value)]) {
-        const cell = document.createElement('td'); cell.textContent = text; row.append(cell);
-      }
-      $('hardware-value-rows').append(row);
-    }
+    $('hardware-empty').hidden = false;
+    $('hardware-values').hidden = false;
+    readouts.forEach((reading,index)=>reading.update(view?.sample?.values[index] ?? null));
+    trace.update(view);
     $('hardware-id').textContent = view?.reported_id === 'unprovisioned' ? '未登録' : view?.reported_id ?? '未照会 / 応答なし';
     $('hardware-firmware').textContent = view?.firmware ?? '—';
     $('hardware-protocol').textContent = view?.protocol ?? '—';
