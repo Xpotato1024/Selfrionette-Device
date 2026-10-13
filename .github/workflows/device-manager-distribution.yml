@@ -41,9 +41,43 @@ jobs:
       - name: Build release EXE, offline installer and ZIP
         working-directory: apps/device-manager
         run: npm run package:windows
+      - name: Install the packaged application on the ephemeral runner
+        shell: pwsh
+        working-directory: apps/device-manager
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $build = Get-Content dist/latest-distribution.json -Raw | ConvertFrom-Json
+          $setup = @(Get-ChildItem $build.directory -Filter '*-setup.exe')
+          if ($setup.Count -ne 1) { throw 'Expected one installer' }
+          $target = Join-Path $env:RUNNER_TEMP 'selfrionette-install-test'
+          if (Test-Path $target) { throw 'Installation target must be new' }
+          $keys = @('HKLM:\SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients\*', 'HKCU:\SOFTWARE\Microsoft\EdgeUpdate\Clients\*')
+          Write-Output 'WebView2 before installation:'
+          Get-ItemProperty $keys -ErrorAction SilentlyContinue | Where-Object name -Match 'WebView' | Select-Object name,pv
+          $process = Start-Process $setup[0].FullName -ArgumentList @('/S', "/D=$target") -PassThru
+          if (-not $process.WaitForExit(300000)) { throw 'Installer did not finish within five minutes' }
+          if ($process.ExitCode -ne 0) { throw "Installer failed: $($process.ExitCode)" }
+          $exe = Join-Path $target 'selfrionette-device-manager.exe'
+          if (-not (Test-Path $exe)) { throw 'Installed executable is missing' }
+          if ((Get-FileHash $exe).Hash -ne (Get-FileHash $build.executable).Hash) { throw 'Installed executable differs from packaged executable' }
+          Write-Output 'WebView2 after installation:'
+          Get-ItemProperty $keys -ErrorAction SilentlyContinue | Where-Object name -Match 'WebView' | Select-Object name,pv
+          "SELFRIONETTE_INSTALLED_EXE=$exe" >> $env:GITHUB_ENV
       - name: Test extracted release without developer PATH
         working-directory: apps/device-manager
         run: npm run test:distribution
+      - name: Uninstall only the test application
+        if: always() && env.SELFRIONETTE_INSTALLED_EXE != ''
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $folder = Split-Path $env:SELFRIONETTE_INSTALLED_EXE
+          $uninstall = Join-Path $folder 'uninstall.exe'
+          if (-not (Test-Path $uninstall)) { throw 'Test uninstaller is missing' }
+          $process = Start-Process $uninstall -ArgumentList '/S' -PassThru
+          if (-not $process.WaitForExit(120000)) { throw 'Uninstaller timeout' }
+          for ($i=0; $i -lt 30 -and (Test-Path $env:SELFRIONETTE_INSTALLED_EXE); $i++) { Start-Sleep -Seconds 1 }
+          if (Test-Path $env:SELFRIONETTE_INSTALLED_EXE) { throw 'Test application was not removed' }
       - name: Upload binary distribution
         uses: actions/upload-artifact@v7.0.2
         with:

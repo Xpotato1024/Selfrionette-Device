@@ -13,12 +13,21 @@ const extracted=join(run,'日本語 空白のあるフォルダー');mkdirSync(e
 extractZip(join(distribution.directory,zip),extracted);
 const exe=join(extracted,'selfrionette-device-manager.exe'),info=JSON.parse(readFileSync(join(extracted,'BUILD-INFO.json'),'utf8'));
 assert.equal(sha256(readFileSync(exe)),info.executable_sha256);const pe=inspectPE(readFileSync(exe));
-const test=spawnSync(process.execPath,['tools/native-smoke.mjs'],{cwd:root,stdio:'inherit',timeout:180000,
-  env:{...process.env,SELFRIONETTE_GUI_EXE:exe,SELFRIONETTE_GUI_RUNTIME_ONLY:'1'}});
-if(test.error)throw test.error;assert.equal(test.status,0);
+const executables=[exe];
+if(process.env.SELFRIONETTE_INSTALLED_EXE) {
+  const installed=resolve(process.env.SELFRIONETTE_INSTALLED_EXE);
+  assert.equal(sha256(readFileSync(installed)),info.executable_sha256);
+  executables.push(installed);
+}
+for(const binary of executables) {
+  const test=spawnSync(process.execPath,['tools/native-smoke.mjs'],{cwd:root,stdio:'inherit',timeout:180000,
+    env:{...process.env,SELFRIONETTE_GUI_EXE:binary,SELFRIONETTE_GUI_RUNTIME_ONLY:'1'}});
+  if(test.error)throw test.error;assert.equal(test.status,0);
+}
 const report={result:'PASS',source_commit:info.source_commit,executable_sha256:info.executable_sha256,pe,
-  scope:'Extracted Release executable; system-only child PATH, isolated working directory; synthetic Rust IPC + GUI regression tests',
-  limitations:['Build tools still installed on host disk','WebView2 already installed','No clean VM or missing-runtime install test','No physical device access']};
+  tested_binaries:executables.length,installer_tested:executables.length===2,
+  scope:'Release executable; system-only child PATH, isolated working directory; synthetic Rust IPC + GUI regression tests',
+  limitations:['Build tools still installed on host disk','Local mode uses an existing WebView2 Runtime; CI installs through the packaged setup','No clean VM or missing-runtime install test','No physical device access']};
 writeFileSync(join(distribution.directory,'VALIDATION.json'),JSON.stringify(report,null,2)+'\n');
 const sums=join(distribution.directory,'SHA256SUMS.txt');
 const old=readFileSync(sums,'utf8').split('\n').filter(line=>line && !line.endsWith('  VALIDATION.json'));
