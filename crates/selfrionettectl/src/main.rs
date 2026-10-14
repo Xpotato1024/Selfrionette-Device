@@ -2,6 +2,7 @@ use std::env;
 use std::process::ExitCode;
 
 mod calibration_replay;
+mod field_test;
 mod legacy;
 mod monitor;
 
@@ -13,6 +14,7 @@ use selfrionette_serial::{DeviceSession, SerialPortTransport, available_port_nam
 fn usage() -> &'static str {
     "usage:
   selfrionettectl calibrate-replay <recording.json>
+  selfrionettectl field-test template|preview|capture [arguments]
   selfrionettectl list
   selfrionettectl info --port <port>
   selfrionettectl monitor --port <port> --id <device-id> --samples <1..64>
@@ -48,6 +50,7 @@ fn run(args: Vec<String>) -> Result<(), CliError> {
 
     match command {
         "calibrate-replay" => calibration_replay::run(&args[1..]),
+        "field-test" => field_test::run(&args[1..]),
         "list" => run_list(&args[1..]),
         "info" => run_info(&args[1..]),
         "monitor" => monitor::run(&args[1..]),

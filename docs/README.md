@@ -97,3 +97,9 @@ contract案とsoftware-only試験は実機受入を意味しない。現行v2の
 - [合成記録generator](../examples/input-calibration/generate-synthetic.mjs)
 
 実機の物理校正、GUIへの適用、装置の永続設定とは別段階。
+
+## 初回の実機観測
+
+- [30分必須・60分上限の試験計画とfield-test](operations/field-test-30-60min.md)
+
+品質unknownの観測記録と、校正用のusableデータを混同しません。
