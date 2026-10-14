@@ -56,3 +56,8 @@ Windows native Debug build・起動・Rust IPC・合成記録の保存/再読込
     .\src-tauri\target\debug\selfrionette-device-manager.exe
 
 終了はnative windowを閉じます。Nodeだけの表示確認はapp READMEの npm run preview を参照してください。
+
+## 入力適合のオフライン比較
+
+7軸の記録から単純補正と干渉補償を比較するCLIを用意しています。実機への書込み・校正済み認定は行いません。
+[合成例・記録JSON・実行手順](docs/operations/input-calibration-replay.md)を参照してください。

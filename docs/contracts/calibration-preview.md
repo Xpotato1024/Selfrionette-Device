@@ -75,3 +75,7 @@ GUIはエラー後にRustの現在状態を読み取り、旧active rowsや確�
 [Device Manager製品・操作設計](../architecture/device-manager-workflow.md)を正とする。
 左右合成個体の選択はsessionを失効させない。やり直し・再開は明示操作とし、target/epoch/revisionを照合する。
 coreから工程状態を導出し、アプリケーション層が許可操作と理由を返す。構造不正なIPCと、解釈済み変更の値検証失敗を区別する。
+
+## 記録による入力適合比較
+新しい[入力適合core](input-calibration.md)は、指示付き記録から操作範囲・応答行列・noiseを評価する別のオフライン経路である。
+既存合成previewの状態遷移・保存schemaを置換せず、実機受信値やEEPROMへ自動適用しない。
