@@ -9,7 +9,7 @@ related:
 ---
 # Selfrionette実機試験: 30分必須・60分上限
 
-初回実施予定: 2026年10月15日（木）。1人・1台・1姿勢を基本とする。
+初回実施予定: 2026年10月16日（金）。1人・1台・1姿勢を基本とする。
 
 ## 成果と範囲
 必須成果は、無荷重/操作姿勢の中立、7つの操作方向の繰返し、弱い入力、同時入力、除荷を、7ch全値と診断通知付きで記録すること。
@@ -19,6 +19,27 @@ ADC→N校正、Firmware更新、EEPROM書込み、ロボット駆動、当日�
 新しいfield-testは観測ログの取得用。現行vectorでは取得品質が十分分からないためquality=unknownを維持する。
 このログをそのままcalibrate-replayへ渡せる校正用JSONにしたり、usableへ書き換えたりはしない。
 受信テキストを保存するが、生ADCではなくFirmware処理済み出力である。装置固有の物理補正とユーザー依存の操作適合は別に扱う。
+
+## Laptopでの試験キット入手・起動（Windows 11）
+
+1. GitHubのSelfrionette-Device PR #16（https://github.com/Xpotato1024/Selfrionette-Device/pull/16）を開く。
+2. ChecksからHost Rustの実行画面を開き、Actionsの実行サマリー最下部のArtifactsから
+   selfrionette-field-test-win-x64-<SHA> をダウンロードする（GitHubログインが必要）。
+   成果物は30日で期限切れ。アプリ本体のRelease installerではなく、このCLI専用キットを使う。
+3. ZIPをLaptopの新しいフォルダへ展開。selfrionettectl.exe、field-test.cmd、field-test.ps1、
+   test-plan.json、BUILD.json、README.mdが同じ場所にあることを確認。
+4. BUILD.jsonのsource_commitがPRのHEADと一致することを確認。起動wrapperはexe SHA-256を検証する。
+5. test-plan.jsonに装置・姿勢・各操作方向・複数軸の同時入力指示を記入。軸名とch番号は混同しない。
+   安全に逆方向へ入力できない軸のnegativeはnullのまま。
+6. 機器を接続する前にPowerShellで .\selfrionettectl.exe field-test preview .\test-plan.json を実行し、
+   configured: true と各操作方向・予定時間が正しいことを確認。previewはserialを開かない。
+7. ほかのserial利用アプリを閉じ、試験時はfield-test.cmdをダブルクリック。
+   現物のCOM番号を確認し、OPEN COMxの明示確認で開始。
+8. 終了後は生成されたcapture-日時フォルダをまるごと保管する。中断記録も破棄しない。
+
+配布キットはソースに追跡できる試験用の未署名exeである。OSの保護機能を無条件に解除せず、
+ダウンロード元、ソースコミット、BUILD.jsonのSHA-256を確認する。
+Portable CLIなのでLaptopへのRust、Node、Visual Studio導入やインストーラ実行は不要。
 
 ## 前日までの準備（当日の30分枠に開発環境構築を持ち込まない）
 Windows x64用のビルド済みselfrionettectl.exe、test-plan.json、field-test.ps1、field-test.cmd、BUILD.jsonを同じフォルダに置く。
