@@ -46,6 +46,25 @@ impl SerialPortTransport {
         })
     }
 
+    /// Open native-USB CDC for passive acquisition and explicitly assert DTR.
+    ///
+    /// On Windows the serialport default preserves DTR, which may leave the
+    /// ATmega32U4 CDC Serial writer silent despite a successful COM open.
+    /// Asserting DTR can trigger a board reset; do not use this method for
+    /// transparent diagnostic enumeration or EEPROM/firmware mutation.
+    pub fn open_with_dtr(port_name: &str) -> Result<Self, TransportError> {
+        let mut transport = Self::open(port_name)?;
+        transport
+            .port
+            .write_data_terminal_ready(true)
+            .map_err(|error| {
+                TransportError::Serial(format!(
+                    "could not assert DTR for native USB CDC {port_name:?}: {error}"
+                ))
+            })?;
+        Ok(transport)
+    }
+
     pub fn port_name(&self) -> &str {
         &self.port_name
     }

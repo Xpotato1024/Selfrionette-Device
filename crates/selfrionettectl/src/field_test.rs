@@ -279,6 +279,7 @@ impl<W: Write> Log<W> {
 struct Observation {
     stats: Vec<Stats>,
     vectors: u64,
+    statuses: u64,
     warnings: u64,
     unknown: u64,
     duplicates: u64,
@@ -292,6 +293,7 @@ impl Observation {
         Self {
             stats: vec![Stats::default(); count],
             vectors: 0,
+            statuses: 0,
             warnings: 0,
             unknown: 0,
             duplicates: 0,
@@ -340,6 +342,7 @@ impl Observation {
                 Ok(json!({"frame":"warning","token":w.token,"args":w.args}))
             }
             ProtocolFrame::Status(s) => {
+                self.statuses += 1;
                 if !startup
                     && (s.token.starts_with("setup_")
                         || s.token == "calibration_start"
@@ -371,7 +374,7 @@ impl Observation {
             .map(|(s, v)| json!({"stage":s,"statistics":v.json()}))
             .collect();
         json!({"schema_version":1,"result_kind":"field_observation_not_calibration","origin":origin,"outcome":outcome,"error":error,
-            "hardware_verified":false,"control_ready":false,"vectors":self.vectors,"warnings":self.warnings,"unknown_lines":self.unknown,
+            "hardware_verified":false,"control_ready":false,"vectors":self.vectors,"statuses":self.statuses,"warnings":self.warnings,"unknown_lines":self.unknown,
             "duplicate_device_timestamps":self.duplicates,"device_gaps_over_200ms":self.gaps_over_200ms,
             "device_identity":self.info.as_ref().map(|i|i.identity.to_string()),"device_firmware":self.info.as_ref().map(|i|i.firmware_version.clone()),
             "stages":rows,"notice":"Firmware-processed counts, not raw ADC/Newtons. Host receive/cue times, not measured intent or latency. No usable-quality conversion."})
@@ -414,6 +417,12 @@ fn collect<T: LineTransport, W: Write>(
             // Initial alignment/startup only. Existing transport does not retain
             // a partial line across timeouts, so never retry after a valid vector.
             Err(TransportError::Timeout) if observation.vectors == 0 && ms < STARTUP_MS => continue,
+            Err(TransportError::Timeout) if observation.vectors == 0 => {
+                return Err(format!(
+                    "no 7ch vector in 30 s (startup status: {}, warnings: {}, unknown: {}). Check the selected COM/firmware and events.jsonl; do not flash or tare automatically",
+                    observation.statuses, observation.warnings, observation.unknown
+                ));
+            }
             Err(e) => return Err(format!("read stopped: {e}")),
         };
         let received = now();
@@ -595,8 +604,14 @@ pub(crate) fn run(args: &[String]) -> Result<(), CliError> {
                 if stopped.load(Ordering::SeqCst) {
                     return Err("interrupted before open".into());
                 }
-                let mut transport = SerialPortTransport::open(port).map_err(|e| e.to_string())?;
+                // For ATmega32U4 native USB CDC, open succeeds on Windows
+                // without DTR yet Serial.write may silently emit nothing.
+                // Assert DTR only for this explicitly authorized capture.
+                let mut transport =
+                    SerialPortTransport::open_with_dtr(port).map_err(|e| e.to_string())?;
                 let start = Instant::now();
+                log.event(json!({"event":"serial_dtr_asserted","host_ms":0,"port":port}))?;
+                log.flush()?;
                 collect(
                     &mut transport,
                     &schedule,

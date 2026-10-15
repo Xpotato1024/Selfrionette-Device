@@ -43,6 +43,17 @@ initial live operationはoperatorが`--port`で明示したportだけをopenす�
 - DTR stateをidentity / role判定へ使わない
 - auto scan / auto openは行わない
 
+## Field-test専用native USB CDC open
+
+通常の`SerialPortTransport::open`はDTR初期状態を変更しない。既存のinfo/monitor/GUIでの動作を維持する。
+`SerialPortTransport::open_with_dtr`は、operatorが選択・確認した1つのportに限りopenし、
+明示的にDTRをassertする。Pro Micro/ATmega32U4のネイティブUSB CDCは
+DTRが無効なときFirmwareがSerial出力を送れない場合がある。
+この方法は`field-test capture`からのみ使用し、DTR設定失敗はエラーとして返す。
+DTRは識別子ではない。assertでdevice resetやboot時tareが発生し得るため、負荷を掛けずに接続する。
+serial write、`info`、`tare`、provision、EEPROM、flashは行わない。
+30秒間vectorがない場合は、status/warn/unknown件数と根拠ログを保持してfail closedとする。
+
 ## Line acquisition
 
 - maximum line payload: 1024 bytes

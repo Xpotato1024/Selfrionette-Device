@@ -264,3 +264,71 @@ fn unobserved_stages_are_not_certified() {
     assert_eq!(r["control_ready"], false);
     assert!(o.review(&s, "aborted").contains("未取得"));
 }
+
+#[test]
+fn silent_startup_reports_no_vectors_instead_of_generic_timeout() {
+    let clock = Rc::new(Cell::new(0));
+    let mut f = Fake {
+        clock: clock.clone(),
+        rows: VecDeque::new(),
+    };
+    let stages = [Stage {
+        label: "startup".into(),
+        instruction: "wait".into(),
+        start_ms: 0,
+        end_ms: 40_000,
+    }];
+    let mut log = Log::new(Vec::new());
+    let mut o = Observation::new(1);
+    let err = collect(
+        &mut f,
+        &stages,
+        &mut log,
+        &mut o,
+        || clock.get(),
+        || false,
+        |_| Ok(()),
+    )
+    .unwrap_err();
+    assert!(err.contains("no 7ch vector in 30 s"), "{err}");
+    assert!(err.contains("startup status: 0"), "{err}");
+    assert_eq!(o.vectors, 0);
+    assert_eq!(o.warnings, 0);
+}
+
+#[test]
+fn startup_status_without_vector_is_reported_separately() {
+    let clock = Rc::new(Cell::new(0));
+    let mut f = Fake {
+        clock: clock.clone(),
+        rows: VecDeque::from([
+            Ok("status,setup_start".into()),
+            Ok("status,sensor_init_start".into()),
+        ]),
+    };
+    let stages = [Stage {
+        label: "startup".into(),
+        instruction: "wait".into(),
+        start_ms: 0,
+        end_ms: 40_000,
+    }];
+    let mut log = Log::new(Vec::new());
+    let mut o = Observation::new(1);
+    let err = collect(
+        &mut f,
+        &stages,
+        &mut log,
+        &mut o,
+        || clock.get(),
+        || false,
+        |_| Ok(()),
+    )
+    .unwrap_err();
+    assert!(err.contains("startup status: 2"), "{err}");
+    assert_eq!(o.statuses, 2);
+    assert_eq!(o.vectors, 0);
+    assert_eq!(
+        o.report(&stages, "aborted", Some(&err), "synthetic")["statuses"],
+        2
+    );
+}

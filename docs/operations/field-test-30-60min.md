@@ -105,6 +105,16 @@ JSONはUTF-8で保存する。根拠のないch割当や左右IDは埋めない�
 中立変動と入力差の比は各ch内で比較する。後から都合のよい閾値を選んで「校正合格」にしない。
 合成試験のRMSEやnoise閾値を実機合格基準へ転用しない。
 
+### WindowsでCOMは開けるが0 vectorsとなる場合（DTR）
+Pro Micro/ATmega32U4のネイティブUSB CDC送信では、hostのDTRが無効だと `Serial.print` した内容が届かない場合がある。
+利用中の`serialport` 4.10.1はWindowsでの初期DTR状態を保存するため、COM open成功だけでは受信開始を保証しない。
+`field-test capture` は**明示的に許可された接続に限って**DTRをassertし、その成功を`events.jsonl`へ`serial_dtr_asserted`として記録する。
+DTR assertionはデバイスリセット／bootloader起動／RAM tareの再実行を伴う可能性がある。接続前に指を離し、機器を安全状態にする。
+既存の`info`、monitor、Device Manager等が使う従来の`SerialPortTransport::open`動作は変更しない。
+受信vectorが30秒間ない場合、startup status/warn/unknownの数を含めて中止する。`events.jsonl`の`wire`行の有無を確認し、
+実機COM、Firmwareの実際の書込み状態、USB cable/connector、必要ならArduino IDE Serial Monitor 115200（同時接続不可）で切り分ける。
+自動`info`送信、tare、provision、flashing、ロボット指令は引き続き行わない。
+
 ## 即時中止・再開
 痛み、異常な変形、取付けの緩み、発熱、荷重経路の不明確さがあれば直ちに力を抜き、中止する。
 初回のvectorが30秒程度で出ない、取得中のreadが1秒timeout、device時刻の後退、基準変更通知、非有限/不正vector、metadata変化等はCLIが停止する。
