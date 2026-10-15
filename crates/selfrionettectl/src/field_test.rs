@@ -1,5 +1,6 @@
 //! Passive timed observation only. Never a calibration or control-readiness gate.
 use crate::CliError;
+mod guided;
 use selfrionette_core::{DeviceInfo, ProtocolFrame, parse_line};
 use selfrionette_serial::{
     LineTransport, SerialPortTransport, TransportError, available_port_names,
@@ -374,13 +375,14 @@ impl Observation {
             .map(|(s, v)| json!({"stage":s,"statistics":v.json()}))
             .collect();
         json!({"schema_version":1,"result_kind":"field_observation_not_calibration","origin":origin,"outcome":outcome,"error":error,
-            "hardware_verified":false,"control_ready":false,"vectors":self.vectors,"statuses":self.statuses,"warnings":self.warnings,"unknown_lines":self.unknown,
+            "hardware_verified":false,"control_ready":false,"unscored_vectors":self.stats.get(stages.len()).map(|s|s.count).unwrap_or(0),"vectors":self.vectors,"statuses":self.statuses,"warnings":self.warnings,"unknown_lines":self.unknown,
             "duplicate_device_timestamps":self.duplicates,"device_gaps_over_200ms":self.gaps_over_200ms,
             "device_identity":self.info.as_ref().map(|i|i.identity.to_string()),"device_firmware":self.info.as_ref().map(|i|i.firmware_version.clone()),
             "stages":rows,"notice":"Firmware-processed counts, not raw ADC/Newtons. Host receive/cue times, not measured intent or latency. No usable-quality conversion."})
     }
 }
 
+#[cfg(test)]
 fn collect<T: LineTransport, W: Write>(
     transport: &mut T,
     stages: &[Stage],
@@ -530,6 +532,67 @@ impl Observation {
         text
     }
 }
+/// Upgrade only the exact unnamed placeholders from the previous quick kit.
+/// Explicit operator directions in a non-provisional plan are never overwritten.
+fn upgrade_provisional_plan(plan: &mut Plan) -> bool {
+    if plan.device_label != "PROVISIONAL-DEVICE-ID-UNKNOWN" {
+        return false;
+    }
+    if !plan.axes.iter().all(|a| {
+        a.positive.starts_with("Gently move ")
+            && a.positive
+                .ends_with(" in ONE SAFE direction. Physical direction NOT YET DEFINED.")
+    }) {
+        return false;
+    }
+    for (i, axis) in plan.axes.iter_mut().enumerate() {
+        let (name, instruction) = provisional_probe(i);
+        axis.name = name.into();
+        axis.positive = instruction.into();
+        axis.negative = None;
+    }
+    plan.combined_instruction =
+        "安全な場合のみ、1軸入力部と3軸指Aを同時に軽く押す。方向が不明なら s+Enter でスキップ"
+            .into();
+    true
+}
+
+/// Operator-relative exploration cues, NOT calibrated physical sensor axes.
+/// Finger identities A/B are not known from the existing repository.
+fn provisional_probe(i: usize) -> (&'static str, &'static str) {
+    match i {
+        0 => (
+            "1軸入力部（指は未同定）",
+            "1軸の入力部を安全な押込み方向へごく軽く押す。入力部が分からなければスキップ",
+        ),
+        1 => (
+            "3軸入力部A・左右",
+            "3軸入力部Aに操作者から見て右向きにごく軽い力を加える。Aが不明・不可能ならスキップ",
+        ),
+        2 => (
+            "3軸入力部A・前後",
+            "3軸入力部Aに操作者から見て奥向きにごく軽い力を加える。Aが不明・不可能ならスキップ",
+        ),
+        3 => (
+            "3軸入力部A・上下",
+            "3軸入力部Aに鉛直上向きにごく軽い力を加える。Aが不明・不可能ならスキップ",
+        ),
+        4 => (
+            "3軸入力部B・左右",
+            "もう一方の3軸入力部Bに操作者から見て右向きにごく軽い力を加える。Bが不明・不可能ならスキップ",
+        ),
+        5 => (
+            "3軸入力部B・前後",
+            "もう一方の3軸入力部Bに操作者から見て奥向きにごく軽い力を加える。Bが不明・不可能ならスキップ",
+        ),
+        6 => (
+            "3軸入力部B・上下",
+            "もう一方の3軸入力部Bに鉛直上向きにごく軽い力を加える。Bが不明・不可能ならスキップ",
+        ),
+        _ => unreachable!("seven axes"),
+    }
+}
+
 fn usage() -> CliError {
     CliError::Usage("field-test template <new-plan.json> | preview <plan.json> | capture <plan.json> --port <port> --out <NEW-directory> --yes-open".into())
 }
@@ -540,7 +603,8 @@ pub(crate) fn run(args: &[String]) -> Result<(), CliError> {
             write_new(Path::new(path), &json!(Plan::template())).map_err(fail)
         }
         [cmd, path] if cmd == "preview" => {
-            let plan = load_plan(path, false).map_err(fail)?;
+            let mut plan = load_plan(path, false).map_err(fail)?;
+            upgrade_provisional_plan(&mut plan);
             let schedule = stages(&plan);
             println!(
                 "OFFLINE preview: {} seconds. No port opened. Plan configured: {}",
@@ -566,7 +630,8 @@ pub(crate) fn run(args: &[String]) -> Result<(), CliError> {
                 && !port.is_empty()
                 && !port.starts_with('-') =>
         {
-            let plan = load_plan(path, true).map_err(fail)?;
+            let mut plan = load_plan(path, true).map_err(fail)?;
+            let provisional_upgraded = upgrade_provisional_plan(&mut plan);
             if Path::new(out).exists() {
                 return Err(fail(
                     "output directory exists; choose a NEW session name".into(),
@@ -591,7 +656,7 @@ pub(crate) fn run(args: &[String]) -> Result<(), CliError> {
             let mut log = Log::new(BufWriter::new(file));
             log.event(json!({"event":"header","schema_version":1,"origin":"recorded","plan":plan,"port":port,"baud":115200,
                 "unix_start_s":SystemTime::now().duration_since(UNIX_EPOCH).map_err(|e|fail(e.to_string()))?.as_secs(),
-                "host_version":env!("CARGO_PKG_VERSION"),"stages":schedule,"quality":"unknown",
+                "host_version":env!("CARGO_PKG_VERSION"),"stages":schedule,"quality":"unknown","operator_gated":true,"provisional_cue_upgrade":provisional_upgraded,
                 "note":"Passive read only; opening a port may reset hardware. Physical label is not device ID. Retain executable SHA-256."})).map_err(fail)?;
             log.flush().map_err(fail)?;
             println!(
@@ -599,7 +664,12 @@ pub(crate) fn run(args: &[String]) -> Result<(), CliError> {
                 plan.device_label, port
             );
             println!("送信・tare・書込みは行いません。Ctrl+Cで中止。出力: {out}");
-            let mut observation = Observation::new(schedule.len());
+            println!("\n操作軸と予定方向（探索的観測。物理chの対応は未確定）:");
+            for (index, axis) in plan.axes.iter().enumerate() {
+                println!("  {}: {} → {}", index, axis.name, axis.positive);
+            }
+            println!("各試行前に停止し、Enterを待ちます。準備できなければs+Enterでスキップ。");
+            let mut observation = Observation::new(schedule.len() + 1);
             let result = (|| {
                 if stopped.load(Ordering::SeqCst) {
                     return Err("interrupted before open".into());
@@ -612,14 +682,24 @@ pub(crate) fn run(args: &[String]) -> Result<(), CliError> {
                 let start = Instant::now();
                 log.event(json!({"event":"serial_dtr_asserted","host_ms":0,"port":port}))?;
                 log.flush()?;
-                collect(
+                let receiver = guided::console_actions();
+                guided::collect(
                     &mut transport,
                     &schedule,
                     &mut log,
                     &mut observation,
                     || start.elapsed().as_millis() as u64,
                     || stopped.load(Ordering::SeqCst),
-                    |s| {
+                    || receiver.try_recv().ok(),
+                    |s, waiting| {
+                        if waiting {
+                            println!("\n----------------------------------------");
+                            println!("次の試行: {}", s.label.trim_end_matches("/prepare"));
+                            println!("操作: {}", s.instruction);
+                            println!("実機の指と方向を確認。できない場合はスキップしてください。");
+                            println!("Enter=準備完了 / s+Enter=スキップ / q+Enter=中止");
+                            return;
+                        }
                         println!(
                             "\x07[{:02}:{:02}] {} ({}秒)",
                             s.start_ms / 60000,
@@ -627,7 +707,6 @@ pub(crate) fn run(args: &[String]) -> Result<(), CliError> {
                             s.instruction,
                             (s.end_ms - s.start_ms) / 1000
                         );
-                        Ok(())
                     },
                 )
             })();

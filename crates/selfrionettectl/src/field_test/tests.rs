@@ -332,3 +332,146 @@ fn startup_status_without_vector_is_reported_separately() {
         2
     );
 }
+
+fn short_guided_stages() -> Vec<Stage> {
+    [
+        ("train/axis0/positive/r0/prepare", 20),
+        ("train/axis0/positive/r0/neutral", 40),
+        ("train/axis0/positive/r0/ramp", 60),
+        ("train/axis0/positive/r0/hold", 80),
+        ("train/axis0/positive/r0/release", 100),
+        ("final-neutral", 120),
+    ]
+    .into_iter()
+    .scan(0, |begin, (label, end)| {
+        let next = Stage {
+            label: label.into(),
+            instruction: format!("physical instruction for {label}"),
+            start_ms: *begin,
+            end_ms: end,
+        };
+        *begin = end;
+        Some(next)
+    })
+    .collect()
+}
+
+fn guided_fixture() -> (Fake, Rc<Cell<u64>>) {
+    let clock = Rc::new(Cell::new(0));
+    let rows = (1..=25)
+        .map(|ms| Ok(format!("vector,{ms},1,2,3,4,5,6,7")))
+        .collect();
+    (
+        Fake {
+            clock: clock.clone(),
+            rows,
+        },
+        clock,
+    )
+}
+
+#[test]
+fn guided_trial_pauses_until_ready_and_excludes_preparation_data() {
+    let (mut fake, clock) = guided_fixture();
+    let stages = short_guided_stages();
+    let mut log = Log::new(Vec::new());
+    let mut obs = Observation::new(stages.len() + 1);
+    let mut polls = 0;
+    let mut cues = Vec::new();
+    guided::collect(
+        &mut fake,
+        &stages,
+        &mut log,
+        &mut obs,
+        || clock.get(),
+        || false,
+        || {
+            polls += 1;
+            (polls == 3).then_some(guided::Action::Ready)
+        },
+        |stage, waiting| cues.push((stage.label.clone(), waiting)),
+    )
+    .unwrap();
+    assert!(obs.stats.last().unwrap().count >= 2);
+    assert!(obs.stats[0].count > 0);
+    assert!(obs.stats[3].count > 0);
+    assert!(obs.stats[5].count > 0);
+    assert_eq!(
+        obs.report(&stages, "complete", None, "synthetic")["unscored_vectors"],
+        obs.stats.last().unwrap().count
+    );
+    assert!(cues[0].1);
+    assert!(!cues[1].1);
+    let events = String::from_utf8(log.out).unwrap();
+    assert!(events.contains("\"event\":\"operator_wait\""));
+    assert!(events.contains("\"event\":\"operator_ready\""));
+    assert!(events.contains("\"stage_index\":null"));
+}
+
+#[test]
+fn guided_skip_leaves_unperformed_trial_unscored_and_continues() {
+    let (mut fake, clock) = guided_fixture();
+    let stages = short_guided_stages();
+    let mut log = Log::new(Vec::new());
+    let mut obs = Observation::new(stages.len() + 1);
+    guided::collect(
+        &mut fake,
+        &stages,
+        &mut log,
+        &mut obs,
+        || clock.get(),
+        || false,
+        || Some(guided::Action::Skip),
+        |_, _| {},
+    )
+    .unwrap();
+    assert!(obs.stats[..5].iter().all(|s| s.count == 0));
+    assert!(obs.stats[5].count > 0);
+    assert!(
+        String::from_utf8(log.out)
+            .unwrap()
+            .contains("\"event\":\"operator_skip\"")
+    );
+}
+
+#[test]
+fn guided_quit_never_generates_unrequested_measurements() {
+    let (mut fake, clock) = guided_fixture();
+    let stages = short_guided_stages();
+    let mut log = Log::new(Vec::new());
+    let mut obs = Observation::new(stages.len() + 1);
+    let err = guided::collect(
+        &mut fake,
+        &stages,
+        &mut log,
+        &mut obs,
+        || clock.get(),
+        || false,
+        || Some(guided::Action::Stop),
+        |_, _| {},
+    )
+    .unwrap_err();
+    assert!(err.contains("operator stopped"));
+    assert_eq!(obs.vectors, 0);
+}
+
+#[test]
+fn legacy_quick_plan_is_upgraded_only_when_exactly_provisional() {
+    let mut plan = configured();
+    plan.device_label = "PROVISIONAL-DEVICE-ID-UNKNOWN".into();
+    for (i, axis) in plan.axes.iter_mut().enumerate() {
+        axis.name = format!("PROVISIONAL group {i}");
+        axis.positive =
+            format!("Gently move {i} in ONE SAFE direction. Physical direction NOT YET DEFINED.");
+    }
+    assert!(upgrade_provisional_plan(&mut plan));
+    assert!(plan.axes[1].positive.contains("右向き"));
+    assert!(plan.axes[6].positive.contains("上向き"));
+    assert_eq!(plan.axes[1].negative, None);
+    assert!(!upgrade_provisional_plan(&mut plan));
+
+    let mut manual = configured();
+    let previous = manual.axes[1].positive.clone();
+    assert!(!upgrade_provisional_plan(&mut manual));
+    assert_eq!(manual.axes[1].positive, previous);
+}

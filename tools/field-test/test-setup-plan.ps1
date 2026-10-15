@@ -4,7 +4,7 @@ $ErrorActionPreference = 'Stop'
 $repo = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot '..\..')).Path
 if (-not $KitDirectory) { $KitDirectory = Join-Path $repo 'target\field-test-kit' }
 $kit = (Resolve-Path -LiteralPath $KitDirectory).Path
-$qa = Join-Path $repo 'target\field-test-plan-qa'
+$qa = Join-Path $repo ('target\field-test-plan-qa-' + [Guid]::NewGuid().ToString('N'))
 if (Test-Path -LiteralPath $qa) { throw 'Existing test QA folder; refusing overwrite' }
 New-Item -ItemType Directory -Path $qa -ErrorAction Stop | Out-Null
 $template = Join-Path $kit 'test-plan.json'
@@ -26,19 +26,26 @@ function Scripted-Setup([string]$Name, [string[]]$Answers) {
     } finally { Remove-Item Function:\Read-Host -ErrorAction SilentlyContinue }
     return $target
 }
-$quick = Scripted-Setup -Name 'quick' -Answers @('', 'y')
+$quick = Scripted-Setup -Name 'quick' -Answers @('', '', 'y')
 $parsed = Get-Content -LiteralPath $quick -Raw -Encoding UTF8 | ConvertFrom-Json
 if ($parsed.device_label -ne 'PROVISIONAL-DEVICE-ID-UNKNOWN' -or $parsed.axes.Count -ne 7) {
     throw 'Quick metadata/axis count failed'
 }
 foreach ($axis in $parsed.axes) {
-    if ($axis.negative -ne $null -or $axis.positive -notmatch 'NOT YET DEFINED') {
+    if ($axis.negative -ne $null -or [string]::IsNullOrWhiteSpace($axis.positive) -or $axis.positive -match 'ONE SAFE direction') {
         throw 'Quick mode falsely establishes direction'
     }
 }
 $preview = @(& $exe field-test preview $quick)
 if ($LASTEXITCODE -ne 0 -or $preview[0] -notmatch 'configured: true') {
     throw 'Quick mode cannot pass offline preview'
+}
+$mapped = Scripted-Setup -Name 'mapped' -Answers @('', 'little,thumb,index', 'y')
+$mappedPlan = Get-Content -LiteralPath $mapped -Raw -Encoding UTF8 | ConvertFrom-Json
+if ($mappedPlan.axes[0].name -notmatch 'little' -or
+    $mappedPlan.axes[1].name -notmatch 'thumb' -or
+    $mappedPlan.axes[4].name -notmatch 'index') {
+    throw 'Optional finger mapping did not propagate into all seven cues'
 }
 $answers = @('n', 'device-A', 'operator-A', 'seated', 'unknown')
 for ($i=0; $i -lt 7; $i++) { $answers += @("axis-$i", "move-$i", 'n') }

@@ -24,6 +24,13 @@ Copy-Item -LiteralPath $binary -Destination (Join-Path $destination 'selfrionett
 foreach ($name in @('field-test.cmd', 'field-test.ps1', 'setup-plan.ps1')) {
     Copy-Item -LiteralPath (Join-Path $PSScriptRoot $name) -Destination (Join-Path $destination $name)
 }
+# Windows PowerShell 5.1 treats unsigned UTF-8 .ps1 files without BOM as
+# legacy ANSI. The source stays UTF-8 no BOM; only this portable kit uses BOM.
+$setupContent = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'setup-plan.ps1') -Raw -Encoding UTF8
+[System.IO.File]::WriteAllText(
+    (Join-Path $destination 'setup-plan.ps1'), $setupContent,
+    (New-Object System.Text.UTF8Encoding($true))
+)
 Copy-Item -LiteralPath (Join-Path $repo 'docs\operations\field-test-30-60min.md') -Destination (Join-Path $destination 'README.md')
 $kitExe = Join-Path $destination 'selfrionettectl.exe'
 $plan = Join-Path $destination 'test-plan.json'
