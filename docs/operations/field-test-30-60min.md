@@ -26,15 +26,16 @@ ADC→N校正、Firmware更新、EEPROM書込み、ロボット駆動、当日�
 2. ChecksからHost Rustの実行画面を開き、Actionsの実行サマリー最下部のArtifactsから
    selfrionette-field-test-win-x64-<SHA> をダウンロードする（GitHubログインが必要）。
    成果物は30日で期限切れ。アプリ本体のRelease installerではなく、このCLI専用キットを使う。
-3. ZIPをLaptopの新しいフォルダへ展開。selfrionettectl.exe、field-test.cmd、field-test.ps1、
-   test-plan.json、BUILD.json、README.mdが同じ場所にあることを確認。
+3. ZIPをLaptopの新しいフォルダへ展開。selfrionettectl.exe、field-test.cmd、field-test.ps1、setup-plan.ps1、
+   test-plan.json、BUILD.json、README.mdの7ファイルが同じ場所にあることを確認。
 4. BUILD.jsonのsource_commitがPRのHEADと一致することを確認。起動wrapperはexe SHA-256を検証する。
-5. test-plan.jsonに装置・姿勢・各操作方向・複数軸の同時入力指示を記入。軸名とch番号は混同しない。
-   安全に逆方向へ入力できない軸のnegativeはnullのまま。
-6. 機器を接続する前にPowerShellで .\selfrionettectl.exe field-test preview .\test-plan.json を実行し、
-   configured: true と各操作方向・予定時間が正しいことを確認。previewはserialを開かない。
-7. ほかのserial利用アプリを閉じ、試験時はfield-test.cmdをダブルクリック。
-   現物のCOM番号を確認し、OPEN COMxの明示確認で開始。
+5. field-test.cmdをダブルクリック。test-plan.jsonが未設定であれば、COMポート列挙やOPEN確認より前に
+   setup-plan.ps1が動き、装置ラベル・姿勢・7軸の正方向・任意の逆方向・同時入力を対話入力する。
+   :cancelで中断した場合は元ファイルを変更しない。保存すると元ファイルのバックアップを残す。
+   英語の質問でも入力内容は日本語で構わない。方向不明の項目を推測して埋めない。
+6. 計画を確認・保存するとpreviewでconfigured: trueを再確認する。ここまではserialを開かない。
+   再実行時は設定済みなら質問を省略する。別途PowerShellで .\selfrionettectl.exe field-test preview .\test-plan.json も利用可能。
+7. ほかのserial利用アプリを閉じ、現物のCOM番号を確認してOPEN COMxと明示入力した場合だけ記録を開始する。
 8. 終了後は生成されたcapture-日時フォルダをまるごと保管する。中断記録も破棄しない。
 
 配布キットはソースに追跡できる試験用の未署名exeである。OSの保護機能を無条件に解除せず、
@@ -53,7 +54,8 @@ negativeは安全に逆方向へ入力できる場合だけ動作を記入する
 combined_instructionには異なる2方向/2指を同時に操作する動作を1つ定義する。弱めの同時入力を優先する。
 実際の装置と手の位置、紙ラベル、向きが分かる写真を1枚以上用意し、notes.txtへファイル名を残す。
 
-空欄のtemplateはpreview可能だがcaptureは拒否する。JSONはUTF-8で保存する。根拠のないch割当や左右IDは埋めない。
+空欄のtemplateはpreview可能だがcaptureは拒否する。起動wrapperは未設定を事前に検出し、COM選択前に対話入力へ誘導する。
+JSONはUTF-8で保存する。根拠のないch割当や左右IDは埋めない。
 
 ## 当日30分の必須工程
 | 経過時間 | 作業 | 終了条件 |

@@ -9,6 +9,19 @@ foreach ($path in @($exe, $plan, $manifest)) {
 }
 $build = Get-Content -LiteralPath $manifest -Raw -Encoding UTF8 | ConvertFrom-Json
 if ((Get-FileHash -LiteralPath $exe -Algorithm SHA256).Hash -ne $build.exe_sha256) { throw 'Executable hash mismatch' }
+# Fail before listing/asking for a COM port. The file-only preview never opens serial.
+$preview = @(& $exe field-test preview $plan)
+if ($LASTEXITCODE -ne 0) { throw 'Invalid test-plan.json. No COM port was opened.' }
+if ($preview.Count -eq 0 -or $preview[0] -notmatch 'configured: true') {
+    Write-Host 'The plan is incomplete. Configure the device and all seven operator axes before opening a COM port.'
+    & (Join-Path $root 'setup-plan.ps1') -PlanPath $plan
+    if (-not $?) { throw 'Plan setup failed. No COM port was opened.' }
+    $preview = @(& $exe field-test preview $plan)
+    if ($LASTEXITCODE -ne 0 -or $preview.Count -eq 0 -or $preview[0] -notmatch 'configured: true') {
+        throw 'Plan is still incomplete. No COM port was opened.'
+    }
+}
+Write-Host $preview[0]
 $selected = Get-Content -LiteralPath $plan -Raw -Encoding UTF8 | ConvertFrom-Json
 Write-Host "Device label: $($selected.device_label); operator: $($selected.operator); posture: $($selected.posture)"
 Write-Host 'Close Device Manager / Serial Monitor / Sim. Unload the sensors before opening.'
@@ -25,6 +38,10 @@ $code = $LASTEXITCODE
 if (Test-Path -LiteralPath $out -PathType Container) {
     Copy-Item -LiteralPath $manifest -Destination (Join-Path $out 'BUILD.json') -ErrorAction Stop
 }
-Write-Host "Exit: $code; records: $out"
-Write-Host 'Keep aborted records too. Read review.md and fill notes.txt. No calibration was installed.'
+if (Test-Path -LiteralPath $out -PathType Container) {
+    Write-Host "Exit: $code; records: $out"
+    Write-Host 'Keep aborted records too. Read review.md and fill notes.txt. No calibration was installed.'
+} else {
+    Write-Host "Exit: $code; no capture directory was created; no measurements were saved."
+}
 exit $code

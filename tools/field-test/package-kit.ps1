@@ -21,7 +21,7 @@ if ($LASTEXITCODE -ne 0 -or $source -notmatch '^[a-f0-9]{40}$') {
 }
 New-Item -ItemType Directory -Path $destination -ErrorAction Stop | Out-Null
 Copy-Item -LiteralPath $binary -Destination (Join-Path $destination 'selfrionettectl.exe')
-foreach ($name in @('field-test.cmd', 'field-test.ps1')) {
+foreach ($name in @('field-test.cmd', 'field-test.ps1', 'setup-plan.ps1')) {
     Copy-Item -LiteralPath (Join-Path $PSScriptRoot $name) -Destination (Join-Path $destination $name)
 }
 Copy-Item -LiteralPath (Join-Path $repo 'docs\operations\field-test-30-60min.md') -Destination (Join-Path $destination 'README.md')
@@ -47,7 +47,7 @@ $build = [ordered]@{
 }
 $json = ($build | ConvertTo-Json -Depth 5) + [Environment]::NewLine
 [System.IO.File]::WriteAllText((Join-Path $destination 'BUILD.json'), $json, (New-Object System.Text.UTF8Encoding($false)))
-foreach ($name in @('BUILD.json','field-test.cmd','field-test.ps1','README.md','selfrionettectl.exe','test-plan.json')) {
+foreach ($name in @('BUILD.json','field-test.cmd','field-test.ps1','setup-plan.ps1','README.md','selfrionettectl.exe','test-plan.json')) {
     if (-not (Test-Path -LiteralPath (Join-Path $destination $name) -PathType Leaf)) {
         throw "Missing packaged file: $name"
     }
