@@ -9,7 +9,7 @@ related:
 ---
 # Selfrionette実機試験: 30分必須・60分上限
 
-初回実施予定: 2026年10月16日（金）。1人・1台・1姿勢を基本とする。
+初回実機観測計画（2026年10月15日時点）。1人・1台・1姿勢を基本とし、実施日時は記録ログの開始時刻で識別する。
 
 ## 成果と範囲
 必須成果は、無荷重/操作姿勢の中立、7つの操作方向の繰返し、弱い入力、同時入力、除荷を、7ch全値と診断通知付きで記録すること。
@@ -29,10 +29,12 @@ ADC→N校正、Firmware更新、EEPROM書込み、ロボット駆動、当日�
 3. ZIPをLaptopの新しいフォルダへ展開。selfrionettectl.exe、field-test.cmd、field-test.ps1、setup-plan.ps1、
    test-plan.json、BUILD.json、README.mdの7ファイルが同じ場所にあることを確認。
 4. BUILD.jsonのsource_commitがPRのHEADと一致することを確認。起動wrapperはexe SHA-256を検証する。
-5. field-test.cmdをダブルクリック。test-plan.jsonが未設定であれば、COMポート列挙やOPEN確認より前に
-   setup-plan.ps1が動き、装置ラベル・姿勢・7軸の正方向・任意の逆方向・同時入力を対話入力する。
-   :cancelで中断した場合は元ファイルを変更しない。保存すると元ファイルのバックアップを残す。
-   英語の質問でも入力内容は日本語で構わない。方向不明の項目を推測して埋めない。
+5. `field-test.cmd`を起動。未設定ならCOMポート列挙より前に`setup-plan.ps1`が起動する。
+   **最初の`Quick initial observation? [Y/n]`でEnter**を押すと、1+3+3の仮ラベルで7軸分を自動設定する。
+   続く保存確認で`y`を入力する。装置名や7軸の説明を手入力する必要はない。
+   この簡易モードは**初回の探索的観測だけ**に用いる。物理的な正方向・実際の指・配線対応・利用者・姿勢は未確認として記録され、校正済みデータとしない。
+   正式な操作意図・方向・繰返しの校正実験では、最初の質問に`n`を入力して詳細情報を定義する。
+   `:cancel`で中断すると元の計画は変更せず、保存時はバックアップを残す。
 6. 計画を確認・保存するとpreviewでconfigured: trueを再確認する。ここまではserialを開かない。
    再実行時は設定済みなら質問を省略する。別途PowerShellで .\selfrionettectl.exe field-test preview .\test-plan.json も利用可能。
 7. ほかのserial利用アプリを閉じ、現物のCOM番号を確認してOPEN COMxと明示入力した場合だけ記録を開始する。
@@ -54,7 +56,7 @@ negativeは安全に逆方向へ入力できる場合だけ動作を記入する
 combined_instructionには異なる2方向/2指を同時に操作する動作を1つ定義する。弱めの同時入力を優先する。
 実際の装置と手の位置、紙ラベル、向きが分かる写真を1枚以上用意し、notes.txtへファイル名を残す。
 
-空欄のtemplateはpreview可能だがcaptureは拒否する。起動wrapperは未設定を事前に検出し、COM選択前に対話入力へ誘導する。
+空欄のtemplateはpreview可能だがcaptureは拒否する。起動wrapperは未設定を事前に検出し、COM選択前に**簡易観測モード（Enter）または詳細定義モード（n）**へ誘導する。
 JSONはUTF-8で保存する。根拠のないch割当や左右IDは埋めない。
 
 ## 当日30分の必須工程

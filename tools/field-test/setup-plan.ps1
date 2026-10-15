@@ -26,6 +26,27 @@ function Read-Required([string]$Prompt, [string]$Existing = '') {
 }
 Write-Host 'Selfrionette field-test setup: offline only; no COM port is opened.'
 Write-Host 'Enter :cancel at any prompt to abort without saving.'
+Write-Host 'Quick mode: provisional 1+3+3 labels, no verified channel/direction assignments.'
+$mode = Read-Host 'Quick initial observation with no metadata entry? [Y/n]'
+if ($mode -ceq ':cancel') { throw 'Setup cancelled; original plan unchanged' }
+if ([string]::IsNullOrWhiteSpace($mode) -or $mode -match '^(y|yes)$') {
+    $plan.device_label = 'PROVISIONAL-DEVICE-ID-UNKNOWN'
+    $plan.operator = 'not-recorded'
+    $plan.posture = 'not-recorded'
+    $plan.board = 'unknown'
+    $plan.firmware_source = 'unknown'
+    $quickAxes = @('1DOF finger', '3DOF finger A - axis 1', '3DOF finger A - axis 2', '3DOF finger A - axis 3',
+        '3DOF finger B - axis 1', '3DOF finger B - axis 2', '3DOF finger B - axis 3')
+    for ($i = 0; $i -lt 7; $i++) {
+        $plan.axes[$i].name = ('PROVISIONAL ' + $quickAxes[$i])
+        $plan.axes[$i].positive = 'Gently move ' + $quickAxes[$i] + ' in ONE SAFE direction. Physical direction NOT YET DEFINED.'
+        $plan.axes[$i].negative = $null
+    }
+    $plan.combined_instruction = 'If safe, gently operate axis 0 and axis 1 together; otherwise note that the step was skipped.'
+    Write-Host 'Quick plan is for provisional diagnostics only, NOT polarity or operator-intent calibration.'
+    Write-Host 'The script cannot know your wiring or physical positive directions. Record actual motions in notes.txt.'
+    Write-Host 'You will only need to confirm saving, then select the COM port.'
+} elseif ($mode -match '^(n|no)$') {
 $plan.device_label = Read-Required 'Device label (e.g. A)' $plan.device_label
 $plan.operator = Read-Required 'Operator label (pseudonym is fine)' $plan.operator
 $plan.posture = Read-Required 'Posture (e.g. seated, arm supported)' $plan.posture
@@ -55,6 +76,9 @@ for ($i = 0; $i -lt 7; $i++) {
     }
 }
 $plan.combined_instruction = Read-Required 'Simultaneous two-axis instruction' $plan.combined_instruction
+} else {
+    throw 'Choose Y or N; original plan unchanged'
+}
 $names = @($plan.axes | ForEach-Object { $_.name })
 if ((@($names | Select-Object -Unique)).Count -ne 7) {
     throw 'Axis labels must be unique; original plan unchanged'

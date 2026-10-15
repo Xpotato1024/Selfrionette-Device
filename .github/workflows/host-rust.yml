@@ -70,6 +70,10 @@ jobs:
           cargo +stable build --locked -p selfrionettectl
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           ./tools/field-test/package-kit.ps1
+      - name: Test quick and detailed field-test setup without opening ports
+        if: matrix.os == 'windows-latest' && github.event_name == 'pull_request'
+        shell: pwsh
+        run: ./tools/field-test/test-setup-plan.ps1
       - name: Publish portable field-test kit for laptop
         if: matrix.os == 'windows-latest' && github.event_name == 'pull_request'
         uses: actions/upload-artifact@v7.0.2
