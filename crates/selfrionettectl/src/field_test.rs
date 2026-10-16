@@ -369,13 +369,14 @@ impl Observation {
         }
     }
     fn report(&self, stages: &[Stage], outcome: &str, error: Option<&str>, origin: &str) -> Value {
+        let unscored = self.unscored_vectors(stages);
         let rows: Vec<_> = stages
             .iter()
             .zip(&self.stats)
             .map(|(s, v)| json!({"stage":s,"statistics":v.json()}))
             .collect();
         json!({"schema_version":1,"result_kind":"field_observation_not_calibration","origin":origin,"outcome":outcome,"error":error,
-            "hardware_verified":false,"control_ready":false,"unscored_vectors":self.stats.get(stages.len()).map(|s|s.count).unwrap_or(0),"vectors":self.vectors,"statuses":self.statuses,"warnings":self.warnings,"unknown_lines":self.unknown,
+            "hardware_verified":false,"control_ready":false,"unscored_vectors":unscored,"scored_vectors":self.vectors-unscored,"total_vectors":self.vectors,"vectors":self.vectors,"statuses":self.statuses,"warnings":self.warnings,"unknown_lines":self.unknown,
             "duplicate_device_timestamps":self.duplicates,"device_gaps_over_200ms":self.gaps_over_200ms,
             "device_identity":self.info.as_ref().map(|i|i.identity.to_string()),"device_firmware":self.info.as_ref().map(|i|i.firmware_version.clone()),
             "stages":rows,"notice":"Firmware-processed counts, not raw ADC/Newtons. Host receive/cue times, not measured intent or latency. No usable-quality conversion."})
@@ -485,10 +486,21 @@ fn write_new(path: &Path, value: &Value) -> Result<(), String> {
     )
 }
 impl Observation {
+    fn unscored_vectors(&self, stages: &[Stage]) -> u64 {
+        self.stats.get(stages.len()).map(|s| s.count).unwrap_or(0)
+    }
+
     fn review(&self, stages: &[Stage], outcome: &str) -> String {
+        let unscored = self.unscored_vectors(stages);
         let mut text = format!(
-            "# 実機観測サマリー\n\n結果: {outcome}。校正済み・利用許可の判定ではありません。\n\nvector {} / warn {} / unknown {} / 重複timestamp {} / device時刻差200 ms超 {}\n\n",
-            self.vectors, self.warnings, self.unknown, self.duplicates, self.gaps_over_200ms
+            "# 実機観測サマリー\n\n結果: {outcome}。校正済み・利用許可の判定ではありません。\n\nvector総数 {} / 集計対象 {} / 集計対象外 {} / warn {} / unknown {} / 重複timestamp {} / device時刻差200 ms超 {}\n\n集計対象も品質はunknownです。\n\n",
+            self.vectors,
+            self.vectors - unscored,
+            unscored,
+            self.warnings,
+            self.unknown,
+            self.duplicates,
+            self.gaps_over_200ms
         );
         let find = |name: &str| {
             stages
@@ -690,7 +702,7 @@ pub(crate) fn run(args: &[String]) -> Result<(), CliError> {
                     &mut observation,
                     || start.elapsed().as_millis() as u64,
                     || stopped.load(Ordering::SeqCst),
-                    || receiver.try_recv().ok(),
+                    |gate| receiver.poll(gate),
                     |s, waiting| {
                         if waiting {
                             println!("\n----------------------------------------");
@@ -732,8 +744,11 @@ pub(crate) fn run(args: &[String]) -> Result<(), CliError> {
             .map_err(fail)?;
             write_text_new(&dir.join("notes.txt"),"指・方向と操作軸0～6の対応:\n写真ファイル名:\n指示と違う入力になった区間:\n再試行する区間:\n痛み・疲労・姿勢変化:\n").map_err(fail)?;
             println!(
-                "{outcome}: {} vectors / {} warnings。校正済みとは判定しません。",
-                observation.vectors, observation.warnings
+                "{outcome}: {} total vectors / {} scored / {} unscored / {} warnings。校正済みとは判定しません。",
+                observation.vectors,
+                observation.vectors - observation.unscored_vectors(&schedule),
+                observation.unscored_vectors(&schedule),
+                observation.warnings
             );
             result.map_err(fail)
         }

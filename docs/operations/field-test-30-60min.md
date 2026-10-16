@@ -1,6 +1,7 @@
 ---
 status: canonical
 owner: selfrionettectl
+last_verified: 2026-10-16
 canonical_for:
   - 30-to-60-minute passive field observation and field-test CLI
 related:
@@ -9,7 +10,8 @@ related:
 ---
 # Selfrionette実機試験: 30分必須・60分上限
 
-初回実機観測計画（2026年10月15日時点）。1人・1台・1姿勢を基本とし、実施日時は記録ログの開始時刻で識別する。
+初回実機観測の手順。1人・1台・1姿勢を基本とし、実施日時は記録ログの開始時刻で識別する。
+実施済みの観測と既知の制約は[2026-10-16の履歴報告](../reports/2026-10-16-field-observation.md)に分離する。
 
 ## 成果と範囲
 必須成果は、無荷重/操作姿勢の中立、7つの操作方向の繰返し、弱い入力、同時入力、除荷を、7ch全値と診断通知付きで記録すること。
@@ -71,6 +73,13 @@ JSONはUTF-8で保存する。根拠のないch割当や左右IDは埋めない�
 
 待機中もUSBから読み続けるが、そのvectorは採点対象から除外して保存する。待機は1回最大120秒、累計10分で中止する。旧版の「ONE SAFE direction」という完全一致仮設定だけ、新しい探索指示に読み替える。明示的に書いた操作方向は上書きしない。
 
+Ready/Skipは表示中の準備待ちに対する1件だけを保持する。capture中の先行入力や余分な承認を次の試行へ持ち越さない。
+consoleの1行は16 bytesまでとし、超過行は改行まで読み捨てる。q+Enterはcapture中も中止する（blocking readの完了または最大1秒のread timeoutまで遅れる場合がある）。
+各区間は実際のcue表示、prepareは準備完了後のcue表示を起点に予定時間だけ進める。
+read中に区間終端を越えた行も保存するが、次区間へ先取りせず集計対象外とする。次のcue/gateを確立してから次のreadへ進む。
+Skipは当該trialのreleaseまでを欠測として飛ばし、次のcue/gateを表示する。終了境界を越えた行も集計対象外。
+準備待ちをまたいだ受信間隔を区間の`observed_line_rate_hz`へ混入させない。
+
 ## 当日30分の必須工程
 | 経過時間 | 作業 | 終了条件 |
 |---|---|---|
@@ -91,7 +100,7 @@ JSONはUTF-8で保存する。根拠のないch割当や左右IDは埋めない�
 校正候補用の観測とは別に、7操作軸の弱い正入力を各1回（順序を逆にする）、定義した同時入力を3回、最終中立30秒を記録する。
 弱入力の「半分」は本人の主観指示であり、正確な0.5という教師値・既知の力にはしない。
 
-固定観測区間の合計は正方向のみ589秒（9分49秒）、全軸逆方向を含む場合813秒（13分33秒）。これに試行前の準備待機時間が加算される。
+固定観測区間の合計は正方向のみ589秒（9分49秒）、全軸逆方向を含む場合813秒（13分33秒）。これに試行前の準備待機時間とread/cue境界の遅延が加算される。Skipしたtrialの予定時間は消費しない。
 逆方向を省略しても正方向の単軸・弱入力・同時入力を削らない。
 画面の指示と任意の端末ベルを使う。ベルが鳴らなくても画面で確認できる。各試行の前にEnterで開始、s+Enterでスキップできる。
 取り違え・遅れは当該区間のラベルをnotes.txtに記録する。続行困難ならq+EnterまたはCtrl+Cで終了し、別名で新しいsessionを作る。
@@ -143,19 +152,23 @@ OS列挙との照合、計画、出力先の検証後に開く。自動接続・
 
 保存ファイル:
 - events.jsonl: 計画、port、開始時刻、画面指示、受信行、7ch、診断、終了/中断。受信行はparse前にも保存。
-- summary.json: 各区間の標本数、平均、標準偏差、最小/最大、受信頻度、警告/時刻異常数、判明した場合のdevice情報。
-- review.md: 中立と各保持区間の応答を人が確認する表。
+- summary.json: 各区間の標本数、平均、標準偏差、最小/最大、受信頻度、警告/時刻異常数、判明した場合のdevice情報。schema_version=1を維持し、既存`vectors`は集計対象外も含む総数。追加の`total_vectors`は同じ総数、`scored_vectors`は区間集計対象、`unscored_vectors`は準備待ち・境界read等の集計対象外。総数=集計対象+集計対象外。
+- review.md: 総数・集計対象・集計対象外を分け、中立と各保持区間の応答を人が確認する表。終了consoleも同じ3数を表示する。
 - notes.txt: 写真名、実際の指/方向、指示とのずれ、問題、再試験候補。
 - BUILD.json: 使用したexeのhash/source revision。wrapperがsessionへコピーする。
 
 通常vectorの品質はunknown。stable IDやFirmware情報が受信されなければnullのまま。紙ラベル/COMをstable IDへ変換しない。
 時刻はhost受信・指示時刻であり、人間の正確な入力開始やend-to-end latencyを測定した値ではない。
+`stage.start_ms/end_ms`と画面の時分表示は計画上の位置であり、実際のcue/read時刻は`events.jsonl`の`host_ms`で確認する。
+`schedule_ms`は表示済み区間内の経過（待機中はその区間の開始位置）で、`stage_index=null`の行は集計対象外。
+hostはserial/OS内のbuffer滞留や実際の荷重開始を確定できない。集計対象という分類はusable品質の認定ではない。
 ログ64MiB・100000受信行・固定scheduleの有限性を守る。全sampleのメモリ蓄積はせず、区間統計だけを保持する。
 通常の中断では既存ログと中断理由を保存する。I/O失敗時は成功表示をしない。
 
 ## ソフトウェア検証
-ハードウェアを使わず、新規11件を含むworkspace 112件、Clippy、formatを検証した。
-実機でのport open、無送信動作、USB再起動、当該装置のセンサ品質の受入は翌日のoperator実施対象である。
+software-only testは、fake transportによるread境界、準備待ち/Ready/Skip/Stop、有限budget、品質unknownの維持を対象とする。
+現在headのnative checkとreview結果はPRの検証証拠で確認する。過去のtest件数を現在headのPASSとして扱わない。
+ユーザーによる受信観測は履歴報告に記録したが、agentはhardwareへアクセスしていない。無送信動作・USB再起動・センサ品質の実機受入やFirmware原因診断を完了したとは扱わない。
 この文書の時間は試験枠とスクリプトの予定長であり、正常完了を保証するものではない。
 
 参照: serialportのport open/DTR仕様 https://docs.rs/serialport/latest/serialport/struct.SerialPortBuilder.html

@@ -385,7 +385,7 @@ fn guided_trial_pauses_until_ready_and_excludes_preparation_data() {
         &mut obs,
         || clock.get(),
         || false,
-        || {
+        |_| {
             polls += 1;
             (polls == 3).then_some(guided::Action::Ready)
         },
@@ -421,7 +421,7 @@ fn guided_skip_leaves_unperformed_trial_unscored_and_continues() {
         &mut obs,
         || clock.get(),
         || false,
-        || Some(guided::Action::Skip),
+        |_| Some(guided::Action::Skip),
         |_, _| {},
     )
     .unwrap();
@@ -447,7 +447,7 @@ fn guided_quit_never_generates_unrequested_measurements() {
         &mut obs,
         || clock.get(),
         || false,
-        || Some(guided::Action::Stop),
+        |_| Some(guided::Action::Stop),
         |_, _| {},
     )
     .unwrap_err();
@@ -474,4 +474,351 @@ fn legacy_quick_plan_is_upgraded_only_when_exactly_provisional() {
     let previous = manual.axes[1].positive.clone();
     assert!(!upgrade_provisional_plan(&mut manual));
     assert_eq!(manual.axes[1].positive, previous);
+}
+
+struct Delayed<F> {
+    clock: Rc<Cell<u64>>,
+    delays: VecDeque<u64>,
+    timestamp: u32,
+    on_read: F,
+}
+impl<F: FnMut()> LineTransport for Delayed<F> {
+    fn discard_input(&mut self) -> Result<(), TransportError> {
+        panic!("must preserve evidence")
+    }
+    fn write_line(&mut self, _: &str) -> Result<(), TransportError> {
+        panic!("must never transmit")
+    }
+    fn read_line(&mut self, _: Duration) -> Result<String, TransportError> {
+        let delay = self.delays.pop_front().expect("unexpected extra read");
+        self.clock.set(self.clock.get() + delay);
+        (self.on_read)();
+        self.timestamp += 1;
+        Ok(format!("vector,{},1,2,3,4,5,6,7", self.timestamp))
+    }
+}
+
+fn events(log: Log<Vec<u8>>) -> Vec<Value> {
+    String::from_utf8(log.out)
+        .unwrap()
+        .lines()
+        .map(|line| serde_json::from_str(line).unwrap())
+        .collect()
+}
+
+#[test]
+fn guided_delayed_read_cannot_enter_unprompted_prepare_or_skip_stages() {
+    let clock = Rc::new(Cell::new(0));
+    let mut stages = short_guided_stages();
+    stages.insert(
+        0,
+        Stage {
+            label: "startup".into(),
+            instruction: "wait".into(),
+            start_ms: 0,
+            end_ms: 20,
+        },
+    );
+    for s in &mut stages[1..] {
+        s.start_ms += 20;
+        s.end_ms += 20;
+    }
+    let mut fake = Delayed {
+        clock: clock.clone(),
+        delays: [5, 80]
+            .into_iter()
+            .chain(std::iter::repeat_n(10, 13))
+            .collect(),
+        timestamp: 0,
+        on_read: || {},
+    };
+    let mut log = Log::new(Vec::new());
+    let mut obs = Observation::new(stages.len() + 1);
+    let mut wait_polls = 0;
+    guided::collect(
+        &mut fake,
+        &stages,
+        &mut log,
+        &mut obs,
+        || clock.get(),
+        || false,
+        |gate| {
+            if gate.is_some() {
+                wait_polls += 1;
+                return (wait_polls == 2).then_some(guided::Action::Ready);
+            }
+            None
+        },
+        |_, _| {},
+    )
+    .unwrap();
+    let ev = events(log);
+    let wire: Vec<_> = ev.iter().filter(|e| e["event"] == "wire").collect();
+    assert_eq!(wire[0]["stage_index"], 0);
+    assert_eq!(wire[1]["host_ms"], 85);
+    assert!(wire[1]["stage_index"].is_null());
+    assert!(wire[2]["stage_index"].is_null());
+    assert_eq!(wire[3]["stage_index"], 1);
+    let ready = ev.iter().find(|e| e["event"] == "operator_ready").unwrap();
+    assert_eq!(ready["host_ms"], 95);
+    assert_eq!(
+        ev.iter().find(|e| e["event"] == "operator_wait").unwrap()["host_ms"],
+        85
+    );
+    let neutral = ev
+        .iter()
+        .find(|e| e["event"] == "cue" && e["stage_index"] == 2)
+        .unwrap();
+    assert_eq!(neutral["host_ms"], 115);
+    assert_eq!(obs.stats[0].count, 1);
+    assert!(obs.stats[1..stages.len()].iter().all(|s| s.count == 1));
+    assert!(wire.last().unwrap()["stage_index"].is_null());
+    assert!(
+        ev.iter()
+            .filter(|e| e["event"] == "parsed")
+            .all(|e| e["data"]["quality"] == "unknown")
+    );
+    let report = obs.report(&stages, "complete", None, "synthetic");
+    assert_eq!(report["vectors"], report["total_vectors"]);
+    assert_eq!(
+        report["total_vectors"].as_u64().unwrap(),
+        report["scored_vectors"].as_u64().unwrap() + report["unscored_vectors"].as_u64().unwrap()
+    );
+}
+
+#[test]
+fn guided_read_started_waiting_stays_unscored_when_ready_arrives_during_read() {
+    let clock = Rc::new(Cell::new(0));
+    let ready = Rc::new(Cell::new(false));
+    let signal = ready.clone();
+    let mut fake = Delayed {
+        clock: clock.clone(),
+        delays: [10, 5, 5, 5, 5, 5].into(),
+        timestamp: 0,
+        on_read: move || signal.set(true),
+    };
+    let stages = &short_guided_stages()[..1];
+    let mut log = Log::new(Vec::new());
+    let mut obs = Observation::new(2);
+    guided::collect(
+        &mut fake,
+        stages,
+        &mut log,
+        &mut obs,
+        || clock.get(),
+        || false,
+        |_| ready.replace(false).then_some(guided::Action::Ready),
+        |_, _| {},
+    )
+    .unwrap();
+    let ev = events(log);
+    let wires: Vec<_> = ev.iter().filter(|e| e["event"] == "wire").collect();
+    assert!(wires[0]["stage_index"].is_null());
+    assert_eq!(wires[1]["stage_index"], 0);
+    assert!(wires.last().unwrap()["stage_index"].is_null());
+    assert_eq!(obs.stats[0].count, 3);
+    assert_eq!(obs.stats[0].json()["observed_line_rate_hz"], 200.0);
+}
+
+#[test]
+fn guided_long_wait_does_not_bridge_scored_rate_or_shorten_preparation() {
+    let clock = Rc::new(Cell::new(0));
+    let mut fake = Delayed {
+        clock: clock.clone(),
+        delays: [60_000, 5, 5, 5, 5].into(),
+        timestamp: 0,
+        on_read: || {},
+    };
+    let stages = &short_guided_stages()[..1];
+    let mut log = Log::new(Vec::new());
+    let mut obs = Observation::new(2);
+    guided::collect(
+        &mut fake,
+        stages,
+        &mut log,
+        &mut obs,
+        || clock.get(),
+        || false,
+        |_| (clock.get() >= 60_000).then_some(guided::Action::Ready),
+        |_, _| {},
+    )
+    .unwrap();
+    assert_eq!(obs.stats[0].count, 3);
+    assert_eq!(obs.stats[0].first_ms, 60_005);
+    assert_eq!(obs.stats[0].last_ms, 60_015);
+    assert_eq!(obs.stats[0].json()["observed_line_rate_hz"], 200.0);
+    assert_eq!(obs.stats[1].count, 2);
+}
+
+#[test]
+fn guided_stop_during_active_read_is_not_discarded_even_at_end() {
+    for duration in [10, 30] {
+        let clock = Rc::new(Cell::new(0));
+        let mut fake = Delayed {
+            clock: clock.clone(),
+            delays: [10].into(),
+            timestamp: 0,
+            on_read: || {},
+        };
+        let mut stages = short();
+        stages[0].end_ms = duration;
+        let mut log = Log::new(Vec::new());
+        let mut obs = Observation::new(2);
+        let err = guided::collect(
+            &mut fake,
+            &stages,
+            &mut log,
+            &mut obs,
+            || clock.get(),
+            || false,
+            |_| (clock.get() == 10).then_some(guided::Action::Stop),
+            |_, _| {},
+        )
+        .unwrap_err();
+        assert!(err.contains("operator stopped"));
+        assert_eq!(obs.vectors, 1);
+        assert_eq!(
+            events(log).iter().filter(|e| e["event"] == "wire").count(),
+            1
+        );
+    }
+}
+
+#[test]
+fn guided_skip_establishes_next_gate_before_any_read() {
+    let clock = Rc::new(Cell::new(0));
+    let mut stages = short_guided_stages();
+    stages[5].label = "next/prepare".into();
+    let mut fake = Delayed {
+        clock: clock.clone(),
+        delays: [].into(),
+        timestamp: 0,
+        on_read: || {},
+    };
+    let mut obs = Observation::new(stages.len() + 1);
+    let mut log = Log::new(Vec::new());
+    let err = guided::collect(
+        &mut fake,
+        &stages,
+        &mut log,
+        &mut obs,
+        || clock.get(),
+        || false,
+        |gate| match gate {
+            Some(0) => Some(guided::Action::Skip),
+            Some(5) => Some(guided::Action::Stop),
+            _ => None,
+        },
+        |_, _| {},
+    )
+    .unwrap_err();
+    assert!(err.contains("operator stopped"));
+    assert_eq!(obs.vectors, 0);
+    let ev = events(log);
+    assert_eq!(
+        ev.iter().filter(|e| e["event"] == "operator_wait").count(),
+        2
+    );
+}
+
+#[test]
+fn guided_late_ready_and_skip_cannot_bypass_gate_limit() {
+    for input in [
+        guided::Action::Ready,
+        guided::Action::Skip,
+        guided::Action::Stop,
+    ] {
+        let clock = Rc::new(Cell::new(0));
+        let mut fake = Delayed {
+            clock: clock.clone(),
+            delays: [120_001].into(),
+            timestamp: 0,
+            on_read: || {},
+        };
+        let stages = short_guided_stages();
+        let mut log = Log::new(Vec::new());
+        let mut obs = Observation::new(stages.len() + 1);
+        let err = guided::collect(
+            &mut fake,
+            &stages,
+            &mut log,
+            &mut obs,
+            || clock.get(),
+            || false,
+            |_| (clock.get() > 0).then_some(input),
+            |_, _| {},
+        )
+        .unwrap_err();
+        assert!(err.contains(if input == guided::Action::Stop {
+            "operator stopped"
+        } else {
+            "exceeded 120 s"
+        }));
+        assert_eq!(obs.stats.last().unwrap().count, 1);
+        assert!(obs.stats[..stages.len()].iter().all(|s| s.count == 0));
+    }
+}
+
+#[test]
+fn guided_skips_do_not_bypass_total_wait_limit() {
+    let clock = Rc::new(Cell::new(0));
+    let mut stages = Vec::new();
+    for trial in 0..6 {
+        for (suffix, offset) in [("prepare", 0), ("release", 20)] {
+            let start_ms = trial * 40 + offset;
+            stages.push(Stage {
+                label: format!("trial{trial}/{suffix}"),
+                instruction: "test".into(),
+                start_ms,
+                end_ms: start_ms + 20,
+            });
+        }
+    }
+    let mut fake = Delayed {
+        clock: clock.clone(),
+        delays: [100_001; 6].into(),
+        timestamp: 0,
+        on_read: || {},
+    };
+    let mut log = Log::new(Vec::new());
+    let mut obs = Observation::new(stages.len() + 1);
+    let mut last_gate = None;
+    let err = guided::collect(
+        &mut fake,
+        &stages,
+        &mut log,
+        &mut obs,
+        || clock.get(),
+        || false,
+        |gate| {
+            let same = gate == last_gate;
+            last_gate = gate;
+            same.then_some(guided::Action::Skip)
+        },
+        |_, _| {},
+    )
+    .unwrap_err();
+    assert!(err.contains("total operator preparation exceeded 10 minutes"));
+    assert_eq!(obs.vectors, 6);
+    assert_eq!(obs.stats.last().unwrap().count, 6);
+    assert!(obs.stats[..stages.len()].iter().all(|s| s.count == 0));
+}
+
+#[test]
+fn review_and_summary_distinguish_total_scored_and_unscored_vectors() {
+    let stages = stages(&configured());
+    let mut obs = Observation::new(stages.len() + 1);
+    obs.observe("vector,1,1,2,3,4,5,6,7", 1, 0, true).unwrap();
+    obs.observe("vector,2,1,2,3,4,5,6,7", 2, stages.len(), false)
+        .unwrap();
+    let report = obs.report(&stages, "complete", None, "synthetic");
+    assert_eq!(report["schema_version"], 1);
+    assert_eq!(report["vectors"], 2);
+    assert_eq!(report["total_vectors"], 2);
+    assert_eq!(report["scored_vectors"], 1);
+    assert_eq!(report["unscored_vectors"], 1);
+    assert!(
+        obs.review(&stages, "complete")
+            .contains("vector総数 2 / 集計対象 1 / 集計対象外 1")
+    );
 }
