@@ -178,7 +178,7 @@ CLIにsave/apply操作は追加していない。
 
 | 順番 | 実装・受入 | 現在 |
 |---|---|---|
-| 0 | PR16を完了。unknown観測とusable証拠を分離 | 別branchの責務。今回未変更 |
+| 0 | PR16を完了。unknown観測とusable証拠を分離 | PR #16をmainへマージ済み。最終修正を取り込み、統合後152テストを確認 |
 | 1 | 本書/ADR、domain/setup/profile binding、file-only検査、決定的試験 | 今回のslice |
 | 2 | Firmware acquisition/info/settingsとhost parserの共通契約・実装 | 後続 |
 | 3 | application device management / updaterをGUI/CLIの共通use caseへ接続 | 後続 |
