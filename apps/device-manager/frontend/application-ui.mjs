@@ -42,6 +42,7 @@ export function createApplicationUI({invoke,hardware}) {
  <p id="live-error" class="field-error" role="alert" hidden></p>
  <details id="live-error-details" hidden><summary>技術情報</summary><pre id="live-error-detail"></pre></details>
  <p id="live-state" role="status">品質付きFirmwareに接続してください。</p>
+ <p id="live-command-status" role="status" aria-live="polite"></p>
  <section data-live-panel="setup">
   <h2>対象を確認する</h2>
   <div class="live-form-line"><label>接続先<select id="live-port"><option value="">対象を選択</option></select></label><button id="live-scan">再検索</button><button id="live-connect" class="primary">品質付き接続</button><button id="live-disconnect" disabled>切断</button></div>
@@ -122,12 +123,17 @@ export function createApplicationUI({invoke,hardware}) {
  }
  $('live-heldout-second-axis').value='1';
  const report=text=>{$('live-error').textContent=text?explainFailure(text):'';$('live-error').hidden=!text;$('live-error-details').hidden=!text;$('live-error-detail').textContent=text;};
- const controller=createApplicationController((command)=>invoke(command),{render,error:report,busy:value=>{busy=value;controls();}});
+ const controller=createApplicationController((command)=>invoke(command),{render,error:report,busy:value=>{busy=value;controls();},operation:({id,action,status})=>{
+  root.dataset.commandId=String(id);root.dataset.commandAction=action;root.dataset.commandStatus=status;
+  root.setAttribute('aria-busy',String(status==='pending'));
+  $('live-command-status').textContent=status==='pending'?'操作を実行中…':'';
+ }});
  function setup(){return {assembly_revision:Number($('live-assembly').value),config_revision:Number($('live-config').value),channels:Array.from({length:7},(_,wire)=>({wire,logical_axis:$('live-axis-'+wire).value===''?null:Number($('live-axis-'+wire).value),location:$('live-location-'+wire).value.trim(),direction:$('live-direction-'+wire).value.trim(),polarity:$('live-polarity-'+wire).value===''?null:Number($('live-polarity-'+wire).value),confirmed:$('live-confirm-'+wire).checked,evidence:observations.get(wire)??null}))};}
  function showPage(name){page=name;for(const panel of root.querySelectorAll('[data-live-panel]'))panel.hidden=panel.dataset.livePanel!==page;for(const b of root.querySelectorAll('[data-live-page]')){if(b.dataset.livePage===page)b.setAttribute('aria-current','step');else b.removeAttribute('aria-current');}}
  for(const b of root.querySelectorAll('[data-live-page]'))b.onclick=()=>showPage(b.dataset.livePage);
  function controls(){
   for(const button of root.querySelectorAll('button:not([data-live-page])'))button.disabled=busy;
+  for(const input of root.querySelectorAll('input,select'))input.disabled=busy||!!view?.capture?.active;
   for(const id of ['update-port','update-package','update-manifest','update-hex','update-board-confirm','update-write-confirm','update-bootloader-confirm','update-bootloader-target'])$(id).disabled=busy;
   $('live-connect').disabled=busy||!!view?.owns_handle||!!view?.connected||!$('live-port').value;
   $('live-disconnect').disabled=busy||!(view?.owns_handle||view?.connected);
@@ -135,6 +141,7 @@ export function createApplicationUI({invoke,hardware}) {
   $('live-provision').disabled ||= !($('live-provision-confirm').checked && (view?.info?.device_id==='unprovisioned'||view?.info?.identity==='unprovisioned'));
   $('live-tare').disabled ||= !$('live-tare-confirm').checked;
   $('live-capture-start').disabled ||= !plan[position]||!!view?.capture?.active||(plan[position]?.direction<0&&!$('live-reverse-safe').checked);
+  for(const id of ['live-heldout-start','live-neutral-start','live-context-save','live-setup-save','live-fit','live-heldout-verify','live-profile-save','live-profile-load','live-profile-apply'])$(id).disabled ||= !!view?.capture?.active;
   $('live-profile-save').disabled ||= missing.size>0||!$('live-profile-confirm').checked;
   $('live-profile-apply').disabled ||= missing.size>0||!$('live-profile-confirm').checked;
   $('update-prepare').disabled=busy||!selectedPort('update-port');
@@ -143,9 +150,10 @@ export function createApplicationUI({invoke,hardware}) {
  }
  function infoRows(target,rows){$(target).replaceChildren();for(const[key,value]of rows){$(target).append(element('dt',key),element('dd',value??'—'));}}
  function render(next){view=next;
+  root.dataset.connected=String(!!view?.connected);root.dataset.ready=String(!!view?.ready);root.dataset.sampleSequence=String(view?.sample?.sequence??'');
   hardware.setExternalOwner?.(!!(view?.owns_handle||view?.connected));
   if(view?.owns_handle||view?.connected){$('environment').textContent=view.scripted?'模擬transport · 実機未接続':view.connected?(view.ready?'個人profile適用中':'品質付き接続'):'接続失効 · 切断が必要';$('device-summary').textContent=(view.info?.device_id&&view.info.device_id!=='unprovisioned'?'個体 …'+view.info.device_id.slice(-8):'個体ID未登録')+' · '+(view.port??'');$('device-summary').title=view.info?.device_id??'';}
-  const contextKey=view?.info?JSON.stringify([view.info.device_id,view.info.generation,view.info.source_sha]):'';if(contextKey&&contextKey!==contextSignature){contextSignature=contextKey;observations.clear();rest=null;setupSignature='';for(let wire=0;wire<7;wire++)$('live-confirm-'+wire).checked=false;lastCapture=null;plan=[];position=0;updaterPlan=null;}
+  const contextKey=view?.info?JSON.stringify([view.connected,view.port,view.info.device_id,view.info.generation,view.info.source_sha,view.info.tare_epoch]):'';if(contextKey!==contextSignature){contextSignature=contextKey;observations.clear();rest=null;setupSignature='';operatorSignature='';for(let wire=0;wire<7;wire++)$('live-confirm-'+wire).checked=false;lastCapture=null;plan=[];position=0;furthest=0;missing.clear();heldoutStep=0;updaterPlan=null;updateInstruction();heldoutInstruction();}
   const setupKey=JSON.stringify(view?.setup??null);if(view?.setup&&setupKey!==setupSignature){setupSignature=setupKey;const s=view.setup;$('live-assembly').value=s.assembly_revision;$('live-config').value=s.config_revision;for(const c of s.channels){$('live-axis-'+c.wire).value=c.logical_axis??'';$('live-location-'+c.wire).value=c.location??'';$('live-direction-'+c.wire).value=c.direction??'';$('live-polarity-'+c.wire).value=c.polarity??'';$('live-confirm-'+c.wire).checked=c.confirmed;if(c.evidence)observations.set(c.wire,c.evidence);}}
   const operatorKey=JSON.stringify(view?.operator??null);if(view?.operator&&operatorKey!==operatorSignature){operatorSignature=operatorKey;$('live-operator').value=view.operator.operator??'';$('live-posture').value=view.operator.posture??'';$('live-grip').value=view.operator.grip??'';}
   $('live-state').textContent=!view?.connected?'品質付き接続：未接続':view.ready?'今回のprofileを適用中（実験用）':'接続中 · 装置設定、tare、使用条件と今回のneutralを確認してください';
@@ -157,6 +165,7 @@ export function createApplicationUI({invoke,hardware}) {
    const r=$('live-normalized-rows').children[ch].children,output=view?.normalized??view?.output;r[1].textContent=num(output?.normalized?.[ch]);r[2].textContent=output?.span_exceeded?.[ch]?'span超過':output?.unsupported_direction?.[ch]?'方向未測定':output?.normalized?.[ch]===null||!output?'欠測・未適用':'入力あり';
   }
   const capture=view?.capture;
+  root.dataset.captureActive=String(!!capture?.active);root.dataset.captureCompleted=String(!!capture?.completed);
   $('live-capture-progress').textContent=capture?`${capture.active?'取得中':'取得終了'}：${capture.done??capture.samples??capture.count??0} samples · ${capture.reason??''}`:'';
   if(lastCapture&&capture&&!capture.active&&capture.completed===true){
    if(lastCapture==='wizard'){missing.delete(position);position=Math.min(position+1,plan.length);furthest=Math.max(furthest,position);updateInstruction();}
@@ -191,7 +200,7 @@ export function createApplicationUI({invoke,hardware}) {
   observations.set(wire,`v3 seq ${rest.sequence}->${sample.sequence}; raw delta [${deltas.join(',')}] count; independent direction confirmation`);
   $('live-polarity-'+wire).value=delta>0?'1':'-1';$('live-confirm-'+wire).checked=false;$('live-observation').textContent=`CH${wire}の極性候補 ${delta>0?'+1':'−1'}。全ch raw差分：${deltas.map(num).join(' / ')} count。候補は未確認です。別試行で対応と向きを独立確認してください。`;
  };
- $('live-setup-save').onclick=async()=>{const s=setup();let known_mask=0,negative_mask=0;for(const c of s.channels){if(c.confirmed&&c.polarity!==null){known_mask|=1<<c.wire;if(c.polarity<0)negative_mask|=1<<c.wire;}}const a=await send({action:'setup',setup:s});if(a?.error||!a)return;await send({action:'save_device_settings',expected_generation:view?.info?.generation??0,known_mask,negative_mask});};
+ $('live-setup-save').onclick=async()=>{const s=setup();let known_mask=0,negative_mask=0;for(const c of s.channels){if(c.confirmed&&c.polarity!==null){known_mask|=1<<c.wire;if(c.polarity<0)negative_mask|=1<<c.wire;}}const a=await send({action:'setup',setup:s});if(a?.error||!a)return;await send({action:'save_device_settings',expected_generation:a.view.info.generation,known_mask,negative_mask});};
  $('live-context-save').onclick=async()=>{const r=await send({action:'set_operator',operator:$('live-operator').value.trim(),posture:$('live-posture').value.trim(),grip:$('live-grip').value.trim()});if(r&&!r.error){plan=wizardPlan(setup().channels);position=0;furthest=0;missing=new Set();updateInstruction();}};
  $('live-measure-step').onchange=()=>{if(view?.capture?.active){report('現在の測定を中止してから手順を選んでください。');$('live-measure-step').value=String(position);return;}position=Number($('live-measure-step').value);updateInstruction();};
  async function start(step,type='wizard'){if(!step)return;const r=await send({action:'capture_start',sample_count:16,...step});if(r&&!r.error)lastCapture=type;}

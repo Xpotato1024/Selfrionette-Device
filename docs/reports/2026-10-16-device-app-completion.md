@@ -13,7 +13,7 @@ related:
 
 対象は`codex/device-app-completion-20261016`、開始commitは`9994bbbc927bcd87ff33a312df6167c72da07a6b`。
 以下は未commitの実装を含むsoftware検証の記録である。commit/push/merge/tag/Release公開は行っていない。
-`0.1.0-preview.5`はDraftであり、公開済みとは扱わない。
+記録当時は`0.1.0-preview.5`をDraftとして扱った。2026-10-17追記：Primaryがsource `3435764`の既存検証済み8 assetsを変更せず[公開済みプレビュー版](https://github.com/Xpotato1024/Selfrionette-Device/releases/tag/device-manager-v0.1.0-preview.5)へ移行した。`0.2.0-preview.1`の公開を意味しない。
 
 ## 実装した利用操作
 
@@ -101,3 +101,36 @@ directory列挙順によって読込みを保守的に拒否し得る。通常�
 実装担当のsandboxとは別に、同じ作業コピーでWindows workspace171件、native53件、frontendおよび配布28件を省略なしで実行し、fmt/Clippyを含む一括検証はexit 0。前述のEPERMは担当環境の履歴であり、この再実行ではZIP・metadata・stageの3件もPASSした。
 
 Primaryのnative GUI試験では、実際のTauri IPCで個体登録・全7ch設定・逆向き補正・tare・113手順の個人校正・held-out検証・profile保存まで到達した。現在入力への適用を含む固定版の一括完走と配布runner検証は別途確認し、途中成功を全体PASSにしない。
+
+## 2026-10-17 GUI競合の追補
+
+`2bc90663bc9eb24069b01759699ba30a6c27cc17`からの追補。作業中にPrimaryが別の配布修正でHEADを`5c4046c54e29a0ca8a42aa25441cd8b64186546e`へ進めた。git/publication操作はPrimaryが所有する。
+
+定期pollが全操作buttonをbusyにしてtare/apply等のクリックを拒否する問題、IPC例外後に古いready表示を残す問題を回帰試験で再現して修正した。明示操作は現在の読取りだけを最大250ms待ち、context変更・期限超過では明示拒否する。書込みを自動再試行せず、将来のuser-ready captureも予約しない。capture中の入力固定と、切断・設定/tare変更時のGUI手順リセットも行う。共有service・scripted transportを確認し、fit/品質/保存のassertionは変更していない。
+
+native QAは操作受付/完了・新sample・capture終了を待ち、busyへの再クリックや固定sleepで校正を進めない。GUIから一覧・profile再読込み、新neutral、apply直後のneutral出力も検査する。通常の個人校正にJSON編集やCLI操作を要求しない。
+
+| 追補の検証 | 結果 |
+| --- | --- |
+| frontend回帰・既存試験 | 36/36 PASS（`node --test --test-isolation=none apps/device-manager/frontend/*.test.mjs`） |
+| scope・配布条件を含むNode全体 | 72件中69 PASS、子process依存3件はEPERMでFAIL、skip 0。ZIP、Windows metadata、release stageの失敗を成功扱いしない |
+| Rust workspace fmt/clippy/test | PASS、171 tests。共通serviceに変更なし |
+| 最終native fmt/clippy/test | PASS、Primaryの同時updater修正を含め54 tests |
+| 変更したcontroller/UI/QAの独立review | material findingなし。実行証拠の代用にしない |
+| Debug buildと最終QA対象 | build PASS。Primary再build後の最終試験exeはSHA-256 `2940624054d187738487828ed9091524bf3918584bf534d8eca50651d74208d4`。source hashesの一致を確認 |
+| 最終exeのGUI一括QA | PASS。Primaryが起動した`run-y812DJ/REPORT.json`で178 capture、保存/一覧/再読込み、新neutral/apply、逆極性の正規化、不良品質による失効、切断まで確認。必要な3画面を保存し目視確認 |
+
+追補のlog・実行script・source hashは`apps/device-manager/src-tauri/target/native-qa/correctness-20261017/`へ保持する。`run-UXAMis`はspawn失敗、`run-JP5PEl`はCDP timeout。旧exe `066ab366…`の`run-JjrYUa`は150 captureでprocess終了し、最終PASSではない。これらは失敗履歴として保持し、最終`run-y812DJ`のPASSと混同しない。未commit sourceからsetup/portable/Firmware packageを生成していない。clean commit、PRと対応する配布CI、公開はPrimaryの後続gateである。
+
+画面証拠で、再読込み時の説明文「fresh session neutral is still required」がapply後にも残ることを確認した。別の現在状態と正規化入力は更新され、今回の全assertionは通過している。過去操作の説明文を現在の準備条件と誤読し得る表示上のP2候補として残し、今回のruntime/保存のblockerへ拡張しない。
+
+実serial/hardware/flash/EEPROM受入はNot Run。部品の不在をscripted software QAのblockerとして扱わない。既存artifactとPrimaryの兄弟出力は保持し、追補のbuild/evidenceも利用者指定のtarget配下へ意図して残す。
+
+
+## 2026-10-17 Primary最終GUI確認
+
+前節のsandbox固有の未達とは別に、PrimaryのWindows環境で最終集約sourceを検証した。workspace171件、native54件、frontend36件、配布29件、fmt/ClippyがすべてPASS。Windows改行の版照合と新しいClippyによるHEX読取り指摘も検証付きで修正した。
+
+同じDebug exe（SHA-256 `2940624054d187738487828ed9091524bf3918584bf534d8eca50651d74208d4`）による`run-y812DJ/REPORT.json`はPASS。178回のcaptureを通じて、個体登録、全7ch設定、逆取付補正、tare、正逆反復とheld-out、profile保存・再読込み、新neutral・適用、現在入力、品質異常時の失効、切断を実際のnative IPCとGUIで完走した。3画面を保存し、Primaryが表示を確認した。試験前後のsource hashesは一致した。
+
+これはscripted LineTransportによるsoftware受入であり、実機のserial/reset/flash/EEPROM/物理係数を認定しない。配布用のRelease buildと独立runnerでの同一artifact検証は、このcommit後に別gateで実施する。旧版0.1.0-preview.5は8 assetsを照合し、固定ソース3435764で公開済み。

@@ -36,7 +36,9 @@ Device / Xpotato-Simの既存境界を維持し、channel→XYZ/joint、ロボ�
 
 品質付き接続と旧受信モニターは同時にserialを所有しない。取付設定はwire順を保ち、実際の部位/方向・論理軸を操作者が指定する。既知方向のraw全7ch差分は極性候補の根拠であり、独立した対応/向き確認と明示保存・generation読戻しが必要。個人のneutral/span/deadzone/filterやrobot mappingはEEPROM設定に混ぜない。
 
-個人校正は操作者・姿勢・握りを固定し、各方向の静止/増加/保持/除荷を利用者が準備後に開始する。Startはpollの後ろへ予約しない。再試行・欠測skip・中止を提供し、未測定の逆方向を数値で埋めない。候補A/Bは共通Rust fitter/runtimeを使用し、別試行の方向/弱入力/同時入力/除荷を確認する。採用methodとprofileの保存・今回への適用は明示操作。接続/tare後は互換永久spanを読めても今回のneutralを取り直す。
+個人校正は操作者・姿勢・握りを固定し、各方向の静止/増加/保持/除荷を利用者が準備後に開始する。再試行・欠測skip・中止を提供し、未測定の逆方向を数値で埋めない。候補A/Bは共通Rust fitter/runtimeを使用し、別試行の方向/弱入力/同時入力/除荷を確認する。採用methodとprofileの保存・今回への適用は明示操作。接続/tare後は互換永久spanを読めても今回のneutralを取り直す。
+
+品質付きGUIでは定期pollで操作buttonを無効化しない。明示操作を受け付けたら次のpollを止め、進行中の1回の読取りだけを最大250ms待つ。接続・port・device情報・tare・setup・操作者contextの一致を再確認して一度だけ実行し、不一致・期限超過では理由を表示して開始しない。将来のStart予約や書込みの自動再試行はしない。操作中とcapture中は関連入力を固定し、結果viewまたはerrorを表示する。IPC例外で状態が不明になったら古いready/sampleを消す。切断・個体/設定世代/Firmware/tare変更ではGUIの測定位置もリセットする。
 
 ### 表示位置と実行状態を分離する
 Rustのphase/steps/operationsが達成状態と実行許可の正本。frontendは閲覧中の手順を個体別に持つが、クリックで達成状態を変えない。

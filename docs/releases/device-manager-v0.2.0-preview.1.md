@@ -27,4 +27,4 @@
 
 タグに対応するソースから候補を一度buildし、別のWindows runnerで同じartifactの入力fingerprint、チェックサム、第三者ライセンス、インストール・起動・更新・削除を検証します。これらの配布ゲートがすべて成功した場合に限りPre-releaseを公開します。未実行・保留・失敗のゲートは成功として扱いません。このテンプレートのURLとsource SHAは、その候補の検証後に置き換えます。
 
-`0.1.0-preview.5`はDraft候補のみで、公開済み配布版ではありません。
+`0.1.0-preview.5`は[source `3435764`の公開済みプレビュー版](https://github.com/Xpotato1024/Selfrionette-Device/releases/tag/device-manager-v0.1.0-preview.5)です。既存の検証済み8 assetsを公開し、旧artifactは変更していません。本書の`0.2.0-preview.1`とは別の配布版です。

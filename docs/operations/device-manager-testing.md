@@ -16,6 +16,7 @@ Host Rustはpull_request、mainへのpush、手動で実行する。codex branch
 CSS/描画専用JSは高速表示試験。app/hardware/applicationのIPC結線JSは実native境界も選ぶ。試験専用tool修正は製品入力を変えないため、既存artifactを再利用してnative受入を実行できる。Rust共通処理はWindows/Linuxのcore試験とnative境界。Firmware変更も共有protocolとnative境界を選ぶ。shell/configはnative境界。未知の変更は全層を選択する。型付き通信や保存/失効の既存試験を削除しない。
 
 品質付き操作のnative試験は `--developer-mode --scripted-hardware` と実際の `application_command` IPCを使用し、実portを開かずに同じRust service/parser/fitter/store/runtimeを通す。static表示fixtureや従来のsynthetic previewをこの操作の受入代替にしない。画面と取得根拠はtarget配下に保持する。実board・実EEPROM・実avrdude書込みは別の明示許可されたhardware試験で行う。
+`tools/live-native-qa.mjs`は実WebViewのGUIを一操作一クリックで進め、操作受付番号・完了/error・新sample・capture完了を有限待機する。固定sleepやbusy時の再クリックで成功を作らない。113手順、別試行64区間、GUIからのprofile保存/一覧/再読込み、新neutral、明示apply、逆極性の正規化と不良品質による失効を同じexeで確認する。`SELFRIONETTE_QA_CDP_URL`指定時は外部起動の既存WebViewへ接続でき、registry変更を必要としない。reportのexe hashと3画面は配布対象の同一性を検査するために保持する。
 core OS間、frontend、nativeは独立job。可変の記録ディレクトリ、レジストリ、実機handleを共有して並列化しない。
 キャッシュはOS・Rust版・lockfile・profile別。依存取得物とビルド中間出力を再利用するが、キャッシュhitを試験PASSにしない。結果は毎回実行する。
 

@@ -37,7 +37,7 @@ Xpotato-Simから見たSelfrionetteはGamepad / Keyboardと同格のInput Source
 
 **[Selfrionette Device Manager — GitHub Releases](https://github.com/Xpotato1024/Selfrionette-Device/releases)**
 
-Windows 11 x64向けのインストーラー、portable ZIP、対応Firmware packageを配布対象とします。このsourceは **0.2.0-preview.1** の実験用release候補です。0.1.0-preview.5はDraft releaseであり、公開済みとは扱いません。実際の公開状態と取得可能なassetはReleasesで確認してください。
+Windows 11 x64向けのインストーラー、portable ZIP、対応Firmware packageを配布対象とします。このsourceは **0.2.0-preview.1** の実験用release候補です。公開済みの **0.1.0-preview.5**（source `3435764`、検証済み8 assets）は[既存のプレビュー版](https://github.com/Xpotato1024/Selfrionette-Device/releases/tag/device-manager-v0.1.0-preview.5)です。実際の公開状態と取得可能なassetはReleasesで確認してください。
 
 ## Device Managerを使う人（ビルド不要）
 

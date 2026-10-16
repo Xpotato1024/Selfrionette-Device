@@ -2405,10 +2405,12 @@ fn decode_hex(value: &[u8]) -> Result<Vec<u8>, ()> {
         return Err(());
     }
     value
-        .chunks_exact(2)
-        .map(|pair| {
-            let high = hex_nibble(pair[0]).ok_or(())?;
-            let low = hex_nibble(pair[1]).ok_or(())?;
+        .iter()
+        .step_by(2)
+        .zip(value.iter().skip(1).step_by(2))
+        .map(|(&high, &low)| {
+            let high = hex_nibble(high).ok_or(())?;
+            let low = hex_nibble(low).ok_or(())?;
             Ok((high << 4) | low)
         })
         .collect()
@@ -2457,6 +2459,16 @@ fn unix_seconds() -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn hex_decoder_preserves_pairs_and_rejects_partial_or_invalid_bytes() {
+        assert_eq!(decode_hex(b"00aAFF10"), Ok(vec![0, 170, 255, 16]));
+        assert_eq!(decode_hex(b""), Ok(vec![]));
+        for value in [b"0".as_slice(), b"0g", b"\xff0", b"000"] {
+            assert!(decode_hex(value).is_err());
+        }
+    }
+
     use std::sync::{Arc, Mutex};
 
     const HEX: &str = ":0400000001020304F2\n:00000001FF\n";
