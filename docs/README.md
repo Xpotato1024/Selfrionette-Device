@@ -44,6 +44,7 @@ related:
 | 旧Sim monitor / measure host処理 | [legacy-sim-host-tools.md](contracts/legacy-sim-host-tools.md) |
 | 通常/開発者モード・native menu・USB候補 | [device-manager-session.md](contracts/device-manager-session.md) |
 | GUIの実機列挙・受信確認 | [gui-live-monitor.md](contracts/gui-live-monitor.md) |
+| 7軸の入力適合・オフライン比較 | [input-calibration.md](contracts/input-calibration.md) |
 | host device core | [host-device-core.md](contracts/host-device-core.md) |
 | serial transport | [serial-transport.md](contracts/serial-transport.md) |
 | identity-checked sample monitor | [sample-monitor.md](contracts/sample-monitor.md) |
@@ -89,3 +90,17 @@ related:
 - [Firmware更新と設定保護](contracts/firmware-update.md)
 
 contract案とsoftware-only試験は実機受入を意味しない。現行v2の値の意味・通信は維持する。
+
+## 入力適合のオフライン比較
+
+- [記録JSONと実行手順](operations/input-calibration-replay.md)
+- [合成記録generator](../examples/input-calibration/generate-synthetic.mjs)
+
+実機の物理校正、GUIへの適用、装置の永続設定とは別段階。
+
+## 初回の実機観測
+
+- [30分必須・60分上限の試験計画とfield-test](operations/field-test-30-60min.md)
+- [2026-10-16の実機観測（historical evidence）](reports/2026-10-16-field-observation.md)
+
+品質unknownの観測記録と、校正用のusableデータを混同しません。

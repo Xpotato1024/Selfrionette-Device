@@ -441,7 +441,7 @@ impl Draft {
         CalibrationSession::new(fresh_context)
     }
 }
-fn validate_context(context: &Context) -> Result<(), &'static str> {
+pub(crate) fn validate_context(context: &Context) -> Result<(), &'static str> {
     if context.source.firmware.trim().is_empty()
         || context.source.assembly.trim().is_empty()
         || context.source.epoch == 0

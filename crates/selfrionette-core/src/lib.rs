@@ -1,5 +1,6 @@
 pub mod calibration;
 pub mod identity;
+pub mod input_calibration;
 pub mod legacy;
 pub mod persistence;
 pub mod protocol;

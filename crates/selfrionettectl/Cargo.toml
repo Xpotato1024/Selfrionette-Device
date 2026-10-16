@@ -9,3 +9,6 @@ selfrionette-core = { path = "../selfrionette-core" }
 selfrionette-serial = { path = "../selfrionette-serial" }
 crossterm = { version = "=0.29.0", default-features = false, features = ["events", "windows"] }
 ctrlc = "=3.5.0"
+
+serde = { version = "=1.0.229", features = ["derive"] }
+serde_json = "=1.0.154"
