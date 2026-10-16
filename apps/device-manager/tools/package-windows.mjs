@@ -4,7 +4,7 @@ import {readFileSync,writeFileSync,mkdirSync,readdirSync,cpSync,copyFileSync,exi
 import {resolve,join,sep,isAbsolute} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {execFileSync,spawnSync} from 'node:child_process';
-import {sha256,inspectPE,inspectConsolePE,mergePackageMetadata,collectNotices,zipDirectory,extractZip,executableMetadata} from './distribution-lib.mjs';
+import {prependWindowsSearchPath,sha256,inspectPE,inspectConsolePE,mergePackageMetadata,collectNotices,zipDirectory,extractZip,executableMetadata} from './distribution-lib.mjs';
 
 const APP_VERSION='0.2.0-preview.1';
 const FIRMWARE_APPLICATION='selfrionette-loadcell-7ch';
@@ -33,7 +33,7 @@ if(!packageWork.startsWith(absoluteTempRoot+sep))throw Error('Package staging mu
 if(existsSync(packageWork))throw Error('Task package staging already exists; preserve it and use a fresh task temporary root.');
 mkdirSync(packageWork,{recursive:true});
 
-const buildEnv={
+let buildEnv={
  ...process.env,
  CARGO_HOME:join(packageWork,'cargo-home'),
  CARGO_TARGET_DIR:process.env.CARGO_TARGET_DIR??join(packageWork,'cargo-target'),
@@ -109,8 +109,7 @@ async function build(){
  run(python,['-m','venv',pythonEnv],{cwd:root});
  const pythonExe=join(pythonEnv,'Scripts','python.exe');
  const pioExe=join(pythonEnv,'Scripts','pio.exe');
- const pioPath=join(pythonEnv,'Scripts')+';'+(buildEnv.PATH??'');
- buildEnv.PATH=pioPath;
+ buildEnv=prependWindowsSearchPath(buildEnv,join(pythonEnv,'Scripts'));
  run(pythonExe,['-m','pip','install','--disable-pip-version-check','--no-cache-dir','-r',join(root,'tools/platformio-requirements.txt')]);
  const pioVersion=output(pioExe,['--version']);
  if(!pioVersion.includes('6.1.19'))throw Error('The isolated firmware toolchain does not match the pinned PlatformIO Core version.');

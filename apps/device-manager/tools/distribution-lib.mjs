@@ -34,6 +34,16 @@ export function verifyBundledUpdaterResources(applicationRoot, buildInfo) {
   }
   return {manifest, imageBytes};
 }
+// Windows child environments must have a single case-insensitive search-path key.
+export function prependWindowsSearchPath(environment, directory) {
+  const env = {...environment};
+  const keys = Object.keys(env).filter(key => key.toUpperCase() === 'PATH');
+  const values = [...new Set(keys.map(key => env[key]).filter(value => value !== undefined))];
+  if (values.length > 1) throw Error('Conflicting Windows PATH values');
+  for (const key of keys) delete env[key];
+  env.PATH = [directory, values[0]].filter(Boolean).join(';');
+  return env;
+}
 export function runtimeEnvironment(env) {
   // Only OS/user-profile variables are passed into the tested executable.
   const allowed = new Set(['systemroot','windir','systemdrive','comspec','temp','tmp','userprofile','appdata','localappdata','programdata','programfiles','programfiles(x86)','os','username','userdomain']);
