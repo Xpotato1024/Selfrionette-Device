@@ -15,10 +15,11 @@ assert.equal(dirs.length,1,'Exactly one output directory is required');
 const dist=join(root,dirs[0].name);
 const entries=readdirSync(dist);
 const one=pattern=>{const matched=entries.filter(name=>pattern.test(name));assert.equal(matched.length,1,'Expected exactly one '+pattern);return matched[0];};
-const setup=one(/-setup\.exe$/),portable=one(/-portable\.zip$/);
+const setup=one(/-setup\.exe$/),portable=one(/-portable\.zip$/),firmware=one(/-firmware\.zip$/);
 const expectedStem='Selfrionette-Device-Manager_'+version+'_'+sha.slice(0,8)+'_windows-x64';
 assert.equal(setup,expectedStem+'-setup.exe');
 assert.equal(portable,expectedStem+'-portable.zip');
+assert.equal(firmware,expectedStem+'-firmware.zip');
 const readJson=name=>JSON.parse(readFileSync(join(dist,name),'utf8'));
 const build=readJson('BUILD-INFO.json'),validation=readJson('VALIDATION.json'),upgrade=readJson('UPGRADE-VALIDATION.json');
 assert.equal(build.source_commit,sha);
@@ -28,6 +29,8 @@ assert.deepEqual(build.license_review_required,[],'Resolve unreviewed dependency
 assert.equal(build.source_dirty,false);
 assert.equal(validation.result,'PASS');
 assert.equal(validation.source_commit,sha);
+assert.equal(validation.packaged_payload_verified,true,'Firmware, updater and license payload validation is required');
+assert.equal(validation.updater_runtime_executed,true,'The pinned updater must execute without developer PATH');
 assert.equal(upgrade.result,'PASS');
 assert.equal(upgrade.source_commit,sha);
 const hash=file=>createHash('sha256').update(readFileSync(file)).digest('hex');
@@ -41,23 +44,29 @@ for(const line of sums){
  assert(existsSync(join(dist,m[2])),'Missing checksum file '+m[2]);
  assert.equal(hash(join(dist,m[2])),m[1],'Checksum mismatch '+m[2]);
 }
-assert(declared.has(setup)&&declared.has(portable));
+assert(declared.has(setup)&&declared.has(portable)&&declared.has(firmware));
 const screenshotCandidates=[];
 function walk(directory){
  if(!existsSync(directory))return;
  for(const d of readdirSync(directory,{withFileTypes:true})){
   const file=join(directory,d.name);
   if(d.isDirectory())walk(file);
-  else if(d.isFile()&&d.name==='native-window-normal.png')screenshotCandidates.push(file);
+  else if(d.isFile()&&d.name==='REPORT.json'){
+   const evidence=JSON.parse(readFileSync(file,'utf8'));
+   if(evidence.result!=='PASS'||evidence.executable_sha256!==build.executable_sha256||evidence.application?.version!==version)continue;
+   const required=['01-device-direction-tare.png','02-personal-calibration-verified.png','03-saved-runtime-input.png'];
+   if(!required.every(name=>evidence.screenshots?.includes(name)&&existsSync(join(directory,name))))continue;
+   screenshotCandidates.push(join(directory,required[2]));
+  }
  }
 }
 walk(qa);
-assert(screenshotCandidates.length>0,'Verified native window screenshot is required');
+assert(screenshotCandidates.length>0,'Verified startup IPC, personal calibration and runtime GUI evidence from this executable is required');
 const stage=resolve('dist/release-upload');
 rmSync(stage,{recursive:true,force:true});mkdirSync(stage,{recursive:true});
-const assetNames=[setup,portable,'SHA256SUMS.txt','README.md','BUILD-INFO.json','VALIDATION.json','UPGRADE-VALIDATION.json'];
+const assetNames=[setup,portable,firmware,'SHA256SUMS.txt','README.md','BUILD-INFO.json','VALIDATION.json','UPGRADE-VALIDATION.json'];
 for(const name of assetNames){assert(existsSync(join(dist,name)));copyFileSync(join(dist,name),join(stage,name));}
-const screenshot='selfrionette-device-manager-preview5.png';
+const screenshot='selfrionette-device-manager-'+version+'.png';
 copyFileSync(screenshotCandidates[0],join(stage,screenshot));
 const assetUrl=name=>'https://github.com/'+repo+'/releases/download/'+tag+'/'+encodeURIComponent(name);
 const notesPath=resolve('docs/releases/'+tag+'.md');
@@ -66,6 +75,7 @@ let body=readFileSync(notesPath,'utf8');
 const replacements={
  '{{SETUP_URL}}':assetUrl(setup),
  '{{PORTABLE_URL}}':assetUrl(portable),
+ '{{FIRMWARE_URL}}':assetUrl(firmware),
  '{{CHECKSUM_URL}}':assetUrl('SHA256SUMS.txt'),
  '{{SCREENSHOT_URL}}':assetUrl(screenshot),
  '{{SOURCE_SHA}}':sha,

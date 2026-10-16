@@ -27,14 +27,14 @@ related:
 [入力適合契約](../contracts/input-calibration.md)、EEPROMの既存byte形式は
 [装置設定契約](../contracts/device-persistent-settings.md)を参照する。
 
-今回の実装はRust `setup` / `setup_persistence`とファイル専用CLI `setup-inspect`まで。
-装置の全mapping検証、raw専用の純粋な投影、個人profileのbinding照合、volatileなneutralの失効条件、
-boundedなbinding manifest保存・再読込みを追加した。既存`input_calibration::fit`を呼ぶ`fit_v2`も提供する。
-新しい数値fit/filter/正規化アルゴリズムは作らない。
+Rust `setup` / `setup_persistence`に加え、v3 host parser/live serviceとDevice Manager/CLIで共有するtyped use caseを実装した。
+quality-qualified capture、個人profileのbinding照合、volatileなneutralの失効条件を共通serviceへ接続した。
+既存`input_calibration::fit`へ委譲するdevice-oriented adapterと、held-out再計算を伴うbounded profile保存・再読込みを追加した。
+新しい数値fit/filter/正規化アルゴリズムは作らない。v3のoriented値にはFirmware側のraw基準極性が反映済みであり、hostは確認済みwire→logical permutationだけを適用する。
 
-**未実装**: Firmwareの新しいinfo/取得品質/tare/settings操作、実機設定の適用、更新backend、
-実個人校正GUI、永久parameterの保存・再利用、新domainのfit、Sim consumerの結線。
-profile-binding manifestはparameter recordを識別するmetadataであり、spanやfilter係数そのものを格納しない。
+software testやscripted transportをhardware acceptanceと呼ばない。実機/操作者による受入とSim consumerへの結線は別gateである。
+保存済みprofileからSessionNeutralやready状態を復元しない。
+profile recordはfitとprovenanceを保持し、spanやfilter係数は既存coreの型で再構成・検証する。
 既存v2のvector形式、既存synthetic `.srnp`、EEPROM journal/identity形式は変更していない。
 field-testの実装・記録にも変更を加えない。PR16の完了を後続実機工程の前提とする。
 
@@ -55,6 +55,7 @@ field-testの実装・記録にも変更を加えない。PR16の完了を後続
 実際のreference load、荷重経路、範囲、温度等の根拠なしにN係数を作らない。
 host snapshotの論理mapping/config revisionは現在のEEPROM schema 1に存在しない。
 今回のmanifestをそのままEEPROMへ書き込むadapterは提供しない。Firmware結線前にversioned contractを定める。
+host setupはfirmwareへ書かないPC側のimmutable evidenceである。同じdevice/assembly/Firmware generation/settings masksに一致する検証済みsnapshotから最大config revisionを選び、同率で異なるsnapshotがあればfail closedする。新しいconfig revisionは同じassembly内で後退させず、既存revisionを別mappingへ再束縛しない。
 
 ## 必須workflow 2: 個人校正と毎sessionのneutral
 
@@ -81,7 +82,7 @@ host snapshotの論理mapping/config revisionは現在のEEPROM schema 1に存�
 abort/切断/timeoutは進行中の確認・適用を無効にし、観測済み証拠は由来付きの履歴として残せる。
 再試行の成功で以前の失敗を消したように見せない。品質不明、弱信号、向き不一致、戻り不良、
 過大noise、欠測、干渉、context不一致などの**失敗理由と次の行動**を近傍に表示する。
-未実装の実機校正buttonや、必ず成功するlive mockは公開しない。
+GUIやscripted transportの存在だけで実機・操作者による受入を完了扱いしない。
 
 ## domainとcore境界
 
@@ -89,7 +90,7 @@ abort/切断/timeoutは進行中の確認・適用を無効にし、観測済み
 |---|---|
 | `raw_adc` | negation/tare/hold前の符号付き24-bit整数count。今回の`project_raw`だけが受け付ける |
 | `firmware_v2_vector` | 既に一律negation、RAM tare、spike抑制を受け、timeoutで前値を保持し得る7ch。rawやusable品質とみなさない |
-| `device_oriented_counts` | 個体の方向/対応を一度適用したcount。raw投影の再入力は禁止。今後のstreamではtareの有無/epochもcontractで固定する |
+| `device_oriented_counts` | 個体の方向/対応を一度適用したcount。raw投影の再入力は禁止。v3 streamはtare epochとsettings generationを明示する |
 | `newtons` | 根拠のあるreference load係数が必要。今回の変換・係数生成対象外 |
 | `normalized_input` | 個人の正負comfort span等に基づく無次元入力。robot gain/座標写像は含まない |
 
@@ -113,6 +114,8 @@ source commitは40桁lowercase hexでall-zero不可。buildの真正性や実機
 
 `fit_v2(current, recording, limits)`はbindingと記録context/明示軸を照合してから既存engineに委譲する。
 v2以外は`UnsupportedFitDomain`。raw補正済み値をv2と称して二度処理しない。
+device-oriented adapterはv3 domain、保存済みsetup mapping、contextを照合してから同じengineを呼ぶ。
+v3のoriented値にはFirmware側のraw基準極性が反映済みであり、hostは確認済みwire→logical permutationだけを適用する。
 既存recordingにはsource commit/握り/全provenanceを直接検証する欄がないため、呼出側が正しい取得contextを
 結び付ける必要がある。このhelperの成功はlive利用許可を返さず、`FittedInput`のverified/readyもfalseのまま。
 記録schemaの拡張と永久parameterの再構成は後続工程で、現在のv2/preview schemaを暗黙に移行しない。
@@ -121,7 +124,7 @@ v2以外は`UnsupportedFitDomain`。raw補正済み値をv2と称して二度処
 取得所有者が再接続/reset時にconnection、tare時にtareを更新し、失効したneutralを再使用しないことが前提。
 新しい中立値は有限・usable注記が必要で、syntheticまたはunknown由来のprofileからlive用neutralは作れない。
 `SessionNeutral`自体は安定性判定や運転許可ではなく、取得済み観測の寿命を検証する純粋な値である。
-実入力処理への結線、品質根拠、neutral windowの受入基準は未実装。
+live serviceは現sessionの全fresh sampleからmedianを求め、明示されたrange・drift limitを確認してからneutralを作る。stream/tare/contextの変化でruntime readinessを失効させる。hardware受入は別gateのままである。
 
 ## ファイル境界と実行方法
 
@@ -180,9 +183,9 @@ CLIにsave/apply操作は追加していない。
 |---|---|---|
 | 0 | PR16を完了。unknown観測とusable証拠を分離 | PR #16をmainへマージ済み。最終修正を取り込み、統合後152テストを確認 |
 | 1 | 本書/ADR、domain/setup/profile binding、file-only検査、決定的試験 | 今回のslice |
-| 2 | Firmware acquisition/info/settingsとhost parserの共通契約・実装 | 後続 |
-| 3 | application device management / updaterをGUI/CLIの共通use caseへ接続 | 後続 |
-| 4 | 実機の個人校正GUI、永久parameter保存、consumer引渡し | 後続・必須 |
+| 2 | Firmware acquisition/info/settingsとhost parserの共通契約・実装 | software実装済み。対象boardでのreadback/電源断受入は未実施 |
+| 3 | application device management / updaterをGUI/CLIの共通use caseへ接続 | shared serviceとGUI/CLI接続を実装。GUI実操作の受入は別途 |
+| 4 | 実機の個人校正、永久parameter保存、consumer引渡し | 保存/再検証/applyのsoftware pathを実装。実操作者・hardware・Sim受入は必須gate |
 
 FirmwareはPro Micro / ATmega32U4、C++/AVRを継続し、normal pathでheapを増やさずboundedにする。
 実装順2では、EEPROMに保持する128-bit IDとimage内に固定するversion/source/build identityを分離する。

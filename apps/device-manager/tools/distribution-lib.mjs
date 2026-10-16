@@ -5,6 +5,35 @@ import { createHash } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 
 export const sha256 = data => createHash('sha256').update(data).digest('hex');
+export function verifyBundledUpdaterResources(applicationRoot, buildInfo) {
+  const check = (record, fileField, hashField, expectedFile, label) => {
+    if (!record || record[fileField] !== expectedFile) throw Error(`Build metadata has an invalid ${label} path.`);
+    const expected = record[hashField];
+    if (!/^[a-f0-9]{64}$/.test(expected ?? '')) throw Error(`Build metadata has no valid ${label} SHA-256.`);
+    const bytes = readFileSync(join(applicationRoot, ...expectedFile.split('/')));
+    if (sha256(bytes) !== expected) throw Error(`Bundled ${label} does not match BUILD-INFO.json.`);
+    return bytes;
+  };
+  const firmware = buildInfo.firmware;
+  const manifestBytes = check(firmware, 'manifest_file', 'manifest_sha256', 'distribution/firmware/manifest.json', 'firmware manifest');
+  const imageBytes = check(firmware, 'image_file', 'image_sha256', 'distribution/firmware/firmware.hex', 'firmware image');
+  check(firmware, 'notice_file', 'notice_sha256', 'distribution/firmware/THIRD-PARTY-NOTICES.txt', 'firmware notice');
+  const runtime = buildInfo.updater_runtime;
+  check(runtime, 'executable_file', 'executable_sha256', 'distribution/firmware-tools/avrdude.exe', 'AVRDUDE executable');
+  check(runtime, 'configuration_file', 'configuration_sha256', 'distribution/firmware-tools/avrdude.conf', 'AVRDUDE configuration');
+  check(runtime, 'license_file', 'license_sha256', 'distribution/firmware-tools/AVRDUDE-COPYING.txt', 'AVRDUDE COPYING');
+  check(buildInfo.third_party_notices, 'file', 'sha256', 'distribution/THIRD-PARTY-NOTICES.txt', 'combined third-party notice');
+  let manifest;
+  try { manifest = JSON.parse(manifestBytes.toString('utf8')); }
+  catch (error) { throw Error(`Bundled firmware manifest is invalid JSON: ${error.message}`); }
+  if (manifest.image_file !== 'firmware.hex' || manifest.image_sha256 !== firmware.image_sha256 ||
+      manifest.image_size !== imageBytes.length || manifest.source_sha !== buildInfo.source_commit ||
+      manifest.source_sha !== firmware.source_sha || manifest.release_version !== buildInfo.application_version ||
+      manifest.firmware_version !== buildInfo.application_version) {
+    throw Error('Bundled firmware manifest fields disagree with BUILD-INFO.json or the firmware image.');
+  }
+  return {manifest, imageBytes};
+}
 export function runtimeEnvironment(env) {
   // Only OS/user-profile variables are passed into the tested executable.
   const allowed = new Set(['systemroot','windir','systemdrive','comspec','temp','tmp','userprofile','appdata','localappdata','programdata','programfiles','programfiles(x86)','os','username','userdomain']);
@@ -13,7 +42,9 @@ export function runtimeEnvironment(env) {
   result.PATH = windows + '\\System32;' + windows;
   return result;
 }
-export function inspectPE(bytes) {
+export function inspectPE(bytes) { return inspectPESubsystem(bytes, 2, 'GUI', 'windows_gui'); }
+export function inspectConsolePE(bytes) { return inspectPESubsystem(bytes, 3, 'console', 'windows_console'); }
+function inspectPESubsystem(bytes, expectedSubsystem, expectedKind, subsystemName) {
   const ensure = (offset, size) => { if (!Number.isInteger(offset) || offset < 0 || offset + size > bytes.length) throw Error('Truncated PE image'); };
   const u16 = offset => { ensure(offset,2); return bytes.readUInt16LE(offset); };
   const u32 = offset => { ensure(offset,4); return bytes.readUInt32LE(offset); };
@@ -51,8 +82,24 @@ export function inspectPE(bytes) {
   }
   const forbidden=imports.filter(n=>/^(vcruntime|msvcp|msvcr|ucrtbased)|^WebView2Loader\.dll$/i.test(n));
   if(forbidden.length)throw Error('Non-system runtime DLL dependency: '+forbidden.join(', '));
-  if(subsystem!==2)throw Error('Distribution executable must use Windows GUI subsystem');
-  return {machine:'x86_64',subsystem:'windows_gui',imports:[...new Set(imports)].sort()};
+  if(subsystem!==expectedSubsystem)throw Error('Distribution executable must use Windows '+expectedKind+' subsystem');
+  return {machine:'x86_64',subsystem:subsystemName,imports:[...new Set(imports)].sort()};
+}
+export function mergePackageMetadata(...metadata) {
+  const packages = new Map();
+  for (const source of metadata) for (const pkg of source.packages) {
+    if (!pkg.id) throw Error('Cargo metadata package id is missing.');
+    const existing = packages.get(pkg.id);
+    if (existing) {
+      if (existing.name !== pkg.name || existing.version !== pkg.version ||
+          existing.source !== pkg.source || existing.license !== pkg.license) {
+        throw Error('Conflicting Cargo metadata for exact package id '+pkg.id);
+      }
+      continue;
+    }
+    packages.set(pkg.id, pkg);
+  }
+  return {...metadata[0], packages:[...packages.values()]};
 }
 // These exact published crates omit a top-level license file. The upstream license
 // texts are pinned in ../licenses/ and are bundled as additional notices.

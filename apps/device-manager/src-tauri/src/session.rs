@@ -1,5 +1,5 @@
 //! Process-scoped feature gate. This does not grant hardware or firmware-write permission.
-use crate::{hardware, workflow};
+use crate::{application, hardware, workflow};
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -14,6 +14,7 @@ pub struct Mode {
     pub developer: bool,
     pub source: Source,
     pub epoch: u64,
+    pub scripted_hardware: bool,
 }
 #[derive(Debug, Deserialize)]
 #[serde(tag = "action", rename_all = "snake_case", deny_unknown_fields)]
@@ -33,19 +34,24 @@ impl Mode {
     pub fn startup(args: impl IntoIterator<Item = String>) -> Result<Self, String> {
         let mut developer = false;
         let mut synthetic = false;
+        let mut scripted_hardware = false;
         for arg in args {
             match arg.as_str() {
                 "--developer-mode" if !developer => developer = true,
                 "--synthetic" if !synthetic => synthetic = true,
+                "--scripted-hardware" if !scripted_hardware => scripted_hardware = true,
                 _ => {
                     return Err(format!(
-                        "未対応または重複した引数: {arg}\n使用可能: --developer-mode [--synthetic]"
+                        "未対応または重複した引数: {arg}\n使用可能: --developer-mode [--synthetic | --scripted-hardware]"
                     ));
                 }
             }
         }
         if synthetic && !developer {
             return Err("--synthetic には --developer-mode が必要です。".into());
+        }
+        if scripted_hardware && (!developer || synthetic) {
+            return Err("--scripted-hardwareには--developer-modeと実機画面が必要です。".into());
         }
         Ok(Self {
             developer,
@@ -55,6 +61,7 @@ impl Mode {
                 Source::Hardware
             },
             epoch: 0,
+            scripted_hardware,
         })
     }
     pub fn apply(&mut self, request: ModeRequest, connected: bool) -> Result<Self, String> {
@@ -69,6 +76,12 @@ impl Mode {
             ModeCommand::Snapshot => unreachable!(),
             ModeCommand::Enable => next.developer = true,
             ModeCommand::Disable => {
+                if self.scripted_hardware {
+                    return Err(
+                        "scripted hardwareを終了するにはアプリを閉じて通常起動してください。"
+                            .into(),
+                    );
+                }
                 next.developer = false;
                 next.source = Source::Hardware;
             }
@@ -101,13 +114,20 @@ pub struct Runtime {
     pub mode: Mode,
     pub workspace: workflow::Workspace,
     pub monitor: hardware::Monitor,
+    pub application: application::Application,
 }
 impl Runtime {
     pub fn new(mode: Mode) -> Self {
+        let application = if mode.scripted_hardware {
+            application::Application::scripted()
+        } else {
+            application::Application::default()
+        };
         Self {
             mode,
             workspace: workflow::Workspace::default(),
             monitor: hardware::Monitor::default(),
+            application,
         }
     }
     pub fn synthetic(
@@ -119,6 +139,11 @@ impl Runtime {
         Ok(self.workspace.execute(request, root))
     }
     pub fn hardware(&mut self, request: hardware::Request) -> Result<hardware::Reply, String> {
+        if self.application.connected()
+            && matches!(request.command, hardware::Command::Connect { .. })
+        {
+            return Err("先に調整画面の品質付き接続を解放してください。".into());
+        }
         if self.mode.source != Source::Hardware
             && !matches!(request.command, hardware::Command::Snapshot {})
         {
@@ -127,7 +152,10 @@ impl Runtime {
         Ok(self.monitor.execute(request))
     }
     pub fn set_mode(&mut self, request: ModeRequest) -> Result<Mode, String> {
-        self.mode.apply(request, self.monitor.connected())
+        self.mode.apply(
+            request,
+            self.monitor.connected() || self.application.connected(),
+        )
     }
 }
 #[cfg(test)]
@@ -154,6 +182,13 @@ mod tests {
         assert!(args(&["--synthetic"]).is_err());
         assert!(args(&["--developer-mode", "--unknown"]).is_err());
         assert!(args(&["--developer-mode", "--developer-mode"]).is_err());
+        assert!(args(&["--scripted-hardware"]).is_err());
+        assert!(args(&["--developer-mode", "--synthetic", "--scripted-hardware"]).is_err());
+        assert!(
+            args(&["--developer-mode", "--scripted-hardware"])
+                .unwrap()
+                .scripted_hardware
+        );
     }
     #[test]
     fn explicit_cli_and_gui_modes_have_identical_gates_and_no_persistence() {

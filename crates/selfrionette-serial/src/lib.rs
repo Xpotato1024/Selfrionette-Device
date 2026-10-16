@@ -8,6 +8,7 @@ use selfrionette_core::{
 };
 use serialport::{ClearBuffer, SerialPort};
 
+pub mod app;
 pub mod legacy;
 mod monitor;
 
@@ -28,6 +29,9 @@ pub trait LineTransport {
 pub struct SerialPortTransport {
     port_name: String,
     port: Box<dyn SerialPort>,
+    /// Bytes already received for a line that crossed a polling timeout.
+    /// Kept bounded by `MAX_LINE_BYTES` and drained only after LF.
+    rx_buffer: Vec<u8>,
 }
 
 impl SerialPortTransport {
@@ -43,6 +47,7 @@ impl SerialPortTransport {
         Ok(Self {
             port_name: port_name.to_owned(),
             port,
+            rx_buffer: Vec::with_capacity(128),
         })
     }
 
@@ -74,7 +79,9 @@ impl LineTransport for SerialPortTransport {
     fn discard_input(&mut self) -> Result<(), TransportError> {
         self.port
             .clear(ClearBuffer::Input)
-            .map_err(|error| TransportError::Serial(error.to_string()))
+            .map_err(|error| TransportError::Serial(error.to_string()))?;
+        self.rx_buffer.clear();
+        Ok(())
     }
 
     fn write_line(&mut self, line: &str) -> Result<(), TransportError> {
@@ -92,9 +99,21 @@ impl LineTransport for SerialPortTransport {
 
     fn read_line(&mut self, timeout: Duration) -> Result<String, TransportError> {
         let started = Instant::now();
-        let mut bytes = Vec::with_capacity(128);
-
         loop {
+            if let Some(newline) = self.rx_buffer.iter().position(|byte| *byte == b'\n') {
+                let mut bytes = self.rx_buffer.drain(..=newline).collect::<Vec<_>>();
+                bytes.pop();
+                if bytes.last() == Some(&b'\r') {
+                    bytes.pop();
+                }
+                return String::from_utf8(bytes).map_err(|_| TransportError::InvalidUtf8);
+            }
+            if self.rx_buffer.len() >= MAX_LINE_BYTES {
+                self.rx_buffer.clear();
+                return Err(TransportError::LineTooLong {
+                    max_bytes: MAX_LINE_BYTES,
+                });
+            }
             let remaining = timeout
                 .checked_sub(started.elapsed())
                 .ok_or(TransportError::Timeout)?;
@@ -111,17 +130,7 @@ impl LineTransport for SerialPortTransport {
                 Ok(0) => continue,
                 Ok(_) => match byte[0] {
                     b'\r' => continue,
-                    b'\n' => {
-                        return String::from_utf8(bytes).map_err(|_| TransportError::InvalidUtf8);
-                    }
-                    value => {
-                        if bytes.len() >= MAX_LINE_BYTES {
-                            return Err(TransportError::LineTooLong {
-                                max_bytes: MAX_LINE_BYTES,
-                            });
-                        }
-                        bytes.push(value);
-                    }
+                    value => self.rx_buffer.push(value),
                 },
                 Err(error) if error.kind() == std::io::ErrorKind::TimedOut => continue,
                 Err(error) => return Err(TransportError::Io(error.to_string())),

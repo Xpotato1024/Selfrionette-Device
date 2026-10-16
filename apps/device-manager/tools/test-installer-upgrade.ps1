@@ -3,17 +3,20 @@ $ErrorActionPreference='Stop'
 if($env:GITHUB_ACTIONS -ne 'true' -or $env:RUNNER_ENVIRONMENT -ne 'github-hosted'){throw 'Upgrade regression is restricted to a disposable GitHub-hosted runner'}
 $app=Split-Path $PSScriptRoot
 $build=Get-Content (Join-Path $app 'dist/latest-distribution.json') -Raw | ConvertFrom-Json
+$buildInfo=Get-Content (Join-Path $build.directory 'BUILD-INFO.json') -Raw | ConvertFrom-Json
 $config=Get-Content (Join-Path $app 'src-tauri/tauri.conf.json') -Raw | ConvertFrom-Json
-$target=Join-Path $env:RUNNER_TEMP 'selfrionette-install-test'
+$target=Join-Path $env:SELFRIONETTE_TASK_TEMP_ROOT 'install-test'
 $exe=Join-Path $target 'selfrionette-device-manager.exe'
 if($env:SELFRIONETTE_INSTALLED_EXE -ne $exe){throw 'Unexpected test installation'}
 $setup=@(Get-ChildItem $build.directory -Filter '*-setup.exe');if($setup.Count -ne 1){throw 'Expected one setup'}
 $arp='HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\Selfrionette Device Manager'
 $stable='Software\dev.selfrionette.manager\Installer'
-$reportDir=Join-Path $app 'src-tauri/target/upgrade-qa';New-Item $reportDir -ItemType Directory -Force|Out-Null
+$reportDir=Join-Path $env:SELFRIONETTE_TASK_TEMP_ROOT 'upgrade-qa';New-Item $reportDir -ItemType Directory -Force|Out-Null
 $cases=[Collections.Generic.List[object]]::new()
-$marker=Join-Path ([Environment]::GetFolderPath('ApplicationData')) ('dev.selfrionette.manager\upgrade-test-'+[Guid]::NewGuid().ToString('N')+'.txt')
-New-Item (Split-Path $marker) -ItemType Directory -Force|Out-Null
+$markerDirectory=Join-Path ([Environment]::GetFolderPath('ApplicationData')) 'dev.selfrionette.manager'
+$markerDirectoryExisted=Test-Path -LiteralPath $markerDirectory
+$marker=Join-Path $markerDirectory ('upgrade-test-'+[Guid]::NewGuid().ToString('N')+'.txt')
+New-Item $markerDirectory -ItemType Directory -Force|Out-Null
 [IO.File]::WriteAllText($marker,'retain-user-record')
 $unowned=Join-Path $target 'unowned-test-file.txt';[IO.File]::WriteAllText($unowned,'retain-unowned-file')
 function Verify-Target {
@@ -21,6 +24,8 @@ function Verify-Target {
   if($entry.InstallLocation.Trim('"') -ne $target){throw 'The test install path changed'}
   if($entry.UninstallString -ne ('"'+(Join-Path $target 'uninstall.exe')+'"')){throw 'The registered uninstaller path changed'}
   if((Get-FileHash $exe).Hash -ne (Get-FileHash $build.executable).Hash){throw 'Installed executable changed unexpectedly'}
+  $cli=Join-Path $target 'distribution/selfrionettectl.exe'
+  if(-not (Test-Path -LiteralPath $cli) -or (Get-FileHash $cli).Hash -ne $buildInfo.cli.executable_sha256){throw 'Installed CLI changed or is missing'}
   if([IO.File]::ReadAllText($marker) -ne 'retain-user-record' -or [IO.File]::ReadAllText($unowned) -ne 'retain-unowned-file'){throw 'Update deleted user data'}
   return $entry
 }
@@ -59,5 +64,9 @@ try {
   Write-Output 'PASS: both historical registry layouts, cancellation, real preinstall uninstall, same-version repair, record preservation'
 } finally {
   if((Test-Path $marker) -and [IO.File]::ReadAllText($marker) -eq 'retain-user-record'){Remove-Item $marker}
+  if(-not $markerDirectoryExisted -and (Test-Path -LiteralPath $markerDirectory) -and
+     -not (Get-ChildItem -LiteralPath $markerDirectory -Force | Select-Object -First 1)){
+    Remove-Item -LiteralPath $markerDirectory
+  }
   if((Test-Path $unowned) -and [IO.File]::ReadAllText($unowned) -eq 'retain-unowned-file'){Remove-Item $unowned}
 }

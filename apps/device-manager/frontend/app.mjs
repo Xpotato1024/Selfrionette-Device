@@ -1,4 +1,5 @@
 import { createHardwareUI } from './hardware-ui.mjs';
+import { createApplicationUI } from './application-ui.mjs';
 import { createDesignPreview } from './design-preview.mjs';
 import { createController } from './controller.mjs';
 import { createStepNavigation, stepKeys, currentStep, canVisit } from './navigation.mjs';
@@ -9,6 +10,7 @@ const transport = native ? request => window.__TAURI__.core.invoke('device_comma
 const $ = id => document.getElementById(id);
 let sourceMode = 'hardware', sessionMode = null, modeQueue = Promise.resolve();
 const hardware = createHardwareUI(request => window.__TAURI__.core.invoke('hardware_command', {request}));
+const application = createApplicationUI({hardware,invoke:command=>window.__TAURI__.core.invoke('application_command',{command})});
 const phaseNames = { not_started: '未開始', baseline: '基準の確認待ち', assessment: '応答の確認待ち', preview: '入力の比較待ち', confirmation: '結果の確認待ち', record: '合成結果を確認済み' };
 const numbers = new Intl.NumberFormat('ja-JP', { maximumFractionDigits: 4 });
 const number = value => value === null || value === undefined ? '—' : numbers.format(value);
@@ -264,6 +266,7 @@ async function applyMode(mode) {
   $('developer-badge').hidden=!mode.developer;
   $('synthetic-target').hidden=sourceMode!=='synthetic';$('unavailable').hidden=true;
   if(changed) {
+    await application.activate(sourceMode==='hardware');
     await hardware.activate(sourceMode==='hardware',currentPage);
     if(sourceMode==='synthetic')await dispatch({action:'status'});
   }
@@ -273,7 +276,7 @@ async function applyMode(mode) {
 }
 function queueMode(mode){modeQueue=modeQueue.then(()=>applyMode(mode));return modeQueue;}
 async function changeMode(command) {
-  if(hardware.busy||isBusy){failure({code:'busy',message:'現在の操作が完了してから切り替えてください。',detail:'mode transition blocked while operation is pending'});return;}
+  if(hardware.busy||application.busy||isBusy){failure({code:'busy',message:'現在の操作が完了してから切り替えてください。',detail:'mode transition blocked while operation is pending'});return;}
   try {
     const mode=await window.__TAURI__.core.invoke('mode_command',{request:{expected:sessionMode?.epoch??null,command}});
     await queueMode(mode);
@@ -288,7 +291,7 @@ function menuAction(id) {
   if(id.startsWith('view-')){showPage(id.slice(5));return;}
   switch(id) {
     case 'choose-device': void hardware.choose();break;
-    case 'disconnect': void hardware.disconnect();break;
+    case 'disconnect': void Promise.all([hardware.disconnect(),application.disconnect()]);break;
     case 'about': void showAbout();break;
     case 'help': $('help-dialog').showModal();break;
     case 'enable-developer': $('developer-dialog').showModal();break;

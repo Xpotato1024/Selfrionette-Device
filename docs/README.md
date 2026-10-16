@@ -22,6 +22,7 @@ related:
 | stable device identity | [ADR-0004](decisions/0004-eeprom-provisioned-device-identity.md) | 128-bit IDのEEPROM provisioningとrole分離 |
 | host core / CLI | [ADR-0005](decisions/0005-rust-host-core-cli.md) | Rust workspaceでpure coreとCLIを分離 |
 | serial transport | [ADR-0006](decisions/0006-explicit-serial-transport.md) | explicit portだけをopenする独立transport layer |
+| opt-in取得品質と個人runtime | [ADR-0011案](decisions/0011-opt-in-quality-stream-and-standalone-personal-runtime.md) | v2互換・装置補正と個人profileの分離 |
 | bounded sample monitor | [ADR-0007](decisions/0007-bounded-identity-checked-monitor.md) | 期待identity確認後の有限diagnostic capture |
 
 ## Architecture
@@ -40,6 +41,7 @@ related:
 | device / host / Xpotato-Sim boundary | [device-host-boundary.md](contracts/device-host-boundary.md) |
 | 旧Sim 7ch producer（互換用） | [legacy-sim-serial-producer.md](contracts/legacy-sim-serial-producer.md) |
 | firmware protocol v2 | [firmware-protocol-v2.md](contracts/firmware-protocol-v2.md) |
+| opt-in品質付きprotocol 3 | [firmware-protocol-v3.md](contracts/firmware-protocol-v3.md) |
 | stable device identity / provisioning | [device-identity.md](contracts/device-identity.md) |
 | firmware memory budget | [firmware-memory-budget.md](contracts/firmware-memory-budget.md) |
 | 旧Sim monitor / measure host処理 | [legacy-sim-host-tools.md](contracts/legacy-sim-host-tools.md) |
@@ -48,7 +50,9 @@ related:
 | 7軸の入力適合・オフライン比較 | [input-calibration.md](contracts/input-calibration.md) |
 | host device core | [host-device-core.md](contracts/host-device-core.md) |
 | serial transport | [serial-transport.md](contracts/serial-transport.md) |
+| Managerなしの正規化入力consumer | [normalized-input-consumer.md](operations/normalized-input-consumer.md) |
 | identity-checked sample monitor | [sample-monitor.md](contracts/sample-monitor.md) |
+| Device Manager firmware update and recovery | [firmware-update.md](contracts/firmware-update.md) |
 
 ## Operations
 
@@ -63,20 +67,17 @@ related:
 | validation categories | [validation.md](operations/validation.md) |
 | hardware / serial / flashing safety | [hardware-safety.md](operations/hardware-safety.md) |
 
-## 必須setupと必須個人校正のfoundation
+## 必須setupと必須個人校正
 
 - [ADR-0010案](decisions/0010-required-device-setup-and-personal-calibration.md)
-- [workflow・domain/binding・file-only CLI・後続受入の正本](architecture/required-setup-calibration.md)
+- [workflow・domain/binding・実ストリーム/個人profile・consumer利用の正本](architecture/required-setup-calibration.md)
 
-今回のcore/file検査は、実機設定・実個人校正GUI・通常consumer入力の完成を意味しない。
+ソフトウェア実装・scripted transportによる検証と、実boardの接続/書込み/物理操作の受入を区別する。
 
 ## Planned canonical topics
 
 まだ仕様を固定していない項目は、実装前に必要な範囲だけ追加する。
 
-- calibration / tare / persistent calibration
-- firmware update
-- Device Manager GUIの実機接続・校正・保守
 - dual-device role binding
 
 未確定項目をこのindexだけで仕様化しない。
@@ -91,13 +92,13 @@ related:
 
 実機のverified条件は未確定で、これらのdraftをphysical calibration成功契約として扱わない。
 
-## 装置単独利用と保守（設計・実装中）
+## 装置単独利用と保守
 
 - [ADR-0009案: GUI常駐不要の装置設定](decisions/0009-standalone-device-configuration.md)
 - [装置設定recordとjournal](contracts/device-persistent-settings.md)
-- [Firmware更新と設定保護](contracts/firmware-update.md)
+- [Device Manager firmware update and recovery](contracts/firmware-update.md)
 
-contract案とsoftware-only試験は実機受入を意味しない。現行v2の値の意味・通信は維持する。
+software-only試験は実機受入を意味しない。v2の値の意味・通信を維持し、新機能はopt-in protocol 3を必要とする。
 
 ## 入力適合のオフライン比較
 
@@ -112,3 +113,5 @@ contract案とsoftware-only試験は実機受入を意味しない。現行v2の
 - [2026-10-16の実機観測（historical evidence）](reports/2026-10-16-field-observation.md)
 
 品質unknownの観測記録と、校正用のusableデータを混同しません。
+
+- [0.2.0-preview.1 実装・software検証と未達gate](reports/2026-10-16-device-app-completion.md)

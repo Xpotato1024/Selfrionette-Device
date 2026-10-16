@@ -2,7 +2,7 @@
 
 Rust coreを共有するTauri v2 GUIです。製品の目的・状態・操作体系は[製品・操作設計](../../docs/architecture/device-manager-workflow.md)を正とします。
 Windows native Debug build・起動・Rust IPC・合成記録の保存/再読込をLLM-01で確認しました。
-実機の受信モニターと、分離した合成fixtureの調整試験を提供します。実機ID/番号/極性/校正値は未測定で、hardware_verified/control_readyは常にfalseです。
+0.2.0-preview.1は、旧v2受信と、品質付きprotocol 3の装置設定・tare・実ストリームからの個人校正・永久profile保存/再利用・Firmware更新を扱う実験用release候補です。実機boardでの受入、既知荷重N係数、物理精度の認証は未実施です。合成fixtureは明示的な開発者モードに限定します。
 
 ## 使用者向け（ビルド不要）
 
@@ -83,11 +83,15 @@ Nodeだけで npm run preview を実行し、同じPCの http://127.0.0.1:4173 �
 入力エラーは入力欄に関連づけます。Tab/矢印/Enter/Space、対象切替後のfocus保持、確認取消、320/640 CSS pxのreflow、主要文字色のコントラストを検証します。
 スクリーンリーダー、native 200%/Windows DPI、Release/bundle配布、実機受入、利用者による操作性評価は未実施です。
 
-## 装置単独利用・Firmware更新への実装計画
+## 装置単独利用・Firmware更新
 [ADR-0009案](../../docs/decisions/0009-standalone-device-configuration.md)でManager常駐不要の方針を、[装置設定契約](../../docs/contracts/device-persistent-settings.md)でEEPROM recordを定義しています。
-今回追加したC++の保存journalはハードウェア非依存の部品です。現行Firmwareのserial/EEPROMへは結線していません。
-[Firmware更新契約](../../docs/contracts/firmware-update.md)は対象確認・設定保護・書込み・再接続確認の設計です。書込みbackendと実機向け保守画面は未実装です。
+装置固有の極性とassembly revisionはprotocol 3の明示操作でjournalへ保存し、generationを読戻します。wire→logical対応と観測根拠はPC側の個体設定へ保存します。
+[Firmware更新契約](../../docs/contracts/firmware-update.md)に従い、固定programmer runtimeと検証済みpackageを使用します。対象不明・読戻し不一致は停止し、要復旧状態を保持します。compileや偽programmer試験は実機の書込み/EEPROM保持の受入ではありません。
 現行の合成記録をEEPROMへコピーしたり、未確認のモデルから極性やch位置を推測したりしません。
+
+通常接続から「調整」を開き、装置と取付方向 → 個人校正 → 保存と現在入力の順に進めます。旧Firmwareは品質不明の受信のみで、初回導入時はFirmware更新で実boardを手動確認します。個体IDの新規登録は別の明示操作です。
+
+開発者の同一service経路試験には `--developer-mode --scripted-hardware` を使います。この起動では品質付き接続先がSCRIPTEDだけとなり、OS portを開きません。`fixture_input` IPCはこの起動時だけ使えます。通常起動や合成previewに校正成功fixtureを注入しません。
 
 参照: [ローカルデザインシステム](https://design.digital.go.jp/dads/guidance/local-design-system/)、[文字](https://design.digital.go.jp/dads/foundations/typography/)、[ステップナビゲーション](https://design.digital.go.jp/dads/components/step-navigation/)、[Tabs Pattern](https://www.w3.org/WAI/ARIA/apg/patterns/tabs/)。
 

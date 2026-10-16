@@ -91,8 +91,13 @@ void HX711::set_gain(byte gain) {
 	}
 }
 
-long HX711::read() {
-	wait_ready();
+bool HX711::read_raw_if_ready(long* output) {
+	if (!is_ready()) return false;
+	*output = read_ready();
+	return true;
+}
+
+long HX711::read_ready() {
 
 	unsigned long value = 0;
 	uint8_t data[3] = { 0 };
@@ -146,12 +151,6 @@ long HX711::read() {
 	return static_cast<long>(value);
 }
 
-void HX711::wait_ready(unsigned long delay_ms) {
-	while (!is_ready()) {
-		delay(delay_ms);
-	}
-}
-
 bool HX711::wait_ready_retry(int retries, unsigned long delay_ms) {
 	int count = 0;
 	while (count < retries) {
@@ -173,44 +172,6 @@ bool HX711::wait_ready_timeout(unsigned long timeout, unsigned long delay_ms) {
 		delay(delay_ms);
 	}
 	return false;
-}
-
-long HX711::read_average(byte times) {
-	long sum = 0;
-	for (byte i = 0; i < times; i++) {
-		sum += read();
-		delay(0);
-	}
-	return sum / times;
-}
-
-double HX711::get_value(byte times) {
-	return read_average(times) - OFFSET;
-}
-
-float HX711::get_units(byte times) {
-	return get_value(times) / SCALE;
-}
-
-void HX711::tare(byte times) {
-	double sum = read_average(times);
-	set_offset(sum);
-}
-
-void HX711::set_scale(float scale) {
-	SCALE = scale;
-}
-
-float HX711::get_scale() {
-	return SCALE;
-}
-
-void HX711::set_offset(long offset) {
-	OFFSET = offset;
-}
-
-long HX711::get_offset() {
-	return OFFSET;
 }
 
 void HX711::power_down() {

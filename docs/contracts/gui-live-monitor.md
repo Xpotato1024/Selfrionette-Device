@@ -24,7 +24,7 @@ OSのport候補、接続済み、7ch形式受信、個体情報応答、物理�
 数値はFirmware処理後の受信値であり、raw ADC、N単位、GUIの無次元入力とは別物。受信できたことはセンサ品質や校正の証明ではない。warnが付いた値を正常な測定として認定しない。
 
 ## GUIと操作の競合
-実機と合成の状態を分離し、実機モードで合成調整を実行しない。実機の調整は未対応と明示し、現時点では受信確認と診断のみ公開する。
+実機と合成の状態を分離し、実機モードで合成調整を実行しない。本書のv2モニターは受信確認と診断を担当する。品質付き設定・個人校正は[required-setup-calibration](../architecture/required-setup-calibration.md)の別経路で、v2値をrawや品質既知へ昇格しない。両経路の同時port所有をRustで拒否する。
 Rustがconnection revisionを所有し、connect/read/info/disconnectは期待revisionを照合する。frontendは要求を一つずつ送り、受信中の利用者操作は一つの待機欄へ保持する。読取はボタンを無効化せず、切断は進行中読取の後に実行する。接続session変更時は待機要求を拒否する。通信不明時は現在値を消す。blocking I/OはTauriのUI threadの外で実行する。
 
 ## 検証

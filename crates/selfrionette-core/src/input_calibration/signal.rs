@@ -2,8 +2,10 @@ use super::{
     Context, FirmwareVectorSample, FittedInput, InputError, InputMethod, Matrix, N, Vector,
     elapsed, matrix,
 };
+use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct SignalSettings {
     /// Zero explicitly disables the causal low-pass filter.
     pub time_constant_ms: f64,
@@ -33,8 +35,11 @@ pub struct ConditionedFrame {
 
 /// Explicitly session-bound and method-selected. Any sample error latches invalid.
 /// Rebuilding requires a deliberate caller action; normal input never recalibrates.
-pub struct InputProcessor<'a> {
-    calibration: &'a FittedInput,
+pub struct InputProcessor {
+    calibration: FittedInput,
+    context: Context,
+    session_epoch: u64,
+    baseline: Vector,
     transform: Matrix,
     settings: SignalSettings,
     on: Vector,
@@ -42,11 +47,13 @@ pub struct InputProcessor<'a> {
     previous_timestamp: Option<u32>,
     filtered: Vector,
     active: [bool; N],
+    has_processed_sample: bool,
+    require_neutral_on_first_sample: bool,
     invalidated: bool,
 }
-impl<'a> InputProcessor<'a> {
+impl InputProcessor {
     pub fn new(
-        calibration: &'a FittedInput,
+        calibration: &FittedInput,
         method: InputMethod,
         settings: SignalSettings,
     ) -> Result<Self, InputError> {
@@ -86,16 +93,77 @@ impl<'a> InputProcessor<'a> {
             }
         }
         Ok(Self {
-            calibration,
+            calibration: calibration.clone(),
+            context: calibration.context.clone(),
+            session_epoch: calibration.context.source.epoch,
+            baseline: calibration.summary.baseline_counts,
             transform,
             settings,
             on,
             off,
-            previous_timestamp: None,
+            // Direct replay/runtime construction is still ordered after all
+            // calibration observations. The app's fresh-session constructor
+            // deliberately clears this after rebinding a live epoch.
+            previous_timestamp: Some(calibration.last_calibration_timestamp_ms),
             filtered: [0.0; N],
             active: [false; N],
+            has_processed_sample: false,
+            require_neutral_on_first_sample: true,
             invalidated: false,
         })
+    }
+
+    /// Start a fresh volatile session from a compatible permanent fit and a
+    /// freshly captured neutral. A reconnect/tare/settings change uses a new
+    /// `current_context.source.epoch`; the fitted parameters remain reusable.
+    pub fn new_for_session(
+        calibration: &FittedInput,
+        current_context: Context,
+        neutral: &[f64; N],
+        method: InputMethod,
+        settings: SignalSettings,
+    ) -> Result<Self, InputError> {
+        let fitted = calibration.context();
+        if current_context.source.id != fitted.source.id
+            || current_context.source.firmware != fitted.source.firmware
+            || current_context.source.assembly != fitted.source.assembly
+            || current_context.user != fitted.user
+            || current_context.posture != fitted.posture
+            || current_context.source.epoch == 0
+            || neutral.iter().any(|value| !value.is_finite())
+        {
+            return Err(InputError::InvalidContext);
+        }
+        let mut processor = Self::new(calibration, method, settings)?;
+        processor.session_epoch = current_context.source.epoch;
+        processor.context = current_context;
+        processor.baseline = *neutral;
+        processor.previous_timestamp = None;
+        processor.filtered = [0.0; N];
+        processor.active = [false; N];
+        processor.has_processed_sample = false;
+        processor.require_neutral_on_first_sample = true;
+        processor.invalidated = false;
+        Ok(processor)
+    }
+
+    /// Begin a new explicitly captured verification phase after the initial
+    /// neutral window has been processed. The fitted transform and fresh
+    /// session baseline stay fixed; only filter/timebase state is reset so
+    /// operator pauses between bounded evidence windows do not fabricate a
+    /// sample-gap failure. Live stream processing should never call this.
+    pub fn begin_captured_window(&mut self) -> Result<(), InputError> {
+        if self.invalidated {
+            return Err(InputError::Invalidated);
+        }
+        if !self.has_processed_sample {
+            return Err(InputError::NeutralRequired);
+        }
+        self.previous_timestamp = None;
+        self.filtered = [0.0; N];
+        self.active = [false; N];
+        self.require_neutral_on_first_sample = false;
+        Ok(())
     }
 
     pub fn activation_threshold_counts(&self) -> Vector {
@@ -122,6 +190,7 @@ impl<'a> InputProcessor<'a> {
             self.previous_timestamp = None;
             self.filtered = [0.0; N];
             self.active = [false; N];
+            self.has_processed_sample = false;
         }
         result
     }
@@ -131,26 +200,37 @@ impl<'a> InputProcessor<'a> {
         context: &Context,
         sample: &FirmwareVectorSample,
     ) -> Result<ConditionedFrame, InputError> {
-        if context != &self.calibration.context {
+        if context != &self.context {
             return Err(InputError::InvalidContext);
         }
-        self.calibration
-            .validate_replay_sample(self.previous_timestamp, sample)?;
-        let delta: Vector = std::array::from_fn(|ch| {
-            sample.values[ch] - self.calibration.summary.baseline_counts[ch]
-        });
+        if sample.epoch != self.session_epoch {
+            return Err(InputError::EpochMismatch);
+        }
+        if sample.quality != super::InputQuality::Usable {
+            return Err(InputError::QualityUnusable);
+        }
+        if sample.values.iter().any(|value| !value.is_finite()) {
+            return Err(InputError::NonFinite);
+        }
+        if let Some(previous) = self.previous_timestamp {
+            let dt = elapsed(previous, sample.timestamp_ms)?;
+            if dt > self.calibration.max_sample_gap_ms {
+                return Err(InputError::SampleGap);
+            }
+        }
+        let delta: Vector = std::array::from_fn(|ch| sample.values[ch] - self.baseline[ch]);
         if delta.iter().any(|v| !v.is_finite()) {
             return Err(InputError::NonFinite);
         }
         let estimated = matrix::apply(&self.transform, &delta)?;
+        if !self.has_processed_sample
+            && self.require_neutral_on_first_sample
+            && (0..N).any(|axis| estimated[axis].abs() > self.on[axis])
+        {
+            return Err(InputError::NeutralRequired);
+        }
         let filtered = match self.previous_timestamp {
-            None => {
-                // Calibration observations cannot be replayed as held-out validation.
-                if (0..N).any(|axis| estimated[axis].abs() > self.on[axis]) {
-                    return Err(InputError::NeutralRequired);
-                }
-                estimated
-            }
+            None => estimated,
             Some(previous) => {
                 let dt = elapsed(previous, sample.timestamp_ms)?;
                 let alpha = if self.settings.time_constant_ms == 0.0 {
@@ -207,6 +287,8 @@ impl<'a> InputProcessor<'a> {
         }
         self.filtered = filtered;
         self.previous_timestamp = Some(sample.timestamp_ms);
+        self.has_processed_sample = true;
+        self.require_neutral_on_first_sample = false;
         self.active = active;
         Ok(ConditionedFrame {
             timestamp_ms: sample.timestamp_ms,

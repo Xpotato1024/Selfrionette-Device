@@ -1,5 +1,6 @@
 use core::fmt;
 use core::str::FromStr;
+use serde::{Deserialize, Deserializer, Serialize, Serializer, de};
 
 pub const DEVICE_ID_PREFIX: &str = "srn-";
 pub const DEVICE_ID_BYTES: usize = 16;
@@ -82,6 +83,39 @@ impl fmt::Display for DeviceId {
 impl fmt::Debug for DeviceId {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         fmt::Display::fmt(self, formatter)
+    }
+}
+
+impl Serialize for DeviceId {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer.serialize_str(&self.to_string())
+    }
+}
+
+impl<'de> Deserialize<'de> for DeviceId {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        struct DeviceIdVisitor;
+        impl de::Visitor<'_> for DeviceIdVisitor {
+            type Value = DeviceId;
+
+            fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+                formatter.write_str("a canonical srn- device id")
+            }
+
+            fn visit_str<E>(self, value: &str) -> Result<Self::Value, E>
+            where
+                E: de::Error,
+            {
+                value.parse().map_err(E::custom)
+            }
+        }
+        deserializer.deserialize_str(DeviceIdVisitor)
     }
 }
 

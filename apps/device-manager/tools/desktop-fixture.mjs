@@ -7,7 +7,7 @@ export function installDesktopFixture(options={}) {
  window.fixtureMenu=id=>listeners['manager-menu']?.({payload:id});
  window.fixtureHoldRead=false;window.fixtureReleaseRead=null;
  const synthetic={id:'srn-11111111111111111111111111111111',role:'left',phase:'not_started',epoch:0,rows:[],operations:[],token:{},steps:['基準','応答・範囲','入力比較','結果確認','記録'].map((label,i)=>({label,state:i?'pending':'current'}))};
- window.__TAURI__={event:{listen:async(name,handler)=>{listeners[name]=handler;return ()=>{};}},core:{invoke:async(name,{request}={})=>{
+ window.__TAURI__={event:{listen:async(name,handler)=>{listeners[name]=handler;return ()=>{};}},core:{invoke:async(name,{request,command}={})=>{
   window.fixtureRequests.push({name,request:structuredClone(request)});
   if(name==='mode_command'){
    const c=request.command,m=window.testMode;
@@ -21,6 +21,11 @@ export function installDesktopFixture(options={}) {
    return structuredClone(m);
   }
   if(name==='application_info')return {product_name:'Selfrionette Device Manager',version:options.version??'表示試験',publisher:'Xpotato.net',homepage:'https://xpotato.net'};
+  if(name==='application_command'){
+   if(command.action==='ports')return {ports:structuredClone(window.testFeed.ports)};
+   if(command.action==='snapshot'||command.action==='disconnect')return {view:{connected:false,ready:false}};
+   throw Error('表示fixtureでは装置設定・実個人校正は実行できません。');
+  }
   if(name==='device_command'){if(!window.testMode.developer||window.testMode.source!=='synthetic')throw Error('synthetic gate');return {view:structuredClone(synthetic),error:null};}
   if(name!=='hardware_command')throw Error('Unexpected test command '+name);
   const c=request.command,v=window.testFeed;

@@ -1,7 +1,7 @@
 ---
-status: draft
+status: canonical
 owner: firmware
-last_verified: 2026-10-13
+last_verified: 2026-10-16
 related:
   - docs/contracts/device-identity.md
   - docs/contracts/firmware-memory-budget.md
@@ -10,9 +10,8 @@ related:
 # 装置固有設定の保存・適用契約
 
 ## 状態と適用範囲
-本書は新しい装置設定のcontract案である。合成previewのPC保存recordとは別物。
-最初の実装はハードウェア非依存のC++ journalと試験用store。現行v2の起動・serial command・EEPROMは変更しない。
-実機への接続・書込み、配線/正方向確認、Firmware内の適用・新出力protocolへの結線は後続受入。
+このcontractはfirmware protocol v3のdevice settings journalを定義する。合成previewのPC保存recordとは別物。
+firmwareのsoftware implementationはboundedなC++ journalとEEPROM adapterで構成する。実機への接続・書込み、配線/正方向確認、物理極性の受入は別途のhardware validationである。
 
 ## 値の意味
 補正前domain 1はHX711由来の符号付き24-bit ADC count。旧v2の一律negation後の値をdomain 1として再利用しない。
@@ -62,7 +61,7 @@ CRCは破損検出のみ。物理校正、真正性、正しい配線を証明�
 
 任意のupdateで失敗したら成功を返さない。旧active slotは変更しない。
 実機adapterはEEPROM.update相当の有限処理を使用する。保存は明示操作のみで、毎sample/毎起動では実行しない。
-書込み中の取得停止、configuration epoch更新、tare/旧preview失効、commit acknowledgementは後続のFirmware結線で必須。
+firmwareはv3 settings write中にtareを開始させず、commit/readback後にgenerationを応答する。実変更ではsession tareを失効する。
 
 ## 受入
 format golden vector、部分確認、ID不一致、未知schema、CRC破損、同世代競合、generation上限、same-value no-write、stale generation、全byte更新境界の中断から再起動、identity領域不変を試験する。
