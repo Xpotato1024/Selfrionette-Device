@@ -32,6 +32,10 @@ impl Temp {
 }
 impl Drop for Temp {
     fn drop(&mut self) {
+        // A containing runner may retain fixtures for inspection without cleanup.
+        if std::env::var_os("SELFRIONETTE_KEEP_TEST_ARTIFACTS").is_some() {
+            return;
+        }
         let _ = fs::remove_file(&self.0);
         let _ = fs::remove_dir(self.0.parent().unwrap());
     }
@@ -197,6 +201,49 @@ fn unavailable_compensation_is_reported_without_substituting_diagonal_results() 
     assert_eq!(report["comparison"]["coupled"]["available"], false);
     assert_eq!(report["comparison"]["diagonal"]["available"], true);
     assert!(report["comparison"]["coupled"]["metrics"].is_null());
+}
+
+#[test]
+fn unavailable_methods_still_require_valid_replay_evidence() {
+    let mut valid = input(true);
+    valid["signal"]["noise_multiplier"] = json!(1e300);
+    let (output, _) = invoke(&valid);
+    assert!(output.status.success());
+    let report: Value = serde_json::from_slice(&output.stdout).unwrap();
+    for method in ["diagonal", "coupled"] {
+        assert_eq!(report["comparison"][method]["available"], false);
+        assert!(report["comparison"][method]["metrics"].is_null());
+        assert_eq!(report["comparison"][method]["trace"], json!([]));
+    }
+    for (kind, expected) in [
+        ("quality", "QualityUnusable"),
+        ("epoch", "EpochMismatch"),
+        ("reused timestamp", "TimestampOrder"),
+        ("duplicate timestamp", "TimestampOrder"),
+        ("backward timestamp", "TimestampOrder"),
+        ("gap", "SampleGap"),
+    ] {
+        let mut invalid = valid.clone();
+        let first = valid["replay"][0]["sample"]["timestamp_ms"]
+            .as_u64()
+            .unwrap();
+        match kind {
+            "quality" => invalid["replay"][1]["sample"]["quality"] = json!("unknown"),
+            "epoch" => invalid["replay"][1]["sample"]["epoch"] = json!(99),
+            "reused timestamp" => invalid["replay"][0]["sample"] = valid["neutral"][0].clone(),
+            "duplicate timestamp" => invalid["replay"][1]["sample"]["timestamp_ms"] = json!(first),
+            "backward timestamp" => {
+                invalid["replay"][1]["sample"]["timestamp_ms"] = json!(first - 1)
+            }
+            "gap" => invalid["replay"][1]["sample"]["timestamp_ms"] = json!(first + 101),
+            _ => unreachable!(),
+        }
+        let (output, _) = invoke(&invalid);
+        assert_eq!(output.status.code(), Some(1), "{kind}");
+        assert!(output.stdout.is_empty(), "{kind}");
+        let error = String::from_utf8_lossy(&output.stderr);
+        assert!(error.contains(expected), "{kind}: {error}");
+    }
 }
 
 #[test]

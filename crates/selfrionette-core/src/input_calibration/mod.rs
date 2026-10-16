@@ -157,6 +157,35 @@ impl FittedInput {
     pub const fn control_ready(&self) -> bool {
         false
     }
+    /// Validate held-out evidence even when neither signal method is available.
+    /// Method-specific neutral/transform checks still belong to InputProcessor.
+    pub fn validate_replay(&self, samples: &[FirmwareVectorSample]) -> Result<(), InputError> {
+        if samples.is_empty() || samples.len() > MAX_REPLAY_SAMPLES {
+            return Err(InputError::Bounds);
+        }
+        let mut previous = None;
+        for sample in samples {
+            self.validate_replay_sample(previous, sample)?;
+            previous = Some(sample.timestamp_ms);
+        }
+        Ok(())
+    }
+
+    fn validate_replay_sample(
+        &self,
+        previous: Option<u32>,
+        sample: &FirmwareVectorSample,
+    ) -> Result<(), InputError> {
+        validate_sample(sample, self.context.source.epoch)?;
+        let dt = elapsed(
+            previous.unwrap_or(self.last_calibration_timestamp_ms),
+            sample.timestamp_ms,
+        )?;
+        if previous.is_some() && dt > self.max_sample_gap_ms {
+            return Err(InputError::SampleGap);
+        }
+        Ok(())
+    }
     fn transform(&self, method: InputMethod) -> Result<Matrix, InputError> {
         match method {
             InputMethod::Diagonal => {

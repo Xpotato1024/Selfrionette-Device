@@ -608,6 +608,74 @@ fn provisional_probe(i: usize) -> (&'static str, &'static str) {
 fn usage() -> CliError {
     CliError::Usage("field-test template <new-plan.json> | preview <plan.json> | capture <plan.json> --port <port> --out <NEW-directory> --yes-open".into())
 }
+fn finalize<W: Write>(
+    log: &mut Log<W>,
+    dir: &Path,
+    schedule: &[Stage],
+    observation: &Observation,
+    mut result: Result<(), String>,
+) -> Result<(), String> {
+    let outcome = if result.is_err() {
+        "aborted"
+    } else {
+        "completed_observation"
+    };
+    // A full event budget must not bypass flushing or structured abort outputs.
+    // Keep the capture reason first and retain any actual write/flush failures.
+    let end = log.event(json!({"event":"end","outcome":outcome,"error":result.as_ref().err()}));
+    let flush = log.flush();
+    for (label, step) in [("end event", end), ("log flush", flush)] {
+        if let Err(error) = step {
+            append_failure(&mut result, label, error);
+        }
+    }
+    let outcome = if result.is_err() {
+        "aborted"
+    } else {
+        "completed_observation"
+    };
+    let report = observation.report(
+        schedule,
+        outcome,
+        result.as_ref().err().map(String::as_str),
+        "recorded",
+    );
+    for (label, step) in [
+        (
+            "summary.json",
+            write_new(&dir.join("summary.json"), &report),
+        ),
+        (
+            "review.md",
+            write_text_new(
+                &dir.join("review.md"),
+                &observation.review(schedule, outcome),
+            ),
+        ),
+        (
+            "notes.txt",
+            write_text_new(
+                &dir.join("notes.txt"),
+                "指・方向と操作軸0～6の対応:\n写真ファイル名:\n指示と違う入力になった区間:\n再試行する区間:\n痛み・疲労・姿勢変化:\n",
+            ),
+        ),
+    ] {
+        if let Err(error) = step {
+            append_failure(&mut result, label, error);
+        }
+    }
+    result
+}
+fn append_failure(result: &mut Result<(), String>, label: &str, error: String) {
+    let failure = format!("{label}: {error}");
+    match result {
+        Err(original) => {
+            original.push_str("; ");
+            original.push_str(&failure);
+        }
+        Ok(()) => *result = Err(failure),
+    }
+}
 pub(crate) fn run(args: &[String]) -> Result<(), CliError> {
     let fail = |e: String| CliError::Failure(format!("field-test: {e}"));
     match args {
@@ -694,7 +762,7 @@ pub(crate) fn run(args: &[String]) -> Result<(), CliError> {
                 let start = Instant::now();
                 log.event(json!({"event":"serial_dtr_asserted","host_ms":0,"port":port}))?;
                 log.flush()?;
-                let receiver = guided::console_actions();
+                let receiver = guided::console_actions()?;
                 guided::collect(
                     &mut transport,
                     &schedule,
@@ -705,15 +773,17 @@ pub(crate) fn run(args: &[String]) -> Result<(), CliError> {
                     |gate| receiver.poll(gate),
                     |s, waiting| {
                         if waiting {
-                            println!("\n----------------------------------------");
-                            println!("次の試行: {}", s.label.trim_end_matches("/prepare"));
-                            println!("操作: {}", s.instruction);
-                            println!("実機の指と方向を確認。できない場合はスキップしてください。");
-                            println!("Enter=準備完了 / s+Enter=スキップ / q+Enter=中止");
+                            println!("\r\n----------------------------------------\r");
+                            println!("次の試行: {}\r", s.label.trim_end_matches("/prepare"));
+                            println!("操作: {}\r", s.instruction);
+                            println!(
+                                "実機の指と方向を確認。できない場合はスキップしてください。\r"
+                            );
+                            println!("Enter=準備完了 / s+Enter=スキップ / q+Enter=中止\r");
                             return;
                         }
                         println!(
-                            "\x07[{:02}:{:02}] {} ({}秒)",
+                            "\x07[{:02}:{:02}] {} ({}秒)\r",
                             s.start_ms / 60000,
                             (s.start_ms / 1000) % 60,
                             s.instruction,
@@ -722,27 +792,12 @@ pub(crate) fn run(args: &[String]) -> Result<(), CliError> {
                     },
                 )
             })();
+            let result = finalize(&mut log, dir, &schedule, &observation, result);
             let outcome = if result.is_err() {
                 "aborted"
             } else {
                 "completed_observation"
             };
-            let report = observation.report(
-                &schedule,
-                outcome,
-                result.as_ref().err().map(String::as_str),
-                "recorded",
-            );
-            log.event(json!({"event":"end","outcome":outcome,"error":result.as_ref().err()}))
-                .map_err(fail)?;
-            log.flush().map_err(fail)?;
-            write_new(&dir.join("summary.json"), &report).map_err(fail)?;
-            write_text_new(
-                &dir.join("review.md"),
-                &observation.review(&schedule, outcome),
-            )
-            .map_err(fail)?;
-            write_text_new(&dir.join("notes.txt"),"指・方向と操作軸0～6の対応:\n写真ファイル名:\n指示と違う入力になった区間:\n再試行する区間:\n痛み・疲労・姿勢変化:\n").map_err(fail)?;
             println!(
                 "{outcome}: {} total vectors / {} scored / {} unscored / {} warnings。校正済みとは判定しません。",
                 observation.vectors,

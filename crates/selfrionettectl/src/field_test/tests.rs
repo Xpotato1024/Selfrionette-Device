@@ -227,6 +227,182 @@ fn budget_and_write_errors_are_not_silent() {
     }
     assert!(Log::new(Bad).event(json!({"x":1})).is_err());
 }
+
+fn output_directory(label: &str) -> std::path::PathBuf {
+    let stamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let dir = std::env::temp_dir().join(format!("field-{label}-{}-{stamp}", std::process::id()));
+    fs::create_dir(&dir).unwrap();
+    // Retained by the containing runner for review; this test never cleans up.
+    dir
+}
+
+#[test]
+fn real_capture_log_budget_abort_still_flushes_and_writes_structured_outputs() {
+    struct Tracked<W> {
+        out: W,
+        bytes: Rc<Cell<usize>>,
+        flushes: Rc<Cell<usize>>,
+    }
+    impl<W: Write> Write for Tracked<W> {
+        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+            let written = self.out.write(bytes)?;
+            self.bytes.set(self.bytes.get() + written);
+            Ok(written)
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            self.flushes.set(self.flushes.get() + 1);
+            self.out.flush()
+        }
+    }
+    struct FullCapture {
+        reads: u64,
+        bytes: Rc<Cell<usize>>,
+    }
+    impl LineTransport for FullCapture {
+        fn discard_input(&mut self) -> Result<(), TransportError> {
+            panic!("no discard")
+        }
+        fn write_line(&mut self, _: &str) -> Result<(), TransportError> {
+            panic!("no write")
+        }
+        fn read_line(&mut self, _: Duration) -> Result<String, TransportError> {
+            self.reads += 1;
+            if self.reads == 1 {
+                Ok("vector,1,0,0,0,0,0,0,0".into())
+            } else {
+                // Ordinary bounded unknown wire lines; make the last wire
+                // record fit exactly so its parsed record exhausts the budget.
+                let overhead = serde_json::to_vec(&json!({"event":"wire", "host_ms":0,
+                    "schedule_ms":0,"stage_index":0,"line":""}))
+                .unwrap()
+                .len()
+                    + 1;
+                let remaining = MAX_LOG_BYTES - self.bytes.get();
+                Ok("x".repeat(remaining.saturating_sub(overhead).min(1024)))
+            }
+        }
+    }
+    let dir = output_directory("log-budget");
+    let file = OpenOptions::new()
+        .create_new(true)
+        .write(true)
+        .open(dir.join("events.jsonl"))
+        .unwrap();
+    let bytes = Rc::new(Cell::new(0));
+    let flushes = Rc::new(Cell::new(0));
+    let mut log = Log::new(Tracked {
+        out: BufWriter::new(file),
+        bytes: bytes.clone(),
+        flushes: flushes.clone(),
+    });
+    let mut transport = FullCapture { reads: 0, bytes };
+    let stages = stages(&configured());
+    let mut observation = Observation::new(stages.len() + 1);
+    let result = guided::collect(
+        &mut transport,
+        &stages,
+        &mut log,
+        &mut observation,
+        || 0,
+        || false,
+        |_| None,
+        |_, _| {},
+    );
+    assert_eq!(
+        result.as_ref().map_err(String::as_str),
+        Err("64 MiB log budget reached")
+    );
+    assert!(transport.reads > 50_000 && transport.reads < MAX_LINES as u64);
+    let buffered = log.bytes as u64;
+    assert_eq!(MAX_LOG_BYTES - log.bytes, 0);
+    let previous_flushes = flushes.get();
+    let error = finalize(&mut log, &dir, &stages, &observation, result).unwrap_err();
+    assert!(error.starts_with("64 MiB log budget reached"), "{error}");
+    assert!(flushes.get() > previous_flushes);
+    assert_eq!(
+        fs::metadata(dir.join("events.jsonl")).unwrap().len(),
+        log.bytes as u64
+    );
+    assert!(log.bytes as u64 >= buffered && log.bytes <= MAX_LOG_BYTES);
+    let report: Value =
+        serde_json::from_slice(&fs::read(dir.join("summary.json")).unwrap()).unwrap();
+    assert_eq!(report["outcome"], "aborted");
+    assert!(
+        report["error"]
+            .as_str()
+            .unwrap()
+            .starts_with("64 MiB log budget reached")
+    );
+    assert_eq!(report["total_vectors"], 1);
+    assert_eq!(report["hardware_verified"], false);
+    assert!(
+        fs::read_to_string(dir.join("review.md"))
+            .unwrap()
+            .contains("aborted")
+    );
+    assert!(
+        fs::read_to_string(dir.join("notes.txt"))
+            .unwrap()
+            .contains("再試行")
+    );
+}
+
+#[test]
+fn finalization_disk_failures_abort_and_preserve_the_capture_reason() {
+    struct FailingLog {
+        write_fails: bool,
+        flushes: usize,
+    }
+    impl Write for FailingLog {
+        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+            if self.write_fails {
+                Err(std::io::Error::other("disk write failure"))
+            } else {
+                Ok(bytes.len())
+            }
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            self.flushes += 1;
+            Err(std::io::Error::other("disk flush failure"))
+        }
+    }
+    for write_fails in [false, true] {
+        for capture_failed in [false, true] {
+            let dir = output_directory("disk-failure");
+            let stages = stages(&configured());
+            let observation = Observation::new(stages.len() + 1);
+            let mut log = Log::new(FailingLog {
+                write_fails,
+                flushes: 0,
+            });
+            let result = if capture_failed {
+                Err("original capture failure".into())
+            } else {
+                Ok(())
+            };
+            let error = finalize(&mut log, &dir, &stages, &observation, result).unwrap_err();
+            assert_eq!(log.out.flushes, 1);
+            assert!(error.contains("disk flush failure"));
+            assert_eq!(error.contains("disk write failure"), write_fails);
+            if capture_failed {
+                assert!(error.starts_with("original capture failure"));
+            }
+            let report: Value =
+                serde_json::from_slice(&fs::read(dir.join("summary.json")).unwrap()).unwrap();
+            assert_eq!(report["outcome"], "aborted");
+            assert_eq!(report["error"], error);
+            assert!(
+                fs::read_to_string(dir.join("review.md"))
+                    .unwrap()
+                    .contains("aborted")
+            );
+            assert!(dir.join("notes.txt").is_file());
+        }
+    }
+}
 #[test]
 fn invalid_hardware_arguments_fail_before_io() {
     for args in [
