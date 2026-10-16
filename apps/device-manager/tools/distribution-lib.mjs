@@ -5,6 +5,10 @@ import { createHash } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 
 export const sha256 = data => createHash('sha256').update(data).digest('hex');
+export function validateGpl2Notice(bytes) {
+  const text = bytes.toString('utf8').trimStart();
+  if (!text.startsWith('GNU GENERAL PUBLIC LICENSE') || !text.includes('Version 2, June 1991')) throw Error('Expected the upstream GPL version 2 notice');
+}
 export function verifyBundledUpdaterResources(applicationRoot, buildInfo) {
   const check = (record, fileField, hashField, expectedFile, label) => {
     if (!record || record[fileField] !== expectedFile) throw Error(`Build metadata has an invalid ${label} path.`);
@@ -22,6 +26,7 @@ export function verifyBundledUpdaterResources(applicationRoot, buildInfo) {
   check(runtime, 'executable_file', 'executable_sha256', 'distribution/firmware-tools/avrdude.exe', 'AVRDUDE executable');
   check(runtime, 'configuration_file', 'configuration_sha256', 'distribution/firmware-tools/avrdude.conf', 'AVRDUDE configuration');
   check(runtime, 'license_file', 'license_sha256', 'distribution/firmware-tools/AVRDUDE-COPYING.txt', 'AVRDUDE COPYING');
+  check(runtime, 'source_archive_file', 'source_archive_sha256', 'distribution/firmware-tools/AVRDUDE-SOURCE.zip', 'AVRDUDE source archive');
   check(buildInfo.third_party_notices, 'file', 'sha256', 'distribution/THIRD-PARTY-NOTICES.txt', 'combined third-party notice');
   let manifest;
   try { manifest = JSON.parse(manifestBytes.toString('utf8')); }

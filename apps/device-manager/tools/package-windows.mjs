@@ -4,7 +4,7 @@ import {readFileSync,writeFileSync,mkdirSync,readdirSync,cpSync,copyFileSync,exi
 import {resolve,join,sep,isAbsolute} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {execFileSync,spawnSync} from 'node:child_process';
-import {prependWindowsSearchPath,sha256,inspectPE,inspectConsolePE,mergePackageMetadata,collectNotices,zipDirectory,extractZip,executableMetadata} from './distribution-lib.mjs';
+import {validateGpl2Notice,prependWindowsSearchPath,sha256,inspectPE,inspectConsolePE,mergePackageMetadata,collectNotices,zipDirectory,extractZip,executableMetadata} from './distribution-lib.mjs';
 
 const APP_VERSION='0.2.0-preview.1';
 const FIRMWARE_APPLICATION='selfrionette-loadcell-7ch';
@@ -19,6 +19,8 @@ const AVRDUDE_ARCHIVE_URL='https://github.com/avrdudes/avrdude/releases/download
 const AVRDUDE_ARCHIVE_SHA256='8630c7d8bb9682a1685aaa9ad42550ae1131c9d13528f0d20975368ba615e9b0';
 const AVRDUDE_COPYING_URL=`https://raw.githubusercontent.com/avrdudes/avrdude/${AVRDUDE_SOURCE_COMMIT}/COPYING`;
 const AVRDUDE_COPYING_MAX_BYTES=64*1024;
+const AVRDUDE_SOURCE_ARCHIVE_URL='https://codeload.github.com/avrdudes/avrdude/zip/'+AVRDUDE_SOURCE_COMMIT;
+const AVRDUDE_SOURCE_ARCHIVE_SHA256='aa255d1750e168226d31dcb44be723c4023503b3a0805447032567da0febe455';
 const CLI_PACKAGE='selfrionettectl';
 const CLI_EXECUTABLE='selfrionettectl.exe';
 
@@ -177,8 +179,10 @@ async function build(){
  const avrdudeExeHash=hashFile(join(firmwareTools,'avrdude.exe'));
  const avrdudeConfHash=hashFile(join(firmwareTools,'avrdude.conf'));
  const copying=await fetchPinned(AVRDUDE_COPYING_URL,AVRDUDE_COPYING_MAX_BYTES);
- const copyingText=copying.toString('utf8');
- if(!copyingText.startsWith('GNU GENERAL PUBLIC LICENSE')||!copyingText.includes('Version 2, June 1991'))throw Error('The pinned AVRDUDE COPYING file is not the expected GPL version 2 text.');
+ validateGpl2Notice(copying);
+ const sourceArchive=await fetchPinned(AVRDUDE_SOURCE_ARCHIVE_URL,16*1024*1024);
+ if(sha256(sourceArchive)!==AVRDUDE_SOURCE_ARCHIVE_SHA256)throw Error('The pinned AVRDUDE source archive checksum does not match.');
+ writeFileSync(join(firmwareTools,'AVRDUDE-SOURCE.zip'),sourceArchive,{flag:'wx'});
  writeFileSync(join(firmwareTools,'AVRDUDE-COPYING.txt'),copying,{flag:'wx'});
 
  const resourceRoot=join(packageWork,'resources');
@@ -194,7 +198,7 @@ async function build(){
   'Source commit: https://github.com/avrdudes/avrdude/commit/'+AVRDUDE_SOURCE_COMMIT+'\n'+
   'Release archive: '+AVRDUDE_ARCHIVE_URL+'\n'+
   'Archive SHA-256: '+AVRDUDE_ARCHIVE_SHA256+'\n'+
-  'License: GNU General Public License version 2; full upstream COPYING is included as AVRDUDE-COPYING.txt.\n';
+  'License: GNU General Public License version 2; full upstream COPYING and corresponding source are included as AVRDUDE-COPYING.txt and AVRDUDE-SOURCE.zip.\n';
  writeFileSync(join(resourceRoot,'THIRD-PARTY-NOTICES.txt'),notices.text,{flag:'wx'});
  writeFileSync(join(resourceRoot,'DEPENDENCIES.json'),JSON.stringify(notices.inventory,null,2)+'\n',{flag:'wx'});
  copyFileSync(join(repo,'docs/operations/device-manager-distribution.md'),join(resourceRoot,'README.md'));
@@ -213,7 +217,8 @@ async function build(){
   updater_runtime:{name:'avrdude',version:AVRDUDE_VERSION,source_commit:AVRDUDE_SOURCE_COMMIT,archive_url:AVRDUDE_ARCHIVE_URL,
    archive_sha256:AVRDUDE_ARCHIVE_SHA256,executable_file:'distribution/firmware-tools/avrdude.exe',
    executable_sha256:avrdudeExeHash,configuration_file:'distribution/firmware-tools/avrdude.conf',configuration_sha256:avrdudeConfHash,
-   license:'GPL-2.0',license_file:'distribution/firmware-tools/AVRDUDE-COPYING.txt',license_sha256:sha256(copying)},
+   license:'GPL-2.0',license_file:'distribution/firmware-tools/AVRDUDE-COPYING.txt',license_sha256:sha256(copying),
+   source_archive_file:'distribution/firmware-tools/AVRDUDE-SOURCE.zip',source_archive_sha256:AVRDUDE_SOURCE_ARCHIVE_SHA256,source_archive_url:AVRDUDE_SOURCE_ARCHIVE_URL},
   third_party_notices:{file:'distribution/THIRD-PARTY-NOTICES.txt',sha256:sha256(Buffer.from(notices.text,'utf8'))},
   cli:{package:CLI_PACKAGE,version:cliPackage.version,file:'distribution/'+CLI_EXECUTABLE,executable_sha256:cliSha256,
    target:'x86_64-pc-windows-msvc',profile:'release',runtime:'static C runtime',pe:cliPe},

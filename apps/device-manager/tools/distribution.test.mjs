@@ -6,7 +6,7 @@ import test from 'node:test';import assert from 'node:assert/strict';import {rea
 import {createHash} from 'node:crypto';
 import {spawnSync} from 'node:child_process';
 import {fileURLToPath} from 'node:url';
-import {prependWindowsSearchPath,inspectPE,inspectConsolePE,mergePackageMetadata,runtimeEnvironment,sha256,verifyBundledUpdaterResources,zipDirectory,extractZip,executableMetadata,supplementalCrateLicenses} from './distribution-lib.mjs';
+import {validateGpl2Notice,prependWindowsSearchPath,inspectPE,inspectConsolePE,mergePackageMetadata,runtimeEnvironment,sha256,verifyBundledUpdaterResources,zipDirectory,extractZip,executableMetadata,supplementalCrateLicenses} from './distribution-lib.mjs';
 function image(dll='KERNEL32.dll') {
  const b=Buffer.alloc(1024);b.writeUInt16LE(0x5a4d,0);b.writeUInt32LE(0x80,0x3c);b.writeUInt32LE(0x4550,0x80);
  b.writeUInt16LE(0x8664,0x84);b.writeUInt16LE(1,0x86);b.writeUInt16LE(240,0x94);b.writeUInt16LE(0x20b,0x98);
@@ -65,6 +65,7 @@ test('bundled updater files and both notice payloads match BUILD-INFO hashes',()
   const executableRecord=put('distribution/firmware-tools/avrdude.exe',Buffer.from('avrdude'));
   const configRecord=put('distribution/firmware-tools/avrdude.conf',Buffer.from('config'));
   const licenseRecord=put('distribution/firmware-tools/AVRDUDE-COPYING.txt',Buffer.from('GPL'));
+  const sourceRecord=put('distribution/firmware-tools/AVRDUDE-SOURCE.zip',Buffer.from('pinned source archive'));
   const combinedNoticeRecord=put('distribution/THIRD-PARTY-NOTICES.txt',combinedNotice);
   const info={application_version:applicationVersion,source_commit:sourceCommit,
    firmware:{...manifestRecord,manifest_file:manifestRecord.file,manifest_sha256:manifestRecord.sha256,
@@ -72,11 +73,14 @@ test('bundled updater files and both notice payloads match BUILD-INFO hashes',()
     notice_file:firmwareNoticeRecord.file,notice_sha256:firmwareNoticeRecord.sha256},
    updater_runtime:{executable_file:executableRecord.file,executable_sha256:executableRecord.sha256,
     configuration_file:configRecord.file,configuration_sha256:configRecord.sha256,
-    license_file:licenseRecord.file,license_sha256:licenseRecord.sha256},
+    license_file:licenseRecord.file,license_sha256:licenseRecord.sha256,source_archive_file:sourceRecord.file,source_archive_sha256:sourceRecord.sha256},
    third_party_notices:combinedNoticeRecord};
   const verified=verifyBundledUpdaterResources(run,info);
   assert.deepEqual(verified.manifest,JSON.parse(manifest.toString('utf8')));
   assert(verified.imageBytes.equals(firmware));
+  writeFileSync(join(run,sourceRecord.file),'changed source');
+  assert.throws(()=>verifyBundledUpdaterResources(run,info),/AVRDUDE source archive/);
+  writeFileSync(join(run,sourceRecord.file),'pinned source archive');
   writeFileSync(join(run,'distribution/firmware-tools/avrdude.conf'),'changed');
   assert.throws(()=>verifyBundledUpdaterResources(run,info),/AVRDUDE configuration/);
  } finally {rmSync(run,{recursive:true,force:true});}
@@ -217,3 +221,6 @@ test('release staging accepts only matching verified bytes and license-complete 
 
 test('Windows packaging preserves PATH in any casing without duplicate keys',()=>{for(const key of ['PATH','Path','path']){const input={[key]:'C:/cargo/bin;C:/Windows',OTHER:'kept'};const env=prependWindowsSearchPath(input,'C:/venv/Scripts');assert.equal(env.PATH,'C:/venv/Scripts;C:/cargo/bin;C:/Windows');assert.deepEqual(Object.keys(env).filter(k=>k.toUpperCase()==='PATH'),['PATH']);assert.equal(input[key],'C:/cargo/bin;C:/Windows');assert.equal(env.OTHER,'kept');}assert.throws(()=>prependWindowsSearchPath({PATH:'a',Path:'b'},'first'),/Conflicting/);assert.equal(prependWindowsSearchPath({PATH:'same',Path:'same'},'first').PATH,'first;same');const source=readFileSync(new URL('./package-windows.mjs',import.meta.url),'utf8');assert(source.includes("buildEnv=prependWindowsSearchPath(buildEnv,join(pythonEnv,'Scripts'))"));});
 test('Windows packaged child retains executables from inherited Path after venv insertion',()=>{if(process.platform!=='win32')return;const env=Object.fromEntries(Object.entries(process.env).filter(([key])=>key.toUpperCase()!=='PATH'));env.Path=process.env.PATH;const child=spawnSync('node.exe',['-e',"process.stdout.write('path-kept')"],{env:prependWindowsSearchPath(env,join(tmpdir(),'srn-nonexistent-venv')),encoding:'utf8',timeout:10000});assert.ifError(child.error);assert.equal(child.status,0,child.stderr);assert.equal(child.stdout,'path-kept');});
+
+test('upstream GPL2 heading permits its original indentation without mutating bytes',()=>{for(const prefix of ['', '                    ','\ufeff\r\n  ']){const bytes=Buffer.from(prefix+'GNU GENERAL PUBLIC LICENSE\nVersion 2, June 1991\n');const copy=Buffer.from(bytes);assert.doesNotThrow(()=>validateGpl2Notice(bytes));assert(bytes.equals(copy));}for(const text of ['GNU GENERAL PUBLIC LICENSE\nVersion 3','not a license',''])assert.throws(()=>validateGpl2Notice(Buffer.from(text)),/GPL version 2/);});
+test('updater package includes its pinned corresponding source and original license',()=>{const source=readFileSync(new URL('./package-windows.mjs',import.meta.url),'utf8');assert(source.includes('validateGpl2Notice(copying)'));assert(source.includes('aa255d1750e168226d31dcb44be723c4023503b3a0805447032567da0febe455'));assert(source.includes("'AVRDUDE-SOURCE.zip'"));assert(source.includes('source_archive_sha256:AVRDUDE_SOURCE_ARCHIVE_SHA256'));});
