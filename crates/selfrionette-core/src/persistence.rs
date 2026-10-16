@@ -8,13 +8,13 @@ use std::{
 };
 pub const MAX_RECORD_BYTES: usize = 32768;
 pub const MAX_RECORDS_PER_ID: usize = 32;
-fn hex(s: &str) -> Result<String, String> {
+pub(crate) fn hex(s: &str) -> Result<String, String> {
     if s.trim().is_empty() || s.len() > 1024 {
         return Err("empty/oversize metadata".into());
     }
     Ok(s.as_bytes().iter().map(|b| format!("{b:02x}")).collect())
 }
-fn unhex(s: &str) -> Result<String, String> {
+pub(crate) fn unhex(s: &str) -> Result<String, String> {
     if !s.is_ascii() || s.is_empty() || s.len() > 2048 || s.len() % 2 != 0 {
         return Err("invalid metadata encoding".into());
     }

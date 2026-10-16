@@ -4,6 +4,8 @@ pub mod input_calibration;
 pub mod legacy;
 pub mod persistence;
 pub mod protocol;
+pub mod setup;
+pub mod setup_persistence;
 
 pub use identity::{DeviceId, DeviceIdParseError};
 pub use protocol::{
