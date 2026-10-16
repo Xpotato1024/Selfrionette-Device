@@ -239,6 +239,8 @@ fn build_report(input: Input) -> Result<Value, CliError> {
             .collect(),
     };
     let fitted = fit(&recording, &input.limits.core()).map_err(failure)?;
+    let replay_samples: Vec<_> = input.replay.iter().map(|s| s.sample.core()).collect();
+    fitted.validate_replay(&replay_samples).map_err(failure)?;
     let summary = fitted.summary();
     let diagonal = evaluate(
         &fitted,

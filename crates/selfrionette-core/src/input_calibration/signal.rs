@@ -1,6 +1,6 @@
 use super::{
     Context, FirmwareVectorSample, FittedInput, InputError, InputMethod, Matrix, N, Vector,
-    elapsed, matrix, validate_sample,
+    elapsed, matrix,
 };
 
 #[derive(Clone, Copy, Debug)]
@@ -134,7 +134,8 @@ impl<'a> InputProcessor<'a> {
         if context != &self.calibration.context {
             return Err(InputError::InvalidContext);
         }
-        validate_sample(sample, context.source.epoch)?;
+        self.calibration
+            .validate_replay_sample(self.previous_timestamp, sample)?;
         let delta: Vector = std::array::from_fn(|ch| {
             sample.values[ch] - self.calibration.summary.baseline_counts[ch]
         });
@@ -145,10 +146,6 @@ impl<'a> InputProcessor<'a> {
         let filtered = match self.previous_timestamp {
             None => {
                 // Calibration observations cannot be replayed as held-out validation.
-                elapsed(
-                    self.calibration.last_calibration_timestamp_ms,
-                    sample.timestamp_ms,
-                )?;
                 if (0..N).any(|axis| estimated[axis].abs() > self.on[axis]) {
                     return Err(InputError::NeutralRequired);
                 }
@@ -156,9 +153,6 @@ impl<'a> InputProcessor<'a> {
             }
             Some(previous) => {
                 let dt = elapsed(previous, sample.timestamp_ms)?;
-                if dt > self.calibration.max_sample_gap_ms {
-                    return Err(InputError::SampleGap);
-                }
                 let alpha = if self.settings.time_constant_ms == 0.0 {
                     1.0
                 } else {

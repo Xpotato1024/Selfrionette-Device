@@ -164,6 +164,9 @@ OS列挙との照合、計画、出力先の検証後に開く。自動接続・
 hostはserial/OS内のbuffer滞留や実際の荷重開始を確定できない。集計対象という分類はusable品質の認定ではない。
 ログ64MiB・100000受信行・固定scheduleの有限性を守る。全sampleのメモリ蓄積はせず、区間統計だけを保持する。
 通常の中断では既存ログと中断理由を保存する。I/O失敗時は成功表示をしない。
+ログ上限に達して終了eventが収まらない場合もflushを試み、ディスクが正常ならsummary.json・review.md・notes.txtを中断結果として保存する。元の中断理由を保持し、終了event・flushの失敗は追記する。
+準備待ちへの切替をまたいだ入力、待機外のEnter/s、受付済みの追加入力は承認に使わない。受付不可の案内が出たら画面の準備待ちを確認し、開始はEnterをもう一度、スキップはs+Enterをもう一度押す。次の試行への承認は予約されない。q+Enterの中止は切替中も保持する。
+承認入力にはkey-releaseを取得できる対話terminalが必要で、stdinのファイル/pipeによる事前承認は受け付けない。Windows console以外ではkeyboard enhancement対応を確認し、対応しなければ中断する。gateが変わるごとにkeyboard queueが空になったことを確認してから新しい入力を受け付ける。読込み済みの複数行や部分行を新しいgateへ移さない。Enterは押して離す。長押しのrepeatは次の承認に使わない。terminal入力modeはcapture中だけ切り替え、終了時にreaderを止めて復元する。Ctrl+Cはこのmodeでも即時中止入力として扱う。
 
 ## ソフトウェア検証
 software-only testは、fake transportによるread境界、準備待ち/Ready/Skip/Stop、有限budget、品質unknownの維持を対象とする。
