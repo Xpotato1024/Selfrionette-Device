@@ -24,6 +24,10 @@ raw ADC、N単位の力、校正済みの物理量とは呼ばない。Firmware�
 管理GUIを必須の中継processにしない。新しい処理はpure Rust coreとファイル専用CLIから利用できるが、現行GUIの実機入力、Firmware、EEPROM、Simには適用しない。
 既存の合成preview/保存schemaも変更しない。hardware_verifiedとcontrol_readyは常にfalse。
 
+個人校正を必須とする製品workflow、設定/Firmware/domain/操作者へのbindingとneutralの寿命は
+[必須setup/個人校正の正本](../architecture/required-setup-calibration.md)を参照する。
+`setup::ProfileBinding::fit_v2`はこのengineへ委譲するが、実機の品質確認や新domainのfitを追加するものではない。
+
 ## 入力証拠と有限性
 個体ID、Firmware、組立revision、利用者、姿勢、session epochをContextとして固定する。
 各sampleはu32 timestamp_ms、同じepoch、7つの有限値、取得品質を持つ。品質usableは呼出側が根拠を持って与える注記であり、物理校正成功を意味しない。

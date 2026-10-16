@@ -5,6 +5,7 @@ mod calibration_replay;
 mod field_test;
 mod legacy;
 mod monitor;
+mod setup_binding;
 
 use selfrionette_core::{
     DeviceId, DeviceIdentity, DeviceInfo, HostCommand, ProtocolFrame, parse_line,
@@ -14,6 +15,7 @@ use selfrionette_serial::{DeviceSession, SerialPortTransport, available_port_nam
 fn usage() -> &'static str {
     "usage:
   selfrionettectl calibrate-replay <recording.json>
+  selfrionettectl setup-inspect <context.srnc> [profile-binding.srnb]
   selfrionettectl field-test template|preview|capture [arguments]
   selfrionettectl list
   selfrionettectl info --port <port>
@@ -50,6 +52,7 @@ fn run(args: Vec<String>) -> Result<(), CliError> {
 
     match command {
         "calibrate-replay" => calibration_replay::run(&args[1..]),
+        "setup-inspect" => setup_binding::run(&args[1..]),
         "field-test" => field_test::run(&args[1..]),
         "list" => run_list(&args[1..]),
         "info" => run_info(&args[1..]),

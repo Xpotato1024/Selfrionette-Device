@@ -30,6 +30,7 @@ related:
 |---|---|
 | repository ownership / directory boundary | [repository-boundaries.md](architecture/repository-boundaries.md) |
 | Device Manager製品・操作体系（合成実装） | [device-manager-workflow.md](architecture/device-manager-workflow.md) |
+| 必須の個体setup・個人校正と実装roadmap | [required-setup-calibration.md](architecture/required-setup-calibration.md) |
 
 ## Contracts
 
@@ -61,6 +62,13 @@ related:
 | 旧Sim monitor / measure操作 | [legacy-sim-host-tools.md](operations/legacy-sim-host-tools.md) |
 | validation categories | [validation.md](operations/validation.md) |
 | hardware / serial / flashing safety | [hardware-safety.md](operations/hardware-safety.md) |
+
+## 必須setupと必須個人校正のfoundation
+
+- [ADR-0010案](decisions/0010-required-device-setup-and-personal-calibration.md)
+- [workflow・domain/binding・file-only CLI・後続受入の正本](architecture/required-setup-calibration.md)
+
+今回のcore/file検査は、実機設定・実個人校正GUI・通常consumer入力の完成を意味しない。
 
 ## Planned canonical topics
 
