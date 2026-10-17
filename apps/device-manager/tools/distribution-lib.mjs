@@ -1,8 +1,16 @@
 import {spawnSync} from 'node:child_process';
 import { readFileSync, readdirSync, statSync, copyFileSync, mkdirSync } from 'node:fs';
-import { dirname, join, basename } from 'node:path';
+import { dirname, join, basename, isAbsolute } from 'node:path';
 import { createHash } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
+
+// FrontendDist is an untagged URL/directory/files union. A Windows D:\ path
+// parses as a URL; an explicit file array always selects embedded assets.
+export function embeddedFrontendDist(directory, names) {
+  if (!isAbsolute(directory) || !Array.isArray(names) || !names.includes('index.html') || new Set(names).size !== names.length) throw Error('Expected an absolute staging directory and unique frontend files including index.html');
+  if (names.some(name => typeof name !== 'string' || !name || name === '.' || name === '..' || /[\\/:]/.test(name))) throw Error('Frontend files must be flat filenames');
+  return names.map(name => join(directory, name));
+}
 
 export const sha256 = data => createHash('sha256').update(data).digest('hex');
 export function validateGpl2Notice(bytes) {

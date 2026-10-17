@@ -134,3 +134,16 @@ native QAは操作受付/完了・新sample・capture終了を待ち、busyへ�
 同じDebug exe（SHA-256 `2940624054d187738487828ed9091524bf3918584bf534d8eca50651d74208d4`）による`run-y812DJ/REPORT.json`はPASS。178回のcaptureを通じて、個体登録、全7ch設定、逆取付補正、tare、正逆反復とheld-out、profile保存・再読込み、新neutral・適用、現在入力、品質異常時の失効、切断を実際のnative IPCとGUIで完走した。3画面を保存し、Primaryが表示を確認した。試験前後のsource hashesは一致した。
 
 これはscripted LineTransportによるsoftware受入であり、実機のserial/reset/flash/EEPROM/物理係数を認定しない。配布用のRelease buildと独立runnerでの同一artifact検証は、このcommit後に別gateで実施する。旧版0.1.0-preview.5は8 assetsを照合し、固定ソース3435764で公開済み。
+
+
+## 2026-10-17 配布版の起動失敗を修正
+
+配布CI Run 38938994635はbuildとインストール/EXE照合を通過し、native page取得で失敗した。
+`package-windows.mjs`が`frontendDist`へWindows絶対directoryを単一文字列として渡したため、
+Tauriのuntagged `FrontendDist`では`D:`をschemeとする`Url`へdeserializeされ、画面assetsを埋め込む指定になっていなかった。
+これはWebView2の待機時間を延ばす問題ではなく、配布設定の不具合である。
+
+固定allowlistの各fileを絶対pathの配列で渡し、`FrontendDist::Files`へ曖昧さなくdeserializeさせる。
+通常のDebug frontend、CSP、IPC権限、devtools設定、公開の検証gateは変更しない。
+Node回帰ではallowlist/不正pathを検証し、native Rust回帰では実際のTauri型でWindows drive文字列がURLになることとfile配列がassetsになることを検証する。
+修正版の配布CI・同じRelease EXEのGUI/更新検証・tag公開結果は、該当するGitHub Actions/Releaseを正とする。

@@ -339,3 +339,6 @@ pub fn run() {
         .run(tauri::generate_context!())
         .expect("Device Manager startup failed");
 }
+
+#[cfg(test)]
+mod frontend_embedding;

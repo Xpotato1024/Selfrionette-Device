@@ -6,7 +6,7 @@ import test from 'node:test';import assert from 'node:assert/strict';import {rea
 import {createHash} from 'node:crypto';
 import {spawnSync} from 'node:child_process';
 import {fileURLToPath} from 'node:url';
-import {validateGpl2Notice,prependWindowsSearchPath,inspectPE,inspectConsolePE,mergePackageMetadata,runtimeEnvironment,sha256,verifyBundledUpdaterResources,zipDirectory,extractZip,executableMetadata,supplementalCrateLicenses} from './distribution-lib.mjs';
+import {embeddedFrontendDist,validateGpl2Notice,prependWindowsSearchPath,inspectPE,inspectConsolePE,mergePackageMetadata,runtimeEnvironment,sha256,verifyBundledUpdaterResources,zipDirectory,extractZip,executableMetadata,supplementalCrateLicenses} from './distribution-lib.mjs';
 function image(dll='KERNEL32.dll') {
  const b=Buffer.alloc(1024);b.writeUInt16LE(0x5a4d,0);b.writeUInt32LE(0x80,0x3c);b.writeUInt32LE(0x4550,0x80);
  b.writeUInt16LE(0x8664,0x84);b.writeUInt16LE(1,0x86);b.writeUInt16LE(240,0x94);b.writeUInt16LE(0x20b,0x98);
@@ -224,3 +224,18 @@ test('Windows packaged child retains executables from inherited Path after venv 
 
 test('upstream GPL2 heading permits its original indentation without mutating bytes',()=>{for(const prefix of ['', '                    ','\ufeff\r\n  ']){const bytes=Buffer.from(prefix+'GNU GENERAL PUBLIC LICENSE\nVersion 2, June 1991\n');const copy=Buffer.from(bytes);assert.doesNotThrow(()=>validateGpl2Notice(bytes));assert(bytes.equals(copy));}for(const text of ['GNU GENERAL PUBLIC LICENSE\nVersion 3','not a license',''])assert.throws(()=>validateGpl2Notice(Buffer.from(text)),/GPL version 2/);});
 test('updater package includes its pinned corresponding source and original license',()=>{const source=readFileSync(new URL('./package-windows.mjs',import.meta.url),'utf8');assert(source.includes('validateGpl2Notice(copying)'));assert(source.includes('aa255d1750e168226d31dcb44be723c4023503b3a0805447032567da0febe455'));assert(source.includes("'AVRDUDE-SOURCE.zip'"));assert(source.includes('source_archive_sha256:AVRDUDE_SOURCE_ARCHIVE_SHA256'));});
+
+
+test('release frontend is an explicit asset list, never a drive-letter URL',()=>{
+ const root=join(tmpdir(),'日本語 space frontend');const names=['index.html','app.mjs','style.css'];
+ const files=embeddedFrontendDist(root,names);assert.deepEqual(JSON.parse(JSON.stringify({build:{frontendDist:files}})).build.frontendDist,names.map(n=>join(root,n)));
+ assert.deepEqual(names,['index.html','app.mjs','style.css']);
+ const packaging=readFileSync(new URL('./package-windows.mjs',import.meta.url),'utf8');
+ assert(packaging.includes('const frontendFiles=embeddedFrontendDist(frontend,'));assert(packaging.includes('build:{frontendDist:frontendFiles}'));
+ assert(!packaging.includes('build:{frontendDist:frontend}'));
+});
+test('embedded frontend rejects ambiguous or incomplete file lists',()=>{
+ const root=join(tmpdir(),'frontend');
+ for(const names of [[],['app.mjs'],['index.html','index.html'],['index.html','../escape'],['index.html','sub/file'],['index.html','sub\\file'],['index.html','d:external'],['index.html',null],['index.html','..']])assert.throws(()=>embeddedFrontendDist(root,names));
+ assert.throws(()=>embeddedFrontendDist('relative',['index.html']));
+});

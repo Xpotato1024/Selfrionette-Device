@@ -1,10 +1,10 @@
 import {appendFirmwareNotices,firmwareNoticePayload,productInputs} from './artifact-inputs.mjs';
 // Maintainer-only packaging. Users run the resulting binary, never this script.
 import {readFileSync,writeFileSync,mkdirSync,readdirSync,cpSync,copyFileSync,existsSync,rmSync,statSync} from 'node:fs';
-import {resolve,join,sep,isAbsolute} from 'node:path';
+import {resolve,join,sep,isAbsolute,basename} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {execFileSync,spawnSync} from 'node:child_process';
-import {validateGpl2Notice,prependWindowsSearchPath,sha256,inspectPE,inspectConsolePE,mergePackageMetadata,collectNotices,zipDirectory,extractZip,executableMetadata} from './distribution-lib.mjs';
+import {embeddedFrontendDist,validateGpl2Notice,prependWindowsSearchPath,sha256,inspectPE,inspectConsolePE,mergePackageMetadata,collectNotices,zipDirectory,extractZip,executableMetadata} from './distribution-lib.mjs';
 
 const APP_VERSION='0.2.0-preview.1';
 const FIRMWARE_APPLICATION='selfrionette-loadcell-7ch';
@@ -230,8 +230,9 @@ async function build(){
 
  // Explicit frontend file allowlist: tests and maintainer tools are not embedded.
  const frontend=join(packageWork,'frontend');mkdirSync(frontend,{recursive:true});
- for(const name of ['index.html','style.css','app.mjs','controller.mjs','design-preview.mjs','navigation.mjs','hardware-ui.mjs','hardware-controller.mjs','readout.mjs','trace.mjs','port-selection.mjs','application-controller.mjs','application-ui.mjs']){
-  copyFileSync(join(root,'frontend',name),join(frontend,name));
+ const frontendFiles=embeddedFrontendDist(frontend,['index.html','style.css','app.mjs','controller.mjs','design-preview.mjs','navigation.mjs','hardware-ui.mjs','hardware-controller.mjs','readout.mjs','trace.mjs','port-selection.mjs','application-controller.mjs','application-ui.mjs']);
+ for(const file of frontendFiles){
+  copyFileSync(join(root,'frontend',basename(file)),file);
  }
  buildEnv.SELFRIONETTE_EXPECTED_FIRMWARE_MANIFEST_SHA256=firmwareManifestHash;
  buildEnv.SELFRIONETTE_EXPECTED_FIRMWARE_IMAGE_SHA256=firmwareHash;
@@ -239,7 +240,7 @@ async function build(){
  buildEnv.SELFRIONETTE_EXPECTED_AVRDUDE_CONF_SHA256=avrdudeConfHash;
  const cli=join(root,'node_modules/@tauri-apps/cli/tauri.js');
  const buildFlavor=JSON.stringify({
-  build:{frontendDist:frontend},
+  build:{frontendDist:frontendFiles},
   bundle:{resources:{[resourceRoot]:'distribution/'}},
  });
  const result=spawnSync(process.execPath,[cli,'build','--config','src-tauri/tauri.release.conf.json','--config',buildFlavor,'--bundles','nsis','--ci','--no-binary-patching','--','--locked'],{
