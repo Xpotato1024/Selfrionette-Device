@@ -1,7 +1,18 @@
 import {readFileSync} from 'node:fs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {wizardPlan,explainFailure} from './application-ui.mjs';
+import {wizardPlan,explainFailure,calibrationRecovery} from './application-ui.mjs';
+
+test('recovery requires current verified evidence, fresh neutral and explicit apply',()=>{
+ const verified={connected:true,fit:{},heldout:{passed:true,trials:10,method:'diagonal'},session_neutral_valid:false,ready:false};
+ let next=calibrationRecovery(verified);assert.equal(next.neutralAllowed,true);assert.equal(next.applyAllowed,false);assert.match(next.message,/証拠は保持.*新しい中立値.*明示的/);
+ next=calibrationRecovery({...verified,session_neutral_valid:true});assert.equal(next.applyAllowed,true);assert.match(next.message,/明示的に適用/);
+ for(const change of [{fit:null},{heldout:{passed:true}},{heldout:{passed:false,trials:10,method:'diagonal'}},{heldout:{passed:true,trials:10,method:'coupled'}},{capture:{active:true}},{connected:false}]){
+  next=calibrationRecovery({...verified,...change,session_neutral_valid:true});assert.equal(next.neutralAllowed,false);assert.equal(next.applyAllowed,false);assert.equal(next.saveAllowed,false);
+ }
+ assert.match(calibrationRecovery({...verified,heldout:{passed:false}}).message,/不足・中断.*別試行.*検証/);
+ assert.match(calibrationRecovery({...verified,fit:null}).message,/個人校正.*再検証/);
+});
 test('personal instructions use the confirmed per-device mapping and preserve both directions and repeats',()=>{
  const channels=Array.from({length:7},(_,wire)=>({wire,logical_axis:6-wire,location:'装着部位'+wire,direction:'既知方向'+wire}));
  const plan=wizardPlan(channels);assert.equal(plan.length,113);assert.equal(plan[0].phase,'neutral');

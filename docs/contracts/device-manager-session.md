@@ -24,6 +24,7 @@ USB候補/7ch形式受信/v2応答/個体ID/物理校正は別状態。COM順や
 
 ## 受信と表示
 バックグラウンドreadは操作部を無効化しない。読取中の操作は有限の待機欄で保持し、同じconnection sessionのままのときだけ最新revisionで実行する。切断要求は以後のpollを止め、進行中read終了後に実行する。要求を黙って落とさない。
+background I/Oは接続中のmonitor ownerだけが行う。未接続・一時停止・modern service所有中はidle scan/readを行わない。通常の接続は「接続先を選ぶ」→候補を選択→接続確認の明示操作で行い、そのIPC replyを受けて接続状態を公開する。fixtureの内部状態変更を検出するための自動接続・idle pollは追加しない。
 ch行選択と履歴対象は一つの選択状態で管理する。現在値失効は同じセルの—とし、履歴は更新停止を示して保持する。同じ接続の再開では欠測区間を結ばず、新接続では消す。
 履歴は30秒/200表示点以内、自動/固定スケールを提供する。受信全件や校正証拠とはしない。dialogのボタン列/対象/主操作/フォーカスを統一する。
 
@@ -44,5 +45,7 @@ USB serialは取得した文字列を保持するが、一意性を仮定しな�
 モニターと品質付きlive serviceに「一時停止（接続を解放）」「再開・再接続」を提供する。native menuの同操作も利用できる。停止・I/O失敗でもfull PortKey候補を残す。再接続は再列挙し、descriptor変更・同名/USB serialの重複を拒否する。既知のstable IDは新handshakeで一致するまで現在値を利用できない。ID不明なら同じ実物の再接続確認を要求し、USB serialやCOM一致から個体同一性を認定しない。
 
 現在値・ready・今回の中立値・中断wizardは失効する。immutableなログ/profileは削除しない。表示履歴は停止ラベルを残し、再接続では新sessionへ分ける。missing候補は未接続／再接続待ちとして再検索できる。backendのoperation epochと非待機mutation lockで、更新の後へ古い書込みを予約しない。
+
+同じ接続条件での一時的なlive品質不良は[入力適合契約](input-calibration.md)に従い、完了済みの検証証拠と今回のruntime有効性を分離する。「保存と現在入力」は再検証が必要なら不足した別試行または適合profileの再計算へ案内し、不可能なneutral取得・保存・applyを無効化する。検証済み証拠が有効なら新しい中立値→明示applyを案内する。良いsampleだけではreadyを復元しない。
 
 未知・旧版モニターの通常接続と再開はreceive-onlyです。COMや保存済み候補だけで現在のFirmware対応を認定しません。既知IDの再照合、明示Info、setup/updateの照会は安全な?2 / ?3のみで、infoへのfallbackはありません。既知IDの不一致・無応答は停止し、既知IDを落として未知へ継続しません。

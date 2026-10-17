@@ -96,8 +96,12 @@ try{
  await page.waitForFunction(()=>Math.abs(Number(document.getElementById('live-normalized-rows').children[0].children[1].textContent.replaceAll(',',''))-0.5)<0.01,{},{timeout:5000});
  assert(Math.abs((await status()).output.normalized[0]-0.5)<0.01,'reverse polarity must be corrected exactly once');
  await page.screenshot({path:join(run,'03-saved-runtime-input.png'),fullPage:true});report.screenshots.push('03-saved-runtime-input.png');report.cases.push('GUI measured positive/negative repeated trials, heldout direction/weak/combined/release, immutable profile save, current neutral and runtime');
- await setRaw(input,[2,1,1,1,1,1,1]);assert.equal((await status()).ready,false);assert.equal((await status()).output,null);report.cases.push('nonfresh quality invalidates current runtime');
- await setRaw(baseline);await measure(baseline,'live-neutral-start');await act('live-profile-apply','apply_calibration');
+ const verifiedProof=(await status()).heldout;
+ await setRaw(input,[2,1,1,1,1,1,1]);const invalid=await status();assert.equal(invalid.ready,false);assert.equal(invalid.output,null);assert.equal(invalid.session_neutral_valid,false);assert.deepEqual(invalid.heldout,verifiedProof,'ordinary bad sample must preserve completed independently validated evidence');
+ assert(await page.locator('#live-profile-apply').isDisabled());assert(await page.locator('#live-neutral-start').isEnabled());
+ await setRaw(baseline);const freshOnly=await status();assert.equal(freshOnly.ready,false,'good data alone must not resume');assert.equal(freshOnly.output,null);assert.deepEqual(freshOnly.heldout,verifiedProof);
+ await measure(baseline,'live-neutral-start');assert.equal((await status()).ready,false,'fresh neutral still needs explicit apply');await act('live-profile-apply','apply_calibration');
+ report.cases.push('nonfresh runtime revokes output and neutral, preserves verified proof, and requires fresh neutral plus explicit apply without profile reload');
  assert.equal((await status()).ready,true);
  await page.locator('#tab-device').click();await act('hardware-disconnect','disconnect');
  assert.equal((await status()).connected,false);assert.equal((await status()).ready,false);

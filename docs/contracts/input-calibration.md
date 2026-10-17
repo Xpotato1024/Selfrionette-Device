@@ -97,6 +97,17 @@ release閾値offはon × release_ratio。|q|>onで有効、|q|<=offで解除す�
 通常入力からsign/span/matrix/閾値を自動学習・変更しない。quality、時間、context等のエラーは無効状態を保持し、前値や偽の0sampleを返さない。
 再開には呼出側の明示操作が必要で、epoch等が変わった場合は新しい基準と証拠でfitし直す。
 
+liveの一時的な不良sample（nonfresh・欠測等）は、processor・出力・applied context・今回のSessionNeutralを直ちに失効させる。
+個体ID・setup・操作者条件・Firmware・settings generation・tare epoch・stream sessionが同一なら、既に完了し共通fitterで独立検証したheld-out証拠とfitは保持する。
+良いsampleが戻るだけでは再開せず、全freshかつ安定した新しい中立区間の完了と、その後の明示applyを必要とする。保存profileの再読込みは不要である。
+GUI用の`LiveSnapshot.session_neutral_valid`は今回のneutralの有効性だけを示し、profileに保存せず、readyや検証合格の代用にしない。
+中立区間中の不良sampleはその区間を中断・archiveし、後続の良いsampleや反復する不良sampleで部分区間を中立値へ昇格しない。
+
+新しいheld-out取得は開始時点で検証合格・runtime・SessionNeutralを失効させ、対象phaseと後続phaseの旧証拠を破棄する。
+中断・失敗・取得中のtrialは完了済み証拠の代用にせず、全phaseを満たして共通gateを再実行するまでneutral取得・保存・applyを許可しない。
+training開始または新fitでは旧fit/held-out合格を失効させる。setup・操作者条件・Firmware・ID・generation変更、tare/session epoch変更、fatal protocol error、切断の既存失効規則は維持する。
+profile内の保存済みpassedだけを証明とせず、reloadでは既存のfit/held-out再計算を必須とする。
+
 ## 比較出力とheld-out gate
 同じheld-out replayをA/Bへ渡す。校正区間のtimestampの再利用は拒否する。
 「held-out」は取得時系列を分けることの検証であり、コピーして時刻を書き換えたデータや利用者の申告の真偽までは証明しない。

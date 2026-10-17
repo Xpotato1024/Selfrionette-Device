@@ -253,6 +253,7 @@ pub struct Reply {
 pub struct LiveSnapshot {
     pub connected: bool,
     pub ready: bool,
+    pub session_neutral_valid: bool,
     pub sample_fresh: bool,
     pub sample_age_ms: Option<u64>,
     pub message: String,
@@ -985,6 +986,7 @@ impl LiveService {
         LiveSnapshot {
             connected: self.info.is_some() && !self.fatal,
             ready: self.processor.is_some() && sample_fresh && !self.fatal,
+            session_neutral_valid: self.session_neutral.is_some() && !self.fatal,
             sample_fresh,
             sample_age_ms,
             message: self.last_error.clone().unwrap_or_else(|| {
@@ -992,6 +994,10 @@ impl LiveService {
                     "current profile applied".into()
                 } else if self.setup.is_none() {
                     "confirm setup and device settings".into()
+                } else if self.fit.is_none() {
+                    "fit or load a compatible calibration profile".into()
+                } else if !self.heldout_view.passed {
+                    "complete and verify independent held-out trials".into()
                 } else if self.session_neutral.is_none() {
                     "capture a fresh session neutral".into()
                 } else {
@@ -1446,6 +1452,12 @@ impl LiveService {
             && sample.oriented.iter().all(Option::is_some);
         self.latest_sample_usable = usable;
         if !usable {
+            // Runtime validity is volatile. Completed independent calibration
+            // evidence belongs to the unchanged context and is retained.
+            self.processor = None;
+            self.applied_context = None;
+            self.session_neutral = None;
+            self.latest_output = None;
             if self.active_capture.is_some() {
                 self.persist_active_capture_with_sample(
                     store_root,
@@ -1453,16 +1465,7 @@ impl LiveService {
                     Some(&sample),
                 )?;
             }
-            self.processor = None;
-            self.session_neutral = None;
-            self.latest_output = None;
-            self.heldout.clear();
-            self.heldout_view = HeldOutView {
-                passed: false,
-                reason: Some("non-fresh sample invalidated the capture/runtime".into()),
-                trials: 0,
-                method: None,
-            };
+            self.push_message("non-fresh sample revoked runtime and session neutral; complete any interrupted evidence, then capture fresh neutral and explicitly apply");
             self.latest_sample = Some(sample);
             return Ok(());
         }
@@ -1518,6 +1521,7 @@ impl LiveService {
                     Err(error) => {
                         self.processor = None;
                         self.applied_context = None;
+                        self.session_neutral = None;
                         self.latest_output = None;
                         self.push_message(format!("runtime invalidated: {error}"));
                     }
@@ -1904,6 +1908,11 @@ impl LiveService {
                 "training trial requires an axis and positive effort magnitude".into(),
             ));
         }
+        if phase == CapturePhase::SessionNeutral {
+            self.session_neutral = None;
+            self.processor = None;
+            self.applied_context = None;
+        }
         if matches!(
             phase,
             CapturePhase::HeldOutNeutral
@@ -1915,6 +1924,9 @@ impl LiveService {
                 return Err(ServiceError::Invalid(
                     "fit must be computed before held-out capture".into(),
                 ));
+            }
+            if axis.is_none() {
+                return Err(ServiceError::Invalid("held-out trial axis required".into()));
             }
             let expected = intent.ok_or_else(|| {
                 ServiceError::Invalid(
@@ -1974,6 +1986,7 @@ impl LiveService {
         }
         self.capture_acquisition_barrier()?;
         if phase == CapturePhase::Neutral {
+            self.global_neutral = None;
             self.trials.clear();
         } else if matches!(
             phase,
@@ -2001,8 +2014,44 @@ impl LiveService {
                 | CapturePhase::HeldOutRamp
                 | CapturePhase::HeldOutHold
                 | CapturePhase::HeldOutRelease
-        ) && self.processor.is_some()
-        {
+        ) {
+            // Replacing a phase also invalidates its successors immediately,
+            // so an aborted/in-progress retry cannot certify old evidence.
+            let key = HeldOutKey {
+                axis: axis.unwrap(),
+                instruction: instruction.clone(),
+            };
+            if phase == CapturePhase::HeldOutNeutral {
+                self.heldout.insert(key, HeldOutParts::default());
+            } else {
+                let parts = self.heldout.entry(key).or_default();
+                match phase {
+                    CapturePhase::HeldOutRamp => {
+                        parts.ramp = None;
+                        parts.hold = None;
+                        parts.release = None;
+                        parts.intent = None;
+                    }
+                    CapturePhase::HeldOutHold => {
+                        parts.hold = None;
+                        parts.release = None;
+                    }
+                    CapturePhase::HeldOutRelease => {
+                        parts.release = None;
+                    }
+                    _ => unreachable!(),
+                }
+            }
+            self.heldout_view = HeldOutView {
+                passed: false,
+                reason: Some(
+                    "held-out capture started; complete all phases and verify again".into(),
+                ),
+                trials: self.heldout.len(),
+                method: None,
+            };
+            self.heldout_method = None;
+            self.session_neutral = None;
             self.processor = None;
             self.applied_context = None;
             self.latest_output = None;
@@ -2114,8 +2163,7 @@ impl LiveService {
     ) -> Result<(), ServiceError> {
         self.require_stream_and_setup()?;
         self.persist_active_capture(store_root, "fit started while another capture was active")?;
-        self.processor = None;
-        self.latest_output = None;
+        self.invalidate_fit("new fit requires independent held-out verification and fresh neutral");
         let current = self.current_context()?;
         let binding = self.make_binding("pending-profile.srncal", 1)?;
         let recording = self.build_recording()?;
@@ -2270,6 +2318,9 @@ impl LiveService {
     }
 
     fn verify_heldout(&mut self, method: InputMethod) -> Result<(), ServiceError> {
+        self.processor = None;
+        self.applied_context = None;
+        self.latest_output = None;
         self.heldout_view = HeldOutView {
             passed: false,
             reason: Some("held-out verification did not complete".into()),
@@ -2278,6 +2329,11 @@ impl LiveService {
         };
         self.heldout_method = None;
         self.session_neutral = None;
+        if self.active_capture.is_some() {
+            return Err(ServiceError::Invalid(
+                "finish or abort the active capture before held-out verification".into(),
+            ));
+        }
         let fit = self.fit.as_ref().ok_or_else(|| {
             ServiceError::Invalid("fit calibration before held-out verification".into())
         })?;
@@ -4567,8 +4623,7 @@ mod tests {
         std::fs::remove_dir_all(&store).unwrap();
     }
 
-    #[test]
-    fn live_service_flow_binds_captures_persists_reload_revalidates_and_requires_fresh_neutral() {
+    fn verified_live_service() -> (LiveService, SharedReads, PathBuf, u32, u32) {
         let timestamp = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
@@ -4903,6 +4958,13 @@ mod tests {
                 &store,
             )
             .unwrap();
+        (service, reads, store, sequence, device_ms)
+    }
+
+    #[test]
+    fn live_service_flow_binds_captures_persists_reload_revalidates_and_requires_fresh_neutral() {
+        let (mut service, reads, store, mut sequence, mut device_ms) = verified_live_service();
+        let neutral = [100; 7];
         let save = service
             .execute(
                 Command::SaveCalibration {
@@ -4975,10 +5037,317 @@ mod tests {
             .unwrap();
         assert!(!after_tare.view.ready);
         assert!(service.session_neutral.is_none() && service.processor.is_none());
+        assert!(
+            service.fit.is_none() && service.heldout.is_empty() && !service.heldout_view.passed
+        );
         queue(&reads, format!("ok3,{},stream,1", service.request_id + 1));
         let disconnected = service.execute(Command::Disconnect, &store).unwrap();
         assert!(!disconnected.view.connected && !disconnected.view.ready);
+        assert!(service.heldout.is_empty() && !service.heldout_view.passed);
         std::fs::remove_dir_all(&store).unwrap();
+    }
+
+    fn start_recovery_capture(
+        service: &mut LiveService,
+        reads: &SharedReads,
+        store: &Path,
+        phase: CapturePhase,
+    ) {
+        let mut intent = [0.0; 7];
+        if matches!(phase, CapturePhase::HeldOutRamp | CapturePhase::HeldOutHold) {
+            intent[0] = 1.0;
+        }
+        queue_capture_barrier(service, reads);
+        service
+            .execute(
+                Command::CaptureStart {
+                    phase,
+                    axis: Some(0),
+                    direction: 1,
+                    repeat: 0,
+                    level: intent[0],
+                    instruction: "axis0-full".into(),
+                    intent: Some(intent),
+                    sample_count: Some(8),
+                },
+                store,
+            )
+            .unwrap();
+    }
+
+    fn runtime_sample(sequence: &mut u32, device_ms: &mut u32, fresh: bool) -> String {
+        *sequence += 1;
+        *device_ms += 10;
+        let mut fields = vec![
+            "sample3".into(),
+            "1".into(),
+            sequence.to_string(),
+            device_ms.to_string(),
+            "2".into(),
+            "2".into(),
+            "1".into(),
+        ];
+        fields.extend([1000; 7].map(|value| value.to_string()));
+        fields.extend([100; 7].map(|value| value.to_string()));
+        fields.extend([if fresh { 1 } else { 2 }; 7].map(|value| value.to_string()));
+        fields.join(",")
+    }
+
+    #[test]
+    fn verified_runtime_quality_failure_preserves_proof_but_requires_neutral_and_explicit_apply() {
+        let (mut service, reads, store, mut sequence, mut device_ms) = verified_live_service();
+        let proof = serde_json::to_vec(&service.stored_heldout().unwrap()).unwrap();
+        for _ in 0..2 {
+            start_recovery_capture(&mut service, &reads, &store, CapturePhase::SessionNeutral);
+            queue_live_window(&reads, &mut sequence, &mut device_ms, [100; 7], 2, 2);
+            service.execute(Command::CaptureTick, &store).unwrap();
+            assert!(!service.snapshot_view().ready);
+            service
+                .execute(
+                    Command::ApplyCalibration {
+                        confirmed: true,
+                        method: MethodDto::Diagonal,
+                    },
+                    &store,
+                )
+                .unwrap();
+            queue(&reads, runtime_sample(&mut sequence, &mut device_ms, true));
+            assert!(
+                service
+                    .execute(Command::StreamTick, &store)
+                    .unwrap()
+                    .view
+                    .ready
+            );
+            queue(&reads, runtime_sample(&mut sequence, &mut device_ms, false));
+            let bad = service.execute(Command::StreamTick, &store).unwrap().view;
+            assert!(!bad.ready && bad.output.is_none());
+            assert!(
+                bad.heldout.passed,
+                "completed independent proof must survive an ordinary runtime quality failure"
+            );
+            assert!(
+                service.processor.is_none()
+                    && service.applied_context.is_none()
+                    && service.session_neutral.is_none()
+            );
+            assert_eq!(
+                serde_json::to_vec(&service.stored_heldout().unwrap()).unwrap(),
+                proof
+            );
+            queue(&reads, runtime_sample(&mut sequence, &mut device_ms, true));
+            let good = service.execute(Command::StreamTick, &store).unwrap().view;
+            assert!(!good.ready && good.output.is_none());
+            assert!(
+                service
+                    .execute(
+                        Command::ApplyCalibration {
+                            confirmed: true,
+                            method: MethodDto::Diagonal
+                        },
+                        &store
+                    )
+                    .is_err()
+            );
+        }
+        std::fs::remove_dir_all(&store).unwrap();
+    }
+
+    #[test]
+    fn bad_samples_abort_neutral_and_heldout_retries_without_certifying_partial_evidence() {
+        let (mut service, reads, store, mut sequence, mut device_ms) = verified_live_service();
+        let proof = serde_json::to_vec(&service.stored_heldout().unwrap()).unwrap();
+        for _ in 0..2 {
+            start_recovery_capture(&mut service, &reads, &store, CapturePhase::SessionNeutral);
+            queue(&reads, runtime_sample(&mut sequence, &mut device_ms, true));
+            service.execute(Command::CaptureTick, &store).unwrap();
+            assert_eq!(
+                service
+                    .active_capture
+                    .as_ref()
+                    .unwrap()
+                    .window
+                    .samples
+                    .len(),
+                1
+            );
+            queue(&reads, runtime_sample(&mut sequence, &mut device_ms, false));
+            queue(&reads, runtime_sample(&mut sequence, &mut device_ms, false));
+            queue_live_window(&reads, &mut sequence, &mut device_ms, [100; 7], 2, 2);
+            service.execute(Command::CaptureTick, &store).unwrap();
+            assert!(service.session_neutral.is_none());
+            assert!(!service.snapshot_view().capture.unwrap().completed);
+            assert!(service.heldout_view.passed);
+            assert_eq!(
+                serde_json::to_vec(&service.stored_heldout().unwrap()).unwrap(),
+                proof
+            );
+        }
+        for phase in [
+            CapturePhase::HeldOutRelease,
+            CapturePhase::HeldOutHold,
+            CapturePhase::HeldOutRamp,
+            CapturePhase::HeldOutNeutral,
+        ] {
+            start_recovery_capture(&mut service, &reads, &store, phase);
+            assert!(
+                !service.heldout_view.passed,
+                "starting a retry revokes verification before any new sample"
+            );
+            assert!(
+                service
+                    .execute(
+                        Command::VerifyHeldOut {
+                            method: MethodDto::Diagonal
+                        },
+                        &store
+                    )
+                    .is_err()
+            );
+            queue(&reads, runtime_sample(&mut sequence, &mut device_ms, true));
+            queue(&reads, runtime_sample(&mut sequence, &mut device_ms, false));
+            service.execute(Command::CaptureTick, &store).unwrap();
+            let capture = service.snapshot_view().capture.unwrap();
+            assert!(!capture.completed && capture.samples == 1);
+            assert!(
+                service.stored_heldout().is_err(),
+                "a failed retry cannot reuse its prior completed phase"
+            );
+            assert!(
+                service
+                    .execute(
+                        Command::VerifyHeldOut {
+                            method: MethodDto::Diagonal
+                        },
+                        &store
+                    )
+                    .is_err()
+            );
+            assert!(!service.heldout_view.passed && service.session_neutral.is_none());
+        }
+        let archives = store.join("srn-0123456789abcdef0123456789abcdef/captures");
+        let interrupted = std::fs::read_dir(archives)
+            .unwrap()
+            .filter_map(|entry| {
+                let bytes = std::fs::read(entry.unwrap().path()).unwrap();
+                let record: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+                (record["status"] == "interrupted").then_some(record)
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(interrupted.len(), 6);
+        assert!(
+            interrupted
+                .iter()
+                .all(|record| record["committed_for_current_session"] == false
+                    && record["wire_samples"].as_array().unwrap().len() == 2)
+        );
+        std::fs::remove_dir_all(&store).unwrap();
+    }
+
+    #[test]
+    fn verified_proof_is_invalidated_by_fatal_generation_tare_or_stream_session_change() {
+        for field in [1, 4, 5] {
+            let (mut service, reads, store, mut sequence, mut device_ms) = verified_live_service();
+            let line = runtime_sample(&mut sequence, &mut device_ms, true);
+            let mut fields = line.split(',').map(str::to_owned).collect::<Vec<_>>();
+            fields[field] = "99".into();
+            queue(&reads, fields.join(","));
+            assert!(service.execute(Command::StreamTick, &store).is_err());
+            assert!(service.fatal && service.fit.is_none() && service.heldout.is_empty());
+            assert!(!service.heldout_view.passed && service.session_neutral.is_none());
+            assert!(
+                service
+                    .execute(
+                        Command::ApplyCalibration {
+                            confirmed: true,
+                            method: MethodDto::Diagonal
+                        },
+                        &store
+                    )
+                    .is_err()
+            );
+            std::fs::remove_dir_all(&store).unwrap();
+        }
+    }
+
+    #[test]
+    fn calibration_changes_require_revalidation_instead_of_runtime_neutral_recovery() {
+        for change in [
+            "operator", "setup", "firmware", "identity", "training", "fit",
+        ] {
+            let (mut service, reads, store, _, _) = verified_live_service();
+            match change {
+                "operator" => {
+                    service
+                        .execute(
+                            Command::SetOperator {
+                                operator: "another-operator".into(),
+                                posture: "neutral posture".into(),
+                                grip: "comfortable grip".into(),
+                            },
+                            &store,
+                        )
+                        .unwrap();
+                }
+                "setup" => {
+                    let mut setup = confirmed_setup_dto();
+                    setup.config_revision += 1;
+                    service
+                        .execute(
+                            Command::Setup {
+                                setup: Box::new(setup),
+                            },
+                            &store,
+                        )
+                        .unwrap();
+                }
+                "firmware" | "identity" => {
+                    let line = info_line(service.request_id + 1, 2, 2, 0x7f, 1, 2);
+                    let mut fields = line.split(',').map(str::to_owned).collect::<Vec<_>>();
+                    if change == "firmware" {
+                        fields[2] = "1.2.1".into();
+                    } else {
+                        fields[7] = "srn-11111111111111111111111111111111".into();
+                    }
+                    queue(&reads, fields.join(","));
+                    assert!(service.execute(Command::Info, &store).is_err());
+                    assert!(service.fatal);
+                }
+                "training" => {
+                    start_recovery_capture(&mut service, &reads, &store, CapturePhase::Neutral);
+                    assert!(service.global_neutral.is_none());
+                }
+                "fit" => {
+                    let limits = service.fit_limits.clone().unwrap();
+                    let signal_settings = service.signal_settings.unwrap();
+                    service
+                        .fit(&store, limits, signal_settings, Some(InputMethod::Diagonal))
+                        .unwrap();
+                }
+                _ => unreachable!(),
+            }
+            assert!(
+                !service.heldout_view.passed && service.heldout.is_empty(),
+                "{change}"
+            );
+            assert!(
+                service.session_neutral.is_none()
+                    && service.processor.is_none()
+                    && service.applied_context.is_none()
+            );
+            assert!(
+                service
+                    .execute(
+                        Command::ApplyCalibration {
+                            confirmed: true,
+                            method: MethodDto::Diagonal
+                        },
+                        &store
+                    )
+                    .is_err()
+            );
+            std::fs::remove_dir_all(&store).unwrap();
+        }
     }
 
     #[test]

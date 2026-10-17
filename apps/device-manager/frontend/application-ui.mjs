@@ -27,6 +27,21 @@ export function wizardPlan(channels) {
  return steps;
 }
 
+// These are current service receipts, never the saved profile's passed flag.
+export function calibrationRecovery(view,method='diagonal') {
+ const verified=!!(view?.fit&&view?.heldout?.passed&&view.heldout.trials>0&&view.heldout.method===method);
+ const available=!!view?.connected&&!view?.capture?.active;
+ const neutralAllowed=available&&verified;
+ const applyAllowed=neutralAllowed&&!!view.session_neutral_valid;
+ const message=!view?.connected?'接続先を選び、装置と使用条件を確認してください。':
+  view.capture?.active?'取得完了を待ってください。中断した区間は取り直してください。':
+  !view.fit?'個人校正を測定・計算するか、現在の装置・使用条件に適合する保存記録を読み込んで再検証してください。':
+  !verified?'個人校正画面で不足・中断した別試行を取得し、選択した補正方法で検証してください。':
+  !view.session_neutral_valid?'別試行の検証済み証拠は保持されています。新しい中立値を取得してから、入力設定を明示的に適用してください。':
+  view.ready?'入力設定を適用中です。':'中立値を確認し、入力設定を明示的に適用してください。';
+ return {neutralAllowed,applyAllowed,saveAllowed:neutralAllowed,message};
+}
+
 export function createApplicationUI({invoke,hardware,onOwner=()=>{}}) {
  const root=$('application-workflow');
  root.innerHTML=`
@@ -147,6 +162,11 @@ export function createApplicationUI({invoke,hardware,onOwner=()=>{}}) {
   for(const id of ['live-heldout-start','live-neutral-start','live-context-save','live-setup-save','live-fit','live-heldout-verify','live-profile-save','live-profile-load','live-profile-apply'])$(id).disabled ||= !!view?.capture?.active;
   $('live-profile-save').disabled ||= missing.size>0||!$('live-profile-confirm').checked;
   $('live-profile-apply').disabled ||= missing.size>0||!$('live-profile-confirm').checked;
+  const recovery=calibrationRecovery(view,$('live-method').value);
+  $('live-neutral-start').disabled ||= !recovery.neutralAllowed;
+  $('live-profile-apply').disabled ||= !recovery.applyAllowed;
+  $('live-profile-save').disabled ||= !recovery.saveAllowed;
+  $('live-profile-result').textContent=recovery.message+(view?.saved_path?' 保存記録: '+view.saved_path:'');
   $('update-prepare').disabled=busy||!selectedPort('update-port')||hardware.connected||!!view?.owns_handle;$('update-handoff').disabled=busy||!(hardware.connected||view?.owns_handle);$('update-recover').disabled=busy||hardware.connected||!!view?.owns_handle;
   $('update-apply').disabled=busy||!updaterPlan?.apply_enabled||!$('update-write-confirm').checked;
   if(!$('update-bootloader-confirmation').hidden)$('update-apply').disabled ||= !$('update-bootloader-confirm').checked||$('update-bootloader-target').value==='';$('update-disabled-reason').textContent=hardware.connected||view?.owns_handle?'「受信を停止して更新へ」で接続を解放してください。':!selectedPort('update-port')?'接続先を選んでください。':!updaterPlan?.apply_enabled?'対象とFirmwareを検査してください。':!$('update-write-confirm').checked?'検査結果を確認し、書込みの確認欄を選択してください。':'';
@@ -179,7 +199,6 @@ export function createApplicationUI({invoke,hardware,onOwner=()=>{}}) {
   $('live-fit-summary').replaceChildren();
   if(view?.fit){const f=view.fit;infoRows('live-fit-summary',[['候補A',f.diagonal_available===false?'不可':f.diagonal_reason??'算出結果を確認'],['候補B',f.coupled_available?'比較可能':f.coupled_rejection??'条件未達・未計測'],['正方向の操作範囲 / count',f.positive_span_counts?.map(num).join(' / ')],['逆方向の操作範囲 / count',f.negative_span_counts?.map(num).join(' / ')],['中立時の変動 / count',f.noise_envelope_counts?.map(num).join(' / ')]]);$('live-method').querySelector('[value="coupled"]').disabled=!f.coupled_available;}
   $('live-heldout-result').textContent=view?.heldout?.reason??(view?.heldout?.passed?'別試行の検証を通過':'別試行は未検証');
-  $('live-profile-result').textContent=view?.profile_message??view?.saved_path??'';
   if(view?.profiles){const prior=$('live-profiles').value;$('live-profiles').replaceChildren(element('option','保存記録を選択',{value:''}));for(const p of view.profiles)$('live-profiles').append(element('option',p.label??p.path,{value:p.path??p}));$('live-profiles').value=prior;}
   controls();
  }
@@ -210,7 +229,7 @@ export function createApplicationUI({invoke,hardware,onOwner=()=>{}}) {
  async function pause(){invalidateWizard();await send({action:'disconnect'});}
  async function reconnect(){if(!view?.candidate||!window.confirm('同じ実物を再接続したことを確認してください。安全な情報照会で個体IDを照合します。中立値は取り直します。'))return;const r=await send({action:'reconnect',confirmed:true,metadata_supported:true});if(r&&!r.error)await send({action:'stream_start'});}
  $('live-disconnect').onclick=pause;$('live-reconnect').onclick=reconnect;
- $('live-provision-confirm').onchange=$('live-tare-confirm').onchange=$('live-profile-confirm').onchange=$('update-write-confirm').onchange=$('live-reverse-safe').onchange=controls;
+ $('live-provision-confirm').onchange=$('live-tare-confirm').onchange=$('live-profile-confirm').onchange=$('update-write-confirm').onchange=$('live-reverse-safe').onchange=$('live-method').onchange=controls;
  $('live-provision').onclick=()=>send({action:'provision',confirmed:$('live-provision-confirm').checked});
  $('live-tare').onclick=async()=>{lastCapture=null;await send({action:'tare',confirmed:$('live-tare-confirm').checked});$('live-tare-confirm').checked=false;controls();};
  $('live-observe-rest').onclick=()=>{rest=view?.sample?.flags?.every(f=>f===1)?structuredClone(view.sample):null;$('live-observation').textContent=rest?'静止rawを記録しました。対象の既知の正方向だけを操作してください。':'freshなrawを受信してから再試行してください。';};
