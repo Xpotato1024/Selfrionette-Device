@@ -38,7 +38,7 @@ export async function verifyUsability(browser,url,output){
  // case; native service/neutral acceptance remains in live-native-qa.mjs.
  const context=await browser.newContext({viewport:{width:1100,height:720}}),page=await context.newPage();
  await page.addInitScript(installDesktopFixture,{connected:false});await page.goto(url);
- await page.locator('#tab-adjust').click();await page.locator('#live-port option').filter({hasText:'COM8'}).waitFor();
+ await page.locator('#tab-adjust').click();await page.locator('#live-port option').filter({hasText:'COM8'}).waitFor({state:'attached'});
  await page.locator('#live-port').selectOption({label:await page.locator('#live-port option').filter({hasText:'COM8'}).innerText()});
  await page.locator('#live-connect').click();await page.waitForFunction(()=>window.testModern.connected);
  await page.locator('#tab-device').click();await page.locator('#hardware-disconnect').click();
