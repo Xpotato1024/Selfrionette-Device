@@ -2,11 +2,13 @@
 //! Wire indices are preserved; no finger layout or unknown polarity has a default.
 use crate::input_calibration::{self, CalibrationRecording, FitLimits, FittedInput, InputQuality};
 use crate::{CHANNEL_COUNT, DeviceId};
+use serde::{Deserialize, Serialize};
 
 pub const N: usize = CHANNEL_COUNT;
 pub const MAX_LABEL_BYTES: usize = 128;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum SampleDomain {
     RawAdc,
     LegacyFirmwareV2,
@@ -15,13 +17,15 @@ pub enum SampleDomain {
     NormalizedInput,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum Origin {
     Synthetic,
     Recorded,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Evidence {
     pub origin: Origin,
     /// Caller-supplied acquisition annotation, never inferred from ordinary v2 vectors.
@@ -29,7 +33,8 @@ pub struct Evidence {
     pub reference: String,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ChannelOrientation {
     pub logical_axis: Option<usize>,
     pub location: Option<String>,
@@ -38,7 +43,8 @@ pub struct ChannelOrientation {
     pub polarity: Option<i8>,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct DeviceSetup {
     pub device_id: DeviceId,
     pub assembly_revision: u32,
@@ -51,7 +57,8 @@ pub struct DeviceSetup {
     pub evidence: Evidence,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct FirmwareBinding {
     pub version: String,
     /// Exact source commit, not a mutable branch name. File assertions are not readback.
@@ -59,7 +66,8 @@ pub struct FirmwareBinding {
     pub sample_domain: SampleDomain,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct OperatorContext {
     pub operator: String,
     pub posture: String,
@@ -69,7 +77,8 @@ pub struct OperatorContext {
 /// Metadata for an existing/future parameter record, NOT a usable parameter record itself.
 /// No session neutral is persisted here. The full setup snapshot detects edits even if a
 /// caller accidentally reuses a revision number.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ProfileBinding {
     pub profile_revision: u32,
     pub parameter_record: String,
@@ -79,7 +88,8 @@ pub struct ProfileBinding {
     pub evidence: Evidence,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct CurrentContext {
     pub setup: DeviceSetup,
     pub firmware: FirmwareBinding,
@@ -286,6 +296,15 @@ impl ProfileBinding {
         }
         input_calibration::fit(recording, limits).map_err(SetupError::Fit)
     }
+
+    pub fn fit_device_oriented(
+        &self,
+        current: &CurrentContext,
+        recording: &CalibrationRecording,
+        limits: &FitLimits,
+    ) -> Result<FittedInput, SetupError> {
+        input_calibration::fit_device_oriented(self, current, recording, limits)
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -328,6 +347,33 @@ pub fn project_raw(
     for (wire, ch) in setup.channels.iter().enumerate() {
         values[ch.logical_axis.ok_or(SetupError::IncompleteSetup)?] =
             sample.values[wire] * f64::from(ch.polarity.ok_or(SetupError::IncompleteSetup)?);
+    }
+    Ok(OrientedCounts { values })
+}
+
+/// Permute Firmware v3 oriented wire counts to logical order without applying
+/// `DeviceSetup.channels[*].polarity` a second time.
+pub fn project_device_oriented(
+    setup: &DeviceSetup,
+    sample: &DomainSample,
+) -> Result<OrientedCounts, SetupError> {
+    setup.require_validated_mapping()?;
+    if sample.domain != SampleDomain::DeviceOrientedCounts {
+        return Err(SetupError::DomainMismatch);
+    }
+    if sample.quality != InputQuality::Usable {
+        return Err(SetupError::EvidenceUnusable);
+    }
+    if sample
+        .values
+        .iter()
+        .any(|v| !v.is_finite() || v.fract() != 0.0 || !(-16_777_215.0..=16_777_215.0).contains(v))
+    {
+        return Err(SetupError::InvalidSample);
+    }
+    let mut values = [0.0; N];
+    for (wire, channel) in setup.channels.iter().enumerate() {
+        values[channel.logical_axis.ok_or(SetupError::IncompleteSetup)?] = sample.values[wire];
     }
     Ok(OrientedCounts { values })
 }
@@ -399,5 +445,15 @@ impl SessionNeutral {
             return Err(SetupError::FreshNeutralRequired);
         }
         Ok(&self.values)
+    }
+
+    pub fn values(&self) -> &[f64; N] {
+        &self.values
+    }
+    pub fn context(&self) -> &CurrentContext {
+        &self.context
+    }
+    pub fn epoch(&self) -> SessionEpoch {
+        self.epoch
     }
 }

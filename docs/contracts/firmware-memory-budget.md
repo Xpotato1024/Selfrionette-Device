@@ -1,7 +1,7 @@
 ---
 status: canonical
 owner: architecture
-last_verified: 2026-10-01
+last_verified: 2026-10-16
 canonical_for:
   - ATmega32U4 firmware memory budget
   - firmware build resource gate
@@ -27,14 +27,21 @@ bootloader / board configurationのため、CI budgetは32 KB physical Flashで�
 
 ## Baseline
 
-2026-10-01、Protocol v2 / device identity foundation build:
+2026-10-16、Protocol v3 opt-in / persistent settings firmware build:
 
 - PlatformIO Core: 6.1.19
+- platform-atmelavr: 5.2.0
+- framework-arduino-avr: 5.3.0
+- toolchain-atmelavr: 1.70300.191015 (AVR GCC 7.3.0)
+- tool-avrdude: 1.60300.200527 (6.3.0; upload not run)
+- tool-scons: 4.40801.0 (4.8.1)
 - environment: `pro_micro_7ch`
-- static RAM: 485 / 2560 bytes (18.9%)
-- application Flash: 11172 / 28672 bytes (39.0%)
+- static RAM: 1013 / 2560 bytes (39.6%; 11 bytes below the 1024-byte CI gate)
+- application Flash: 20564 / 28672 bytes (71.7%)
+- runtime stack peak: unmeasured
+- injected source revision: `9994bbbc927bcd87ff33a312df6167c72da07a6b`; working tree was dirty
 
-この値はsoftware-only compile evidenceであり、runtime stack high-water markまたはhardware stabilityの証拠ではない。
+この値は固定されたPlatformIO toolchainによるsoftware-only compile evidenceであり、runtime stack high-water markまたはhardware stabilityの証拠ではない。
 
 ## Hard gates
 
@@ -75,11 +82,12 @@ initial partition:
 | Range | Owner |
 |---|---|
 | 0..31 | device identity area |
-| 32..1023 | reserved for future persistent state |
+| 32..159 | device settings journal: slot A 32..95, slot B 96..159 |
+| 160..1023 | reserved for future persistent state |
 
 identity schema v1自体は0..22の23 bytesだけを使用する。23..31はidentity schema extension用に予約する。
 
-persistent calibrationを実装する場合、address 32以降を使用し、identity recordと独立したversioned schemaにする。
+settings journalはidentity recordと独立したversioned schemaを使う。session tare/zeroはEEPROMへ保存しない。
 
 ## Change policy
 

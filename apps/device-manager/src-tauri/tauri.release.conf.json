@@ -7,9 +7,6 @@
     "icon": [
       "icons/icon.ico"
     ],
-    "resources": {
-      "../dist/bundle-resources/": "distribution/"
-    },
     "windows": {
       "webviewInstallMode": {
         "type": "offlineInstaller",

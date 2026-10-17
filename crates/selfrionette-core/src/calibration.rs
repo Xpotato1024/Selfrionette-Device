@@ -1,15 +1,18 @@
 //! Offline calibration preview. Firmware vectors are already negated/tared/filtered.
 use crate::{CHANNEL_COUNT, DeviceId, VectorFrame};
+use serde::{Deserialize, Serialize};
 pub const N: usize = CHANNEL_COUNT;
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Source {
     pub id: DeviceId,
     pub firmware: String,
     pub assembly: String,
     pub epoch: u64,
 }
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Context {
     pub source: Source,
     pub user: String,

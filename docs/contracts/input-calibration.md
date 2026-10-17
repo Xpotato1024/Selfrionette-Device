@@ -9,24 +9,24 @@ related:
   - docs/contracts/device-persistent-settings.md
   - docs/operations/input-calibration-replay.md
 ---
-# 7軸入力適合のオフライン契約
+# 7軸入力適合のオフライン・live共通契約
 
 ## 目的と境界
-操作者が指示された方向・強さを入力した記録から、無次元入力の候補を作り、別の時系列で単純補正と干渉補償を比較する。
-対象は firmware_v2_vector の記録だけである。元値は既に一律negation、RAM tare、スパイク抑制を経ている。
-raw ADC、N単位の力、校正済みの物理量とは呼ばない。Firmwareのtare offsetをもう一度引かない。
+操作者が指示された方向・強さを入力した記録から、無次元入力の候補を作り、独立した時系列で単純補正と干渉補償を比較する。
+既存のoffline `fit`が扱う記録形式と数値engineを維持し、`fit_v2`は従来のv2 binding検証を、`fit_device_oriented`はv3のdevice-oriented binding検証を行って同じengineへ委譲する。
+v2 vectorは既に一律negation、RAM tare、スパイク抑制を経ている。欠けている品質情報をusableと推測しない。どちらのdomainもraw ADC、N単位の力、校正済みの物理量とは呼ばず、Firmwareのtare offsetをもう一度引かない。
 
 これは**使用者・姿勢・セッションに依存する操作適合**であり、装置固有の物理校正やEEPROM設定ではない。
 機械的干渉と人間の指の連動を記録だけから分離したとは主張しない。推定対象は指示された操作への応答である。
 7chの番号を保持し、軸との対応と正方向の説明は明示入力する。親指等の物理位置や配線を推測しない。
 
 物理校正・装置設定は既存契約、ロボットのXYZ/joint/速度gain/world・tool・task座標系は利用先が所有する。
-管理GUIを必須の中継processにしない。新しい処理はpure Rust coreとファイル専用CLIから利用できるが、現行GUIの実機入力、Firmware、EEPROM、Simには適用しない。
+管理GUIを必須の中継processにしない。GUIとCLIは共有Rust serviceとpure coreを使い、fit/filterを独立に実装しない。合成previewのschema、hardware_verified、control_readyは変更せず、software上の候補やtestを実機受入と呼ばない。
 既存の合成preview/保存schemaも変更しない。hardware_verifiedとcontrol_readyは常にfalse。
 
 個人校正を必須とする製品workflow、設定/Firmware/domain/操作者へのbindingとneutralの寿命は
 [必須setup/個人校正の正本](../architecture/required-setup-calibration.md)を参照する。
-`setup::ProfileBinding::fit_v2`はこのengineへ委譲するが、実機の品質確認や新domainのfitを追加するものではない。
+`setup::ProfileBinding::fit_v2`はv2 domainだけを、`fit_device_oriented`は明示されたdevice-oriented domainだけをこのengineへ委譲する。両方とも呼出側の品質確認に依存し、coreのfit成功自体は実機品質確認やhardware acceptanceではない。
 
 ## 入力証拠と有限性
 個体ID、Firmware、組立revision、利用者、姿勢、session epochをContextとして固定する。
@@ -42,6 +42,10 @@ raw ADC、N単位の力、校正済みの物理量とは呼ばない。Firmware�
 - 各capture内の間隔上限を明示する。区間間の指示待ちは許すが、全体の時刻逆行・重複は拒否する。
 - u32のwrapは差分が正の半周期未満の場合だけ前進とする。epoch変更をwrapとして扱わない。
 
+live serviceはv3 `sample3`のdevice-oriented countsを取り込み、全7chがfreshでraw/oriented値が揃い、identity・generation・tare epoch・stream sessionが一致するsampleだけをcapture/runtimeに使う。v2受信値や欠測・timeout・held/spike/clippedをfreshへ昇格しない。
+v3のoriented値にはFirmwareが設定したraw基準極性が既に反映されている。host側は明示確認済みのwire→logical permutationだけを適用し、setupのpolarityを二度掛けない。raw値とoriented値はsample/evidenceに分けて保持する。
+operator captureは各windowを8～64 samples、8秒以内に制限する。global neutral、trial neutral、ramp、hold、release、held-out各phaseを区別する。retryは対象repeatの後続phaseを無効にし、別trialを保持する。方向skipは明示されたnegative方向だけを除外し、skip/abort/reject/timeout/切断したwindowはusable fitting evidenceと分けたbounded archiveに残す。
+
 ## 中立・応答の推定
 中立の各ch中央値をbaselineとする。中立区間の値幅、前後のbaselineずれ、除荷戻りを明示した上限と比較する。
 noise envelopeは全中立区間についてbaselineからの絶対偏差の最大値と、指定したnoise floorの大きい方である。
@@ -51,6 +55,7 @@ trialの応答は保持中央値から入力前中央値を引き、指示level�
 各方向の繰返し中央値からspanを得る。極性の不一致、保持中の大きな変動、繰返し応答の不一致は拒否する。
 正負spanは独立に測定し、対称性を仮定しない。未測定の逆方向spanはNone/nullのまま残す。
 閾値は全て明示設定し、実機推奨値のdefaultは設けない。
+live serviceではSessionNeutralの中央値を使い、区間rangeと前半/後半driftを同じ明示`FitLimits`で確認する。fitまたはheld-out検証前にSessionNeutralを確定せず、保存済みprofileからneutral/readyを復元しない。
 
 ## 方式A: 単純補正
 明示した軸→ch対応、極性、方向別spanを用いる。ch間の混合を解かずに入力を解釈する。
@@ -92,7 +97,7 @@ release閾値offはon × release_ratio。|q|>onで有効、|q|<=offで解除す�
 通常入力からsign/span/matrix/閾値を自動学習・変更しない。quality、時間、context等のエラーは無効状態を保持し、前値や偽の0sampleを返さない。
 再開には呼出側の明示操作が必要で、epoch等が変わった場合は新しい基準と証拠でfitし直す。
 
-## 比較出力
+## 比較出力とheld-out gate
 同じheld-out replayをA/Bへ渡す。校正区間のtimestampの再利用は拒否する。
 「held-out」は取得時系列を分けることの検証であり、コピーして時刻を書き換えたデータや利用者の申告の真偽までは証明しない。
 入力意図のラベルは校正者が与えた代理正解である。思考や意図を直接測定したと主張しない。
@@ -103,6 +108,7 @@ release閾値offはon × release_ratio。|q|>onで有効、|q|<=offで解除す�
 補正前、baseline差分、推定軸値、filter後、無次元値、制限前後の出力をtraceとして分離する。
 fit閾値とtrialごとのID・指示・強度・各区間sample数も出力し、条件の由来を保持する。元の記録ファイルも併せて保存する。
 方式の自動採用、プロファイルのinstall、GUIへの自動適用は行わない。
+live serviceのheld-outは学習記録とは別に取得したneutral/ramp/hold/releaseだけを読み、service内で所有する。保存・applyは同じmethodでの再計算済みheld-out検証に限る。positive single-axisは全軸、逆方向を測定した軸はnegative single-axis、さらにlower-effort single-axis、2軸以上の同時入力、全phaseのreleaseを要求し、明示`direction_tolerance`を超える逆向き/off-axis応答やrelease残留を拒否する。profile reload時も保存されたfitとheld-outを再計算し、成功しても新しいsession neutralと明示applyが必要である。
 
 ## 参照
 - [Rust f64::exp_m1](https://doc.rust-lang.org/std/primitive.f64.html#method.exp_m1)

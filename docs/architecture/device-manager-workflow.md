@@ -1,7 +1,7 @@
 ---
 status: canonical
 owner: architecture
-last_verified: 2026-10-13
+last_verified: 2026-10-16
 canonical_for:
   - Device Manager product scope and information architecture
   - synthetic application workflow and action availability
@@ -16,8 +16,8 @@ related:
 Selfrionetteの各個体を、装置固有設定を保持して正しい意味の入力を出力するデバイスとして構成し、その設定・校正・診断・Firmware更新を管理する。通常利用の必須中継processにはしない。
 GUIはその操作窓口であり、校正機能を一画面へ並べることを製品の目的にしない。
 
-実機モードはOSのport列挙と明示接続による受信確認を提供する。実機の物理校正、firmware変更、EEPROM、ロボット制御は提供しない。合成調整と実機モニターの状態・値は別経路。実機受信の正本は[GUI実機モニター契約](../contracts/gui-live-monitor.md)。
-hardware_verified / control_readyは常にfalse。プレビューの確認・記録保存を実機の利用可能性と同一視しない。
+0.2.0-preview.1では旧v2の受信確認に加え、「調整」から品質付きprotocol 3の装置設定・tare・個人校正・永久profile保存と再利用・Firmware更新を行う。既存の合成調整は開発者モードに限定する。旧v2受信の正本は[GUI実機モニター契約](../contracts/gui-live-monitor.md)、新streamは[protocol 3](../contracts/firmware-protocol-v3.md)。
+取得品質・手順上の検証合格・今回のprofile適用・物理精度の受入を区別する。software試験や保存済みreadyを実機の受入証拠にしない。既知荷重のN係数、board/bootloader、実EEPROM保持と物理操作の受入は未実施。
 Device / Xpotato-Simの既存境界を維持し、channel→XYZ/joint、ロボット速度gain、座標系・実験はSimが所有する。
 
 ## 操作体系と情報密度
@@ -27,12 +27,18 @@ Device / Xpotato-Simの既存境界を維持し、channel→XYZ/joint、ロボ�
 | 作業種別 | 今回の公開範囲 | 内部の構成 |
 |---|---|---|
 | 入力確認 | 実機の受信値 / 明示選択した合成個体の入力・状態 | 監視はwizardにしない。選択ch詳細は必要時に開く |
-| 調整 | 合成基準・応答・比較・確認・PC記録 | 1 基準 / 2 応答 / 3 比較 / 4 確認 / 5 保存 |
+| 調整 | 個体設定・個人校正・PC保存 / 開発者の合成試験 | 1 装置と取付方向 / 2 個人校正 / 3 保存と現在入力 |
 | 診断・記録 | 実機の機器情報・診断 / 合成演算値・根拠・保存履歴 | 観測/閲覧は自由に移動。調整を暗黙に再開しない |
-| 保守（後続） | 実機更新backendができるまでは未公開 | firmware-update.mdの対象/ファイル/保護/書込み/確認 |
+| Firmware更新 | 調整内の保守画面 | firmware-update.mdの対象/ファイル/保護/書込み/確認・要復旧 |
 
-製品全体では装置設定と使用前調整を別workflowとする。両方を必須とする条件・実個人校正GUIの後続受入は
+製品全体では装置設定と使用前調整を別workflowとする。両方を必須とする条件は
 [必須setup/個人校正の正本](required-setup-calibration.md)に従う。実機未対応の段階で合成処理を物理校正と称さない。
+
+品質付き接続と旧受信モニターは同時にserialを所有しない。取付設定はwire順を保ち、実際の部位/方向・論理軸を操作者が指定する。既知方向のraw全7ch差分は極性候補の根拠であり、独立した対応/向き確認と明示保存・generation読戻しが必要。個人のneutral/span/deadzone/filterやrobot mappingはEEPROM設定に混ぜない。
+
+個人校正は操作者・姿勢・握りを固定し、各方向の静止/増加/保持/除荷を利用者が準備後に開始する。再試行・欠測skip・中止を提供し、未測定の逆方向を数値で埋めない。候補A/Bは共通Rust fitter/runtimeを使用し、別試行の方向/弱入力/同時入力/除荷を確認する。採用methodとprofileの保存・今回への適用は明示操作。接続/tare後は互換永久spanを読めても今回のneutralを取り直す。
+
+品質付きGUIでは定期pollで操作buttonを無効化しない。明示操作を受け付けたら次のpollを止め、進行中の1回の読取りだけを最大250ms待つ。接続・port・device情報・tare・setup・操作者contextの一致を再確認して一度だけ実行し、不一致・期限超過では理由を表示して開始しない。将来のStart予約や書込みの自動再試行はしない。操作中とcapture中は関連入力を固定し、結果viewまたはerrorを表示する。IPC例外で状態が不明になったら古いready/sampleを消す。切断・個体/設定世代/Firmware/tare変更ではGUIの測定位置もリセットする。
 
 ### 表示位置と実行状態を分離する
 Rustのphase/steps/operationsが達成状態と実行許可の正本。frontendは閲覧中の手順を個体別に持つが、クリックで達成状態を変えない。

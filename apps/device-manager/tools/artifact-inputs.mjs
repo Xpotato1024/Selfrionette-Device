@@ -3,9 +3,19 @@ import {readFileSync} from 'node:fs';
 import {createHash} from 'node:crypto';
 import {join} from 'node:path';
 export function isProductInput(path){
- return /^apps\/device-manager\/licenses\/[^/]+\.txt$/.test(path)
+ return path==='THIRD_PARTY_NOTICES.md'
+ || /^apps\/device-manager\/licenses\/[^/]+\.(txt|md)$/.test(path)
  || /^(crates\/.*\.(rs|toml)|Cargo\.(toml|lock)|rust-toolchain.*|\.cargo\/.*)$/.test(path)
- || /^(apps\/device-manager\/src-tauri\/.*|apps\/device-manager\/(package(-lock)?\.json|frontend\/(?!.*\.test\.mjs$).*|tools\/(package-windows|distribution-lib|artifact-inputs)\.mjs)|docs\/operations\/device-manager-distribution\.md)$/.test(path);
+ || /^firmware\/(loadcell_7ch\/.*\.(cpp|h|ini|py)|shared\/.*\.(h|cpp))$/.test(path)
+ || /^docs\/contracts\/(firmware-protocol-v3|firmware-update|firmware-memory-budget)\.md$/.test(path)
+ || /^tools\/check_firmware_size\.py$/.test(path)
+ || /^(apps\/device-manager\/src-tauri\/.*|apps\/device-manager\/(package(-lock)?\.json|frontend\/(?!.*\.test\.mjs$).*|tools\/(package-windows|distribution-lib|artifact-inputs)\.mjs|tools\/platformio-requirements\.txt)|docs\/operations\/device-manager-distribution\.md)$/.test(path);
+}
+export function firmwareNoticePayload(repo){
+ return readFileSync(join(repo,'THIRD_PARTY_NOTICES.md'));
+}
+export function appendFirmwareNotices(generatedNotices,firmwareNoticeBytes){
+ return generatedNotices+'\n\nFirmware package third-party notices:\n'+Buffer.from(firmwareNoticeBytes).toString('utf8');
 }
 export function productInputs(repo){
  const paths=execFileSync('git',['-C',repo,'ls-files','--cached','--others','--exclude-standard','-z'],{encoding:'utf8'}).split('\0').filter(isProductInput).sort();

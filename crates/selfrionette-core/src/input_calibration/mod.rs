@@ -8,6 +8,7 @@ mod signal;
 
 use crate::CHANNEL_COUNT;
 use crate::calibration::Context;
+use serde::{Deserialize, Serialize};
 pub use signal::{ConditionedFrame, InputProcessor, SignalSettings};
 use std::fmt;
 
@@ -18,7 +19,8 @@ pub const MAX_PHASE_SAMPLES: usize = 1024;
 pub const MAX_CALIBRATION_SAMPLES: usize = 16384;
 pub const MAX_REPLAY_SAMPLES: usize = 8192;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum InputQuality {
     Usable,
     Unknown,
@@ -28,7 +30,8 @@ pub enum InputQuality {
     Clipped,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct FirmwareVectorSample {
     pub timestamp_ms: u32,
     pub epoch: u64,
@@ -36,14 +39,16 @@ pub struct FirmwareVectorSample {
     pub quality: InputQuality,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct AxisDefinition {
     /// Explicit wire channel association, not inferred from response magnitude.
     pub channel: usize,
     pub positive_direction: String,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct GuidedTrial {
     pub id: String,
     pub axis: usize,
@@ -55,7 +60,8 @@ pub struct GuidedTrial {
     pub released: Vec<FirmwareVectorSample>,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct CalibrationRecording {
     pub context: Context,
     pub axes: [AxisDefinition; N],
@@ -65,7 +71,8 @@ pub struct CalibrationRecording {
 }
 
 /// No universal measured thresholds or operating spans are provided as defaults.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct FitLimits {
     pub noise_floor_counts: Vector,
     pub max_rest_range_counts: Vector,
@@ -544,4 +551,43 @@ pub fn fit(
         last_calibration_timestamp_ms: last.ok_or(InputError::Bounds)?,
         max_sample_gap_ms: limits.max_sample_gap_ms,
     })
+}
+
+/// Reconstructs the same fitted engine from Device Oriented Counts. The input
+/// samples must already contain firmware polarity and session tare exactly once;
+/// this method validates the setup permutation but never reapplies its polarity.
+pub fn fit_device_oriented(
+    binding: &crate::setup::ProfileBinding,
+    current: &crate::setup::CurrentContext,
+    recording: &CalibrationRecording,
+    limits: &FitLimits,
+) -> Result<FittedInput, crate::setup::SetupError> {
+    binding.check_compatibility(current)?;
+    if current.firmware.sample_domain != crate::setup::SampleDomain::DeviceOrientedCounts {
+        return Err(crate::setup::SetupError::UnsupportedFitDomain);
+    }
+    let context = &recording.context;
+    if context.source.id != binding.setup.device_id
+        || context.source.assembly != binding.setup.assembly_revision.to_string()
+    {
+        return Err(crate::setup::SetupError::RevalidationRequired);
+    }
+    if context.source.firmware != binding.firmware.version {
+        return Err(crate::setup::SetupError::FirmwareMismatch);
+    }
+    if context.user != binding.operator.operator || context.posture != binding.operator.posture {
+        return Err(crate::setup::SetupError::OperatorMismatch);
+    }
+    for (wire, ch) in binding.setup.channels.iter().enumerate() {
+        let axis = ch
+            .logical_axis
+            .ok_or(crate::setup::SetupError::IncompleteSetup)?;
+        if recording.axes[axis].channel != axis
+            || Some(&recording.axes[axis].positive_direction) != ch.positive_direction.as_ref()
+            || binding.setup.channels[wire].logical_axis != Some(axis)
+        {
+            return Err(crate::setup::SetupError::InvalidMapping);
+        }
+    }
+    fit(recording, limits).map_err(crate::setup::SetupError::Fit)
 }

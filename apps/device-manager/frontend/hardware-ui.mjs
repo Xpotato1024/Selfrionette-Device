@@ -4,7 +4,7 @@ import {createHardwareController} from './hardware-controller.mjs';
 import {portTarget,sameTarget,visiblePorts,canSelect} from './port-selection.mjs';
 export function createHardwareUI(invoke) {
   const $=id=>document.getElementById(id);
-  let active=false,busy=false,action='',page='device',timer=null,expiry=null,selected=null,selectedChannel=0,portSignature='',selectionError='';
+  let active=false,busy=false,externalOwner=false,action='',page='device',timer=null,expiry=null,selected=null,selectedChannel=0,portSignature='',selectionError='';
   const names={disconnected:'未接続',waiting:'受信待ち',receiving:'7ch受信中',stale:'入力更新なし',error:'接続停止'};
   const trace=createTrace(document),readouts=[],channelButtons=[];
   function chooseChannel(channel,focus=false) {
@@ -29,7 +29,7 @@ export function createHardwareUI(invoke) {
   },busy:(value,current)=>{busy=value;action=current;controls();}});
   function controls() {
     const view=controller.view;
-    $('hardware-choose').disabled=!active||busy||!!view?.connected;
+    $('hardware-choose').disabled=!active||busy||!!view?.connected||externalOwner;
     $('hardware-disconnect').disabled=!active||busy||!view?.connected;
     $('hardware-scan').disabled=busy;
     $('hardware-connect-confirm').disabled=busy||!selected||!view||view.connected;
@@ -78,9 +78,8 @@ export function createHardwareUI(invoke) {
     if(view?.sample)expiry=setTimeout(()=>{
       readouts.forEach(reading=>reading.update(null));trace.pause();$('hardware-empty').textContent='更新停止。現在値は無効です。';if(active)$('environment').textContent='入力更新なし';
     },Math.max(1,501-view.sample.received_age_ms));
-    if(active)$('environment').textContent=names[view?.phase]??'状態不明';
-    $('device-summary').textContent=view?.connected?(view.reported_id&&view.reported_id!=='unprovisioned'?'個体 …'+view.reported_id.slice(-8)+' · '+view.port:view.port+' · 個体未識別'):'—';
-    $('device-summary').title=view?.reported_id||'';
+    if(active&&!externalOwner)$('environment').textContent=names[view?.phase]??'状態不明';
+    if(!externalOwner){$('device-summary').textContent=view?.connected?(view.reported_id&&view.reported_id!=='unprovisioned'?'個体 …'+view.reported_id.slice(-8)+' · '+view.port:view.port+' · 個体未識別'):'—';$('device-summary').title=view?.reported_id||'';}
     $('hardware-empty').textContent=!view?'接続状態を取得できません。':view.failure?'接続先を確認して接続し直してください。':
       view.phase==='disconnected'?'「接続先を選ぶ」から対象を指定します。':view.phase==='waiting'?'7ch入力を待っています。':view.phase==='stale'?'更新停止。現在値は無効です。':'';
     readouts.forEach((reading,index)=>reading.update(view?.sample?.values[index]??null));trace.update(view);
@@ -96,7 +95,7 @@ export function createHardwareUI(invoke) {
   }
   function showPage(name){page=name;for(const key of ['device','adjust','diagnostics'])$('hardware-page-'+key).hidden=!active||key!==page;}
   async function choose() {
-    if(!active||busy||controller.view?.connected)return;
+    if(!active||busy||externalOwner||controller.view?.connected)return;
     selected=null;selectionError='';portSignature='';$('show-other-ports').checked=false;$('query-on-connect').checked=false;renderPortDetails(null);$('port-error').hidden=true;
     $('hardware-connect-dialog').showModal();controls();await controller.send({action:'scan'});renderPorts(true);
   }
@@ -115,6 +114,7 @@ export function createHardwareUI(invoke) {
   $('hardware-info').onclick=()=>{void controller.send({action:'info'});};
   return {
     get connected(){return !!controller.view?.connected;},get busy(){return busy;},choose,disconnect,showPage,
+    setExternalOwner(value){if(externalOwner===value)return;externalOwner=value;if(!value)render(controller.view);else controls();},
     async activate(value,name=page){active=value;clearTimeout(timer);clearTimeout(expiry);showPage(name);$('hardware-target').hidden=!active;
       if(!active){$('hardware-error').hidden=true;trace.clear();}
       if(active){await controller.send({action:'scan'});if(active)timer=setTimeout(tick,150);}controls();

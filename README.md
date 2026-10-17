@@ -37,12 +37,12 @@ Xpotato-Simから見たSelfrionetteはGamepad / Keyboardと同格のInput Source
 
 **[Selfrionette Device Manager — GitHub Releases](https://github.com/Xpotato1024/Selfrionette-Device/releases)**
 
-Windows 11 x64向けのインストーラー版（推奨）と、インストール不要のZIP版を公開します。現在の配布版は[0.1.0-preview.5](https://github.com/Xpotato1024/Selfrionette-Device/releases/tag/device-manager-v0.1.0-preview.5)です。プレビュー版のため実機校正・Firmware書込みは未実装です。
+Windows 11 x64向けのインストーラー、portable ZIP、対応Firmware packageを配布対象とします。このsourceは **0.2.0-preview.1** の実験用release候補です。公開済みの **0.1.0-preview.5**（source `3435764`、検証済み8 assets）は[既存のプレビュー版](https://github.com/Xpotato1024/Selfrionette-Device/releases/tag/device-manager-v0.1.0-preview.5)です。実際の公開状態と取得可能なassetはReleasesで確認してください。
 
 ## Device Managerを使う人（ビルド不要）
 
 ビルド済みのWindows用setup.exeまたはZIPを使います。[取得・起動・保存先](docs/operations/device-manager-distribution.md)を参照してください。
-Rust、Node.js、Visual Studio、Gitの導入やcloneは不要です。現在は実機受信モニターと合成調整のプレビュー版です。実機校正・Firmware更新は未対応です。
+配布物の利用にRust、Node.js、Visual Studio、PlatformIOやcloneは不要です。品質付きFirmwareの装置設定・tare・個人校正・profile保存/再利用とFirmware更新を扱います。既知荷重によるN係数の校正、実boardでの更新・EEPROM保持・操作精度の受入は未実施です。
 
 ## Device Managerを開発・ローカル検証する人
 

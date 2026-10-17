@@ -1,7 +1,7 @@
 ---
 status: canonical
 owner: apps/device-manager
-last_verified: 2026-10-13
+last_verified: 2026-10-16
 canonical_for:
   - Device Manager test layers, change scope and binary reuse
 ---
@@ -13,13 +13,16 @@ appディレクトリの npm run check:fast は単体試験・配布条件試験
 
 ## CIの層と並列化
 Host Rustはpull_request、mainへのpush、手動で実行する。codex branch pushとPRの二重起動をしない。同じPRの古いrunはcancelする。tools/ci-scope.mjsがbase SHAとheadの差分を分類する。
-CSS/描画専用JSは高速表示試験。app/hardwareのIPC結線JSは実native境界も選ぶ。試験専用tool修正は製品入力を変えないため、既存artifactを再利用してnative受入を実行できる。Rust共通処理はWindows/Linuxのcore試験とnative境界。shell/configはnative境界。未知の変更は全層を選択する。型付き通信や保存/失効の既存試験を削除しない。
+CSS/描画専用JSは高速表示試験。app/hardware/applicationのIPC結線JSは実native境界も選ぶ。試験専用tool修正は製品入力を変えないため、既存artifactを再利用してnative受入を実行できる。Rust共通処理はWindows/Linuxのcore試験とnative境界。Firmware変更も共有protocolとnative境界を選ぶ。shell/configはnative境界。未知の変更は全層を選択する。型付き通信や保存/失効の既存試験を削除しない。
+
+品質付き操作のnative試験は `--developer-mode --scripted-hardware` と実際の `application_command` IPCを使用し、実portを開かずに同じRust service/parser/fitter/store/runtimeを通す。static表示fixtureや従来のsynthetic previewをこの操作の受入代替にしない。画面と取得根拠はtarget配下に保持する。実board・実EEPROM・実avrdude書込みは別の明示許可されたhardware試験で行う。
+`tools/live-native-qa.mjs`は実WebViewのGUIを一操作一クリックで進め、操作受付番号・完了/error・新sample・capture完了を有限待機する。固定sleepやbusy時の再クリックで成功を作らない。113手順、別試行64区間、GUIからのprofile保存/一覧/再読込み、新neutral、明示apply、逆極性の正規化と不良品質による失効を同じexeで確認する。`SELFRIONETTE_QA_CDP_URL`指定時は外部起動の既存WebViewへ接続でき、registry変更を必要としない。reportのexe hashと3画面は配布対象の同一性を検査するために保持する。
 core OS間、frontend、nativeは独立job。可変の記録ディレクトリ、レジストリ、実機handleを共有して並列化しない。
 キャッシュはOS・Rust版・lockfile・profile別。依存取得物とビルド中間出力を再利用するが、キャッシュhitを試験PASSにしない。結果は毎回実行する。
 
 ## 配布候補
-Windows配布workflowの自動起動はインストーラー/配布設定/依存/配布ツールの変更に限定。通常UIの反復では生成しない。配布候補を渡す時点では手動または配布変更によるrunを完了させる。自動公開Releaseはしない。
-build jobがRelease EXE/ZIP/setupを一度生成し、未検証のbuild artifactとして保存。verify jobが同じバイト列を取得し、導入/実Tauri/更新/取消/削除を検証する。verify失敗後はそのjobだけ再実行でき、成功したbuildを繰り返さない。
+Windows配布workflowは製品に含まれるUI/core/Firmware/updater/配布設定の変更をPRでも検証する。高速UI job自体は配布物を生成しない。配布候補を渡す時点では該当sourceの配布runを完了させる。公開は明示的な`device-manager-v*` tagを入口とし、main履歴・独立検証・日本語notes・公開asset検査がすべて通った場合だけprereleaseにする。PRから公開しない。
+build jobがRelease EXE/portable ZIP/setup/Firmware ZIPを一度生成し、未検証のbuild artifactとして保存。verify jobが同じバイト列を取得し、導入/実Tauri/更新/取消/削除を検証する。同梱Firmware・固定updater runtime・licenseのhashと、portを指定しないruntime起動も確認する。品質付きGUIは同じexeのstartup IPC、実測fixtureによる校正・保存・現在入力までのreportと3画面を要求する。古いsynthetic screenshotだけで公開gateを満たさない。verify失敗後はそのjobだけ再実行でき、成功したbuildを繰り返さない。
 同一利用者のインストール/更新/削除は直列とし、別試験に分ける場合は別runner/VMを使う。旧版更新試験を新規導入試験で代用しない。
 
 ## 別checkoutや試験ツール修正時の再利用

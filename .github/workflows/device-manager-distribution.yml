@@ -3,16 +3,32 @@ name: Device Manager Windows distribution
 on:
   pull_request:
     paths:
+      - 'apps/device-manager/src-tauri/src/**'
       - 'apps/device-manager/src-tauri/windows/**'
       - 'apps/device-manager/src-tauri/tauri*.json'
       - 'apps/device-manager/src-tauri/Cargo.*'
       - 'apps/device-manager/package*.json'
+      - 'apps/device-manager/frontend/**'
       - 'apps/device-manager/tools/package-windows.mjs'
       - 'apps/device-manager/tools/distribution-lib.mjs'
       - 'apps/device-manager/tools/artifact-inputs.mjs'
+      - 'apps/device-manager/tools/platformio-requirements.txt'
       - 'apps/device-manager/tools/stage-release.mjs'
       - 'apps/device-manager/tools/verify-release-assets.mjs'
+      - 'apps/device-manager/tools/**'
       - 'apps/device-manager/licenses/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'THIRD_PARTY_NOTICES.md'
+      - 'rust-toolchain*'
+      - '.cargo/**'
+      - 'crates/**'
+      - 'firmware/loadcell_7ch/**'
+      - 'firmware/shared/**'
+      - 'tools/check_firmware_size.py'
+      - 'docs/contracts/firmware-protocol-v3.md'
+      - 'docs/contracts/firmware-update.md'
+      - 'docs/contracts/firmware-memory-budget.md'
       - 'docs/releases/**'
       - 'docs/operations/device-manager-distribution.md'
       - '.github/workflows/device-manager-distribution.yml'
@@ -28,14 +44,68 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  build:
-    runs-on: windows-latest
-    timeout-minutes: 30
+  contracts:
+    name: Tag and PR source contracts (no hardware)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
+      - name: Isolate contract test outputs
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/codex/device-manager/$GITHUB_RUN_ID/contracts"
+          test ! -e "$root"
+          mkdir -p "$root"
+          printf 'SELFRIONETTE_TASK_TEMP_ROOT=%s\nTMPDIR=%s\nCARGO_TARGET_DIR=%s\nPYTHONPYCACHEPREFIX=%s\n' "$root" "$root" "$root/cargo" "$root/python-cache" >> "$GITHUB_ENV"
+      - name: Install Rust verification components
+        run: rustup toolchain install stable --profile minimal --component rustfmt,clippy
+      - name: Verify shared host contracts
+        run: |
+          cargo +stable fmt --all -- --check
+          cargo +stable clippy --locked --workspace --all-targets -- -D warnings
+          cargo +stable test --locked --workspace
+      - name: Verify firmware journal, acquisition and parser contracts
+        run: |
+          g++ -std=c++11 -Wall -Wextra -Werror firmware/tests/device_settings.cpp -o "$SELFRIONETTE_TASK_TEMP_ROOT/settings-test"
+          "$SELFRIONETTE_TASK_TEMP_ROOT/settings-test"
+          g++ -std=c++11 -Wall -Wextra -Werror firmware/tests/firmware_protocol_v3.cpp -o "$SELFRIONETTE_TASK_TEMP_ROOT/protocol-test"
+          "$SELFRIONETTE_TASK_TEMP_ROOT/protocol-test"
+          python -m unittest tests/test_check_firmware_size.py
+      - name: Remove contract test temporary root
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected="$RUNNER_TEMP/codex/device-manager/$GITHUB_RUN_ID/contracts"
+          test "$SELFRIONETTE_TASK_TEMP_ROOT" = "$expected"
+          test "${expected#/}" != "$expected"
+          rm -rf -- "$expected"
+  build:
+    needs: contracts
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: Create the build task temporary root
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $taskRoot = Join-Path $env:RUNNER_TEMP "codex/device-manager/$env:GITHUB_RUN_ID/build"
+          if (Test-Path -LiteralPath $taskRoot) { throw 'Task temporary root already exists' }
+          New-Item -ItemType Directory -Path $taskRoot | Out-Null
+          @(
+            "SELFRIONETTE_TASK_TEMP_ROOT=$taskRoot"
+            "CARGO_TARGET_DIR=$(Join-Path $env:GITHUB_WORKSPACE 'apps/device-manager/src-tauri/target')"
+            "TEMP=$taskRoot"
+            "TMP=$taskRoot"
+          ) | Add-Content -LiteralPath $env:GITHUB_ENV
       - uses: actions/setup-node@v7.1.0
         with:
           node-version: '24'
@@ -67,6 +137,19 @@ jobs:
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
           npm run test:package
           exit $LASTEXITCODE
+      - name: Verify Windows shared and native boundaries before packaging
+        shell: pwsh
+        run: |
+          cargo +stable fmt --all -- --check
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          cargo +stable test --locked --workspace
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          cargo +stable fmt --manifest-path apps/device-manager/src-tauri/Cargo.toml --check
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          cargo +stable clippy --locked --manifest-path apps/device-manager/src-tauri/Cargo.toml --all-targets -- -D warnings
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          cargo +stable test --locked --manifest-path apps/device-manager/src-tauri/Cargo.toml --lib
+          exit $LASTEXITCODE
       - name: Build release EXE, offline installer and ZIP
         working-directory: apps/device-manager
         run: npm run package:windows
@@ -86,15 +169,35 @@ jobs:
           if-no-files-found: error
           compression-level: 0
           retention-days: 14
+      - name: Remove build task temporary root
+        if: always()
+        shell: pwsh
+        run: |
+          $expected = Join-Path $env:RUNNER_TEMP "codex/device-manager/$env:GITHUB_RUN_ID/build"
+          $actual = [IO.Path]::GetFullPath($env:SELFRIONETTE_TASK_TEMP_ROOT)
+          if ($actual -ne [IO.Path]::GetFullPath($expected)) { throw 'Refusing to remove an unexpected temporary path' }
+          if (Test-Path -LiteralPath $actual) { Remove-Item -LiteralPath $actual -Recurse -Force }
   verify:
     needs: build
     runs-on: windows-latest
-    timeout-minutes: 15
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
+      - name: Create the verification task temporary root
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $taskRoot = Join-Path $env:RUNNER_TEMP "codex/device-manager/$env:GITHUB_RUN_ID/verify"
+          if (Test-Path -LiteralPath $taskRoot) { throw 'Task temporary root already exists' }
+          New-Item -ItemType Directory -Path $taskRoot | Out-Null
+          @(
+            "SELFRIONETTE_TASK_TEMP_ROOT=$taskRoot"
+            "TEMP=$taskRoot"
+            "TMP=$taskRoot"
+          ) | Add-Content -LiteralPath $env:GITHUB_ENV
       - uses: actions/setup-node@v7.1.0
         with:
           node-version: '24'
@@ -117,7 +220,7 @@ jobs:
           $build = Get-Content dist/latest-distribution.json -Raw | ConvertFrom-Json
           $setup = @(Get-ChildItem $build.directory -Filter '*-setup.exe')
           if ($setup.Count -ne 1) { throw 'Expected one installer' }
-          $target = Join-Path $env:RUNNER_TEMP 'selfrionette-install-test'
+          $target = Join-Path $env:SELFRIONETTE_TASK_TEMP_ROOT 'install-test'
           if (Test-Path $target) { throw 'Installation target must be new' }
           $keys = @('HKLM:\SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients\*', 'HKCU:\SOFTWARE\Microsoft\EdgeUpdate\Clients\*')
           Write-Output 'WebView2 before installation:'
@@ -128,6 +231,11 @@ jobs:
           $exe = Join-Path $target 'selfrionette-device-manager.exe'
           if (-not (Test-Path $exe)) { throw 'Installed executable is missing' }
           "SELFRIONETTE_INSTALLED_EXE=$exe" >> $env:GITHUB_ENV
+          $buildInfo = Get-Content (Join-Path $build.directory 'BUILD-INFO.json') -Raw | ConvertFrom-Json
+          $cli = Join-Path $target 'distribution/selfrionettectl.exe'
+          if (-not (Test-Path $cli)) { throw 'Installed CLI executable is missing' }
+          if ((Get-FileHash $cli).Hash -ne $buildInfo.cli.executable_sha256) { throw 'Installed CLI differs from the verified package' }
+          "SELFRIONETTE_INSTALLED_CLI=$cli" >> $env:GITHUB_ENV
           $actual = (Get-FileHash $exe).Hash
           $expected = (Get-FileHash $build.executable).Hash
           Write-Output "Installed SHA-256: $actual"
@@ -143,6 +251,17 @@ jobs:
           SELFRIONETTE_CI_WEBVIEW_POLICY: '1'
         working-directory: apps/device-manager
         run: npm run test:distribution
+      - name: Verify packaged app through native IPC and shared service workflows
+        shell: pwsh
+        working-directory: apps/device-manager
+        env:
+          SELFRIONETTE_CI_WEBVIEW_POLICY: '1'
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $build = Get-Content dist/latest-distribution.json -Raw | ConvertFrom-Json
+          $env:SELFRIONETTE_GUI_EXE = $build.executable
+          node tools/live-native-qa.mjs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Test upgrade, cancellation and same-version repair
         shell: pwsh
         run: ./apps/device-manager/tools/test-installer-upgrade.ps1
@@ -181,12 +300,22 @@ jobs:
         with:
           name: distribution-qa-${{ github.run_id }}
           path: |
-            apps/device-manager/src-tauri/target/upgrade-qa/*.json
             apps/device-manager/src-tauri/target/distribution-qa/run-*/report.json
             apps/device-manager/src-tauri/target/native-qa/run-*/report.json
             apps/device-manager/src-tauri/target/native-qa/run-*/*.png
+            apps/device-manager/src-tauri/target/native-qa/live/**/*.png
+            apps/device-manager/src-tauri/target/native-qa/live/**/REPORT.json
+            ${{ runner.temp }}/codex/device-manager/${{ github.run_id }}/verify/upgrade-qa/*.json
           if-no-files-found: ignore
           retention-days: 14
+      - name: Remove verification task temporary root
+        if: always()
+        shell: pwsh
+        run: |
+          $expected = Join-Path $env:RUNNER_TEMP "codex/device-manager/$env:GITHUB_RUN_ID/verify"
+          $actual = [IO.Path]::GetFullPath($env:SELFRIONETTE_TASK_TEMP_ROOT)
+          if ($actual -ne [IO.Path]::GetFullPath($expected)) { throw 'Refusing to remove an unexpected temporary path' }
+          if (Test-Path -LiteralPath $actual) { Remove-Item -LiteralPath $actual -Recurse -Force }
 
   publish:
     name: Publish verified GitHub prerelease
@@ -230,7 +359,7 @@ jobs:
           set -euo pipefail
           tag="$GITHUB_REF_NAME"
           mapfile -d '' assets < <(find dist/release-upload -maxdepth 1 -type f -print0 | sort -z)
-          test "${#assets[@]}" -eq 8
+          test "${#assets[@]}" -eq 9
           if gh release view "$tag" --json isDraft >/dev/null 2>&1; then
             test "$(gh release view "$tag" --json isDraft --jq '.isDraft')" = "true"
             gh release upload "$tag" "${assets[@]}" --clobber
@@ -240,7 +369,10 @@ jobs:
               --title "Selfrionette Device Manager ${tag#device-manager-v}" \
               --notes-file dist/release-notes.md
           fi
-          gh api "repos/$GITHUB_REPOSITORY/releases/tags/$tag" > dist/release-response.json
+          # Draft releases are not resolved by the public tag endpoint.
+          release_id="$(gh release view "$tag" --json databaseId --jq '.databaseId')"
+          [[ "$release_id" =~ ^[1-9][0-9]*$ ]]
+          gh api "repos/$GITHUB_REPOSITORY/releases/$release_id" > dist/release-response.json
           node apps/device-manager/tools/verify-release-assets.mjs
           gh release edit "$tag" --draft=false --prerelease
           test "$(gh release view "$tag" --json isDraft --jq '.isDraft')" = "false"

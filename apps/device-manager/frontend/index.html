@@ -45,7 +45,8 @@
     </div>
   </section>
   <section id="hardware-page-adjust" class="page" role="tabpanel" aria-labelledby="tab-adjust" hidden>
-    <h1 tabindex="-1">実機の調整</h1><p>この版で実機に対して行えるのは入力確認と診断です。実機校正・設定保存・Firmware更新はまだ利用できません。</p>
+    <h1 tabindex="-1">装置設定と個人校正</h1>
+    <div id="application-workflow"></div>
   </section>
   <section id="hardware-page-diagnostics" class="page" role="tabpanel" aria-labelledby="tab-diagnostics" hidden>
     <h1 tabindex="-1">診断</h1>
@@ -128,6 +129,6 @@
   <div class="dialog-actions"><button id="hardware-connect-cancel" autofocus>取り消す</button><button id="hardware-connect-confirm" class="primary" disabled>接続する</button></div>
 </dialog>
 <dialog id="developer-dialog" aria-labelledby="developer-title"><h2 id="developer-title">開発者向け機能を有効にする</h2><p>模擬入力による調整や異常条件の試験を利用できます。実機の校正結果は得られません。</p><p>有効なのは今回の起動中だけです。入力画面は自動で切り替わりません。</p><div class="dialog-actions"><button id="developer-cancel" autofocus>取り消す</button><button id="developer-enable" class="primary">有効にする</button></div></dialog>
-<dialog id="help-dialog" aria-labelledby="help-title"><h2 id="help-title">使い方</h2><p>「接続先を選ぶ」から対象を選択して接続します。USB情報からの候補表示は、機器の用途や校正状態を保証しません。</p><p>入力確認ではch行を選ぶと履歴が切り替わります。受信が止まると現在値は—になり、過去の履歴は更新停止として残ります。</p><p>この版では入力監視と診断を提供します。実機校正・設定書込み・Firmware更新は未対応です。</p><div class="dialog-actions"><button id="help-close" autofocus>閉じる</button></div></dialog>
+<dialog id="help-dialog" aria-labelledby="help-title"><h2 id="help-title">使い方</h2><p>旧Firmwareの受信確認は「接続先を選ぶ」、品質付きFirmwareの設定・個人校正・更新は「調整」から開始します。別の利用アプリとの接続を先に解放してください。</p><p>個体ごとの配線・取付方向を確認して装置へ保存し、使用姿勢で個人校正を行います。再接続やtare後には今回のneutralを取り直します。</p><p>取得品質は物理精度の認証ではありません。痛みのない範囲で測定し、不安や異常があれば中止してください。ロボットの制御設定はXpotato-Sim側で行います。</p><div class="dialog-actions"><button id="help-close" autofocus>閉じる</button></div></dialog>
 <script type="module" src="app.mjs"></script>
 </body></html>

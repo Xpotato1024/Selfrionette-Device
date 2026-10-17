@@ -1,7 +1,7 @@
 ---
 status: canonical
 owner: apps/device-manager
-last_verified: 2026-10-13
+last_verified: 2026-10-16
 canonical_for:
   - Windows binary usage and distribution
 related:
@@ -10,7 +10,7 @@ related:
 # Device Managerをビルドせずに使う
 
 ## 対象と配布物
-Windows 11 x64向けの開発中プレビューです。実機のシリアル入力確認と合成調整試験を提供します。実機校正・装置設定保存・Firmware書込みは未対応です。
+Windows 11 x64向けの実験用プレビューです。品質付き入力、装置の実配線・取付方向設定、操作者ごとの個人校正とprofile保存、Selfrionette firmwareの明示的な更新操作を提供します。物理デバイスと実操作者による受入は未実施です。
 Rust、Node.js、Visual Studio、Windows SDK、Git、ソースのcloneは使用者に不要です。
 ソースの開発・ローカルブランチの検証は[開発者向けREADME](https://github.com/Xpotato1024/Selfrionette-Device/blob/main/apps/device-manager/README.md)に従ってください。
 
@@ -18,16 +18,18 @@ Rust、Node.js、Visual Studio、Windows SDK、Git、ソースのcloneは使用�
 |---|---|---|
 | 名前末尾が -setup.exe | 実行して案内に従い、スタートメニューから起動 | WebView2未導入時のオフラインインストーラーを同梱 |
 | 名前末尾が -portable.zip | 全体を展開し、selfrionette-device-manager.exeを実行 | Microsoft Edge WebView2 Runtimeが導入済みであること |
+| 名前末尾が -firmware.zip | manifest・HEX・ライセンスを含む同じ版のFirmware package | 通常の書込みはアプリの更新画面で明示確認する |
 
 通常利用者にはsetup.exeを推奨します。ZIP内から直接実行せず、必ず展開してください。
 ZIP版はインストール不要ですが、設定・記録をUSB等の配布フォルダー内だけに保存する意味のportableではありません。
 VCランタイムは静的リンクし、画面のHTML/CSS/JavaScriptはexe内に含めます。開発サーバーやビルドツールは起動しません。
+両配布物には`distribution/selfrionettectl.exe`も含まれます。これはWindows x64向けのスタンドアロンCLIで、実行時にRust、Node.js、Python、PlatformIOは不要です。シリアル操作やfirmware更新の通常手順にはDevice ManagerのGUIを使用してください。
 Windows ARM64/x86、Windows 10、未導入WebView2環境への実インストールは別途受入対象です。
 
 ## 取得と起動
 **[GitHub Releases（Windows用バイナリのダウンロード）](https://github.com/Xpotato1024/Selfrionette-Device/releases)**
 
-現在の配布版は[Selfrionette Device Manager v0.1.0-preview.5](https://github.com/Xpotato1024/Selfrionette-Device/releases/tag/device-manager-v0.1.0-preview.5)です。Releaseページの「Assets」で`-setup.exe`（通常はこちら）または`-portable.zip`を選びます。GitHubが自動で付ける`Source code.zip`は実行バイナリではありません。
+`0.1.0-preview.5`は[source `3435764`の公開済みプレビュー版](https://github.com/Xpotato1024/Selfrionette-Device/releases/tag/device-manager-v0.1.0-preview.5)です。既存の検証済み8 assetsを公開しており、旧artifactは変更していません。`0.2.0-preview.1`はこの更新機能を含む未公開の候補です。公開済み版は[GitHub Releases](https://github.com/Xpotato1024/Selfrionette-Device/releases)の「Assets」から`-setup.exe`（通常はこちら）または`-portable.zip`を選びます。GitHubが自動で付ける`Source code.zip`は実行バイナリではありません。
 
 プレビュー版のため、GitHub上でもPre-releaseとして表示します。`/releases/latest`ではプレビュー版が表示されない場合があるため、上記のRelease一覧を入口にしてください。
 
@@ -46,10 +48,25 @@ GUI操作の合成試験は「ヘルプ → 開発者向け機能を有効にす
 この版で一覧にない場合は、Windowsのデバイスマネージャーのポート表示とUSB接続を確認します。ポートはあるが接続できない場合は、シリアルモニターやSimなどによる占有を確認します。受信待ちの場合は通信形式/Firmwareを確認します。ドライバー不良やFirmware書換えが必要とは、GUIの未表示だけで決めつけません。
 
 ## 保存先と更新
-PC記録は原則として %APPDATA%\dev.selfrionette.manager\synthetic-fixtures\ に保存します。exeのある場所は書込み先にしません。
+個人profile・個体の対応設定と取得根拠は原則として `%APPDATA%\dev.selfrionette.manager\personal-profiles\<device-id>\`、更新前の保護記録と要復旧journalは同じapp設定directory内の`updater\`に保存します。合成試験だけは`synthetic-fixtures\`です。exeのある場所は書込み先にしません。
 開発者・試験者がSELFRIONETTE_GUI_FIXTURE_DIRを設定した場合だけ保存先を変更します。通常使用では環境変数設定は不要です。
 更新はアプリを終了してから行います。ZIP版は旧版へ上書きせず新しいフォルダーへ展開すると比較できます。
 記録の互換性は別契約です。版が異なる記録を読み込めると無条件に保証しません。
+
+## 装置設定・個人校正・保存profile
+
+「調整」の「装置と取付方向」で明示接続し、未登録の場合だけ個体IDを新規登録します。全7chのrawを見ながら実際の部位・論理軸・既知の正方向を確認し、候補極性を別試行で確認して装置へ保存・読戻しします。無荷重tareは個人neutralとは別の明示操作です。
+
+「個人校正」で操作者・姿勢・握りを設定し、画面の指示に従って準備できた手順だけを開始します。痛みのない範囲の正逆反復と、fitに使わない弱い入力・同時入力・除荷を記録し、候補A/Bを比較して採用methodを検証します。できない方向をskipすると欠測を保持します。「保存と現在入力」で確認後にprofileを保存し、今回の個人neutralを取り直して明示適用します。再接続・tare・装置設定や使用条件の変更後にreadyやneutralを自動復元しません。
+
+通常操作にJSON編集やCLIは不要です。Managerを使わないconsumerは同梱CLIまたは共通Rust serviceを利用できます。[正規化入力consumer手順](normalized-input-consumer.md)を参照してください。Xpotato-Simへのadapter・robot制御は同梱しません。
+
+## Firmwareの更新
+`0.2.0-preview.1`以降の対応版は、同梱された検証済みIntel HEX packageを使って`SparkFun Pro Micro 16 MHz / ATmega32U4`だけを更新します。対象とpackageの確認、Applyの明示操作、再接続後のidentity/settings/version read-backを別々に行います。Applyの前に表示された候補やCOM番号だけでは書き込みを開始しません。USB location pathやserial descriptorでbootloaderを結び付けられない場合は、一候補でも追加のbootloader確認が必要です。重複・曖昧な候補、途中失敗、read-back不一致は`needs_recovery`として停止し、自動で再書き込みしません。
+
+更新時は設定とidentityのpre-update backupを保存します。同梱packageはmanifest、image、source revisionの各hashでこのアプリ版に結び付きます。ユーザーが選んだpackageは内部checksumが一致しても未検証packageとして表示します。初回install等で更新前のidentity/settingsを読めない場合、firmware version/sourceと更新後の状態を確認し、更新前との保持比較ができなかったことを明示します。詳しいpackage・対象・recovery contractは[firmware update contract](../contracts/firmware-update.md)を参照してください。
+
+このsoftware実装の公開時点で、実機のreset、bootloader再列挙、firmware書込み、更新後read-backによるhardware acceptanceは未実施です。物理デバイスの書き込みを必要とする運用では、別途受入記録が揃うまで未検証として扱ってください。
 
 ## 旧版からの更新とアンインストール
 0.1.0-preview.1からpreview.2への更新では、発行元変更に伴う旧保存先の参照不一致により、インストール前のアンインストーラーが「Error launching installer」で停止し得ます。
@@ -73,17 +90,19 @@ preview.3以降は表示用の発行元とインストーラー内部の識別�
 THIRD-PARTY-NOTICES.txtとDEPENDENCIES.jsonを同梱します。crate本体にライセンス本文がない依存は、バージョンを照合した上流のライセンス本文と原本の`.crate`を添付します。[上流ライセンスの取得元](../../apps/device-manager/licenses/UPSTREAM.md)を記録し、未確認の依存が一件でも残る場合はGitHub Releaseの公開を停止します。
 
 ## 保守担当者が配布物を作る
-開発環境のあるWindows x64で、対象のclone・ローカルブランチに移動し、変更をcommitしてから実行します。
+Windows x64開発環境で、対象cloneのcleanなcommitをcheckoutしてから実行します。Python 3.12、Node.js、Rust MSVC toolchain、Visual Studio/Windows SDKを用意します。PlatformIO Core `6.1.19`はisolated Python environmentへ導入し、firmware build/cache、Cargo cache/target、AVRDUDE archiveとbundle stagingは一つの絶対task temporary rootに置きます。
 
     cd apps/device-manager
     npm ci
-    .\run-native.cmd package
+    $env:SELFRIONETTE_TASK_TEMP_ROOT = Join-Path $env:TEMP 'codex\selfrionette-device-manager\<unique-task-id>'
+    New-Item -ItemType Directory -Path $env:SELFRIONETTE_TASK_TEMP_ROOT
+    npm run package:windows
     npm run test:distribution
 
-Developer Command Promptではnpm run package:windowsでも同じ処理を実行できます。
-出力はapps/device-manager/dist/配下です。版・source commit・lockfile hash・ビルド環境を保存し、dirtyな作業ツリーから配布候補を作りません。
+package scriptはPlatformIO memory-budget gateを通したsource-injected firmware imageを一度ビルドし、manifest/image hashを生成します。AVRDUDE v8.3のWindows x64 upstream archiveは固定SHA-256を照合し、実行ファイル・configurationと上流`COPYING`を同梱します。依存cache、firmware build、Cargo target、staging filesはtask temporary root内で使い終わった後に削除します。
+出力はapps/device-manager/dist/配下です。版・source commit・product input・lockfile hash・firmware package・updater runtimeのprovenanceを保存し、dirtyな作業ツリーから配布候補を作りません。
 通常のDebug build/devは従来どおり未commitの開発作業に使用できます。
-CIはPR・手動実行・`device-manager-v*`タグで配布候補を生成します。タグ実行では、Windows配布のビルド・別runnerでの検証がすべて成功し、source commit・SHA-256・第三者ライセンス通知を確認できた場合だけ、日本語Release NotesとともにGitHubの**Pre-release**を公開します。既存の配布物を再利用するだけでなく、タグに対応するソースで一度ビルドし直します。
+CIはPR・手動実行・`device-manager-v*`タグで候補をbuild-onceし、独立runnerで同じartifactのproduct input fingerprint・checksum・配布試験を検証します。タグ実行では、Windows配布のビルド・別runnerでの検証がすべて成功し、source commit・firmware/runtime SHA-256・第三者ライセンス通知を確認できた場合だけ、日本語Release NotesとともにGitHubの**Pre-release**を公開します。既存の配布物を再利用するだけでなく、タグに対応するソースで一度ビルドし直します。Git tagの作成・pushはこの文書やpackage scriptでは行いません。
 
 通常PRからの公開は行わず、公開処理だけに最小限の`contents:write`権限を与えます。署名は未導入であり、クリーンPC・完全オフライン初回導入の確認は引き続き必要です。
 

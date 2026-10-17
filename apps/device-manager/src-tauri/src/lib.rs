@@ -1,12 +1,145 @@
+mod application;
 mod discovery;
 mod fixtures;
 mod hardware;
+mod scripted;
 mod session;
+mod updater;
 mod workflow;
 use session::{Mode, ModeCommand, ModeRequest, Runtime, Source};
 use std::sync::{Arc, Mutex};
 use tauri::{Emitter, Manager};
 type Shared = Arc<Mutex<Runtime>>;
+
+#[tauri::command]
+async fn application_command(
+    app: tauri::AppHandle,
+    command: serde_json::Value,
+    state: tauri::State<'_, Shared>,
+) -> Result<serde_json::Value, String> {
+    let menu_changed = matches!(
+        command.get("action").and_then(serde_json::Value::as_str),
+        Some("connect" | "disconnect")
+    );
+    let state = state.inner().clone();
+    let root = match std::env::var_os("SELFRIONETTE_GUI_FIXTURE_DIR") {
+        Some(root) => std::path::PathBuf::from(root).join("personal-profiles"),
+        None => app
+            .path()
+            .app_config_dir()
+            .map_err(|e| e.to_string())?
+            .join("personal-profiles"),
+    };
+    let (reply, mode, connected) = tauri::async_runtime::spawn_blocking(move || {
+        let mut runtime = state.lock().map_err(|_| "アプリ状態を取得できません。")?;
+        if runtime.mode.source != Source::Hardware {
+            return Err("実機設定は実機画面で実行してください。".into());
+        }
+        if runtime.monitor.connected()
+            && command.get("action").and_then(serde_json::Value::as_str) == Some("connect")
+        {
+            return Err("入力確認の接続を先に切断してください。".into());
+        }
+        let root = if runtime.mode.scripted_hardware {
+            root.join("scripted")
+        } else {
+            root
+        };
+        let reply = runtime.application.execute(command, &root)?;
+        Ok::<_, String>((
+            reply,
+            runtime.mode.clone(),
+            runtime.monitor.connected() || runtime.application.connected(),
+        ))
+    })
+    .await
+    .map_err(|e| e.to_string())??;
+    if menu_changed {
+        install_menu(&app, &mode, connected).map_err(|e| e.to_string())?;
+    }
+    Ok(reply)
+}
+
+type UpdateShared = Arc<Mutex<Option<updater::UpdaterService>>>;
+fn updater_service<'a>(
+    app: &tauri::AppHandle,
+    state: &'a mut Option<updater::UpdaterService>,
+) -> Result<&'a mut updater::UpdaterService, String> {
+    if state.is_none() {
+        let resources = app.path().resource_dir().map_err(|e| e.to_string())?;
+        let config = match std::env::var_os("SELFRIONETTE_GUI_FIXTURE_DIR") {
+            Some(p) => std::path::PathBuf::from(p).join("updater"),
+            None => app
+                .path()
+                .app_config_dir()
+                .map_err(|e| e.to_string())?
+                .join("updater"),
+        };
+        *state = Some(updater::UpdaterService::new(resources, config));
+    }
+    state
+        .as_mut()
+        .ok_or_else(|| "更新状態を取得できません。".into())
+}
+#[tauri::command]
+async fn updater_prepare(
+    app: tauri::AppHandle,
+    request: updater::PrepareRequest,
+    state: tauri::State<'_, UpdateShared>,
+    runtime: tauri::State<'_, Shared>,
+) -> Result<updater::PrepareReply, String> {
+    let state = state.inner().clone();
+    let runtime = runtime.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let r = runtime.lock().map_err(|_| "接続状態を取得できません。")?;
+        if r.monitor.connected() || r.application.connected() {
+            return Err("先に装置の接続を解放してください。".into());
+        }
+        let mut s = state.lock().map_err(|_| "更新状態を取得できません。")?;
+        updater_service(&app, &mut s)?.prepare(request)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+#[tauri::command]
+async fn updater_apply(
+    app: tauri::AppHandle,
+    request: updater::ApplyRequest,
+    state: tauri::State<'_, UpdateShared>,
+    runtime: tauri::State<'_, Shared>,
+) -> Result<updater::ApplyReply, String> {
+    let runtime = runtime.inner().clone();
+    let state = state.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let r = runtime.lock().map_err(|_| "接続状態を取得できません。")?;
+        if r.monitor.connected() || r.application.connected() {
+            return Err("装置は別の接続で使用中です。".into());
+        }
+        let mut s = state.lock().map_err(|_| "更新状態を取得できません。")?;
+        updater_service(&app, &mut s)?.apply(request)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+#[tauri::command]
+async fn updater_recover(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, UpdateShared>,
+    runtime: tauri::State<'_, Shared>,
+) -> Result<updater::RecoveryReply, String> {
+    let runtime = runtime.inner().clone();
+    let state = state.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let r = runtime.lock().map_err(|_| "接続状態を取得できません。")?;
+        if r.monitor.connected() || r.application.connected() {
+            return Err("先に装置の接続を解放してください。".into());
+        }
+        let mut s = state.lock().map_err(|_| "更新状態を取得できません。")?;
+        updater_service(&app, &mut s)?.recover()
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
 
 #[tauri::command]
 async fn device_command(
@@ -65,9 +198,9 @@ async fn hardware_command(
         let mut runtime = state
             .lock()
             .map_err(|_| "接続状態を取得できません。".to_string())?;
-        let before = runtime.monitor.connected();
+        let before = runtime.monitor.connected() || runtime.application.connected();
         let reply = runtime.hardware(request)?;
-        let connected = runtime.monitor.connected();
+        let connected = runtime.monitor.connected() || runtime.application.connected();
         Ok::<_, String>((reply, runtime.mode.clone(), before != connected, connected))
     })
     .await
@@ -90,7 +223,10 @@ async fn mode_command(
             .lock()
             .map_err(|_| "アプリ状態を取得できません。".to_string())?;
         let mode = runtime.set_mode(request)?;
-        Ok::<_, String>((mode, runtime.monitor.connected()))
+        Ok::<_, String>((
+            mode,
+            runtime.monitor.connected() || runtime.application.connected(),
+        ))
     })
     .await
     .map_err(|e| e.to_string())??;
@@ -175,6 +311,7 @@ pub fn run() {
     let startup = mode.clone();
     tauri::Builder::default()
         .manage(Arc::new(Mutex::new(Runtime::new(mode))))
+        .manage(Arc::new(Mutex::new(None::<updater::UpdaterService>)))
         .setup(move |app| {
             install_menu(app.handle(), &startup, false)?;
             app.on_menu_event(|app, event| {
@@ -193,8 +330,15 @@ pub fn run() {
             device_command,
             application_info,
             hardware_command,
+            application_command,
+            updater_prepare,
+            updater_apply,
+            updater_recover,
             mode_command
         ])
         .run(tauri::generate_context!())
         .expect("Device Manager startup failed");
 }
+
+#[cfg(test)]
+mod frontend_embedding;

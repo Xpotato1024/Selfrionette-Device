@@ -4,16 +4,27 @@
 #include <string.h>
 
 #include "HX711.h"
+#include "../../shared/buffered_line_queue.h"
+#include "../../shared/device_settings.h"
+#include "../../shared/firmware_protocol_v3.h"
 
 namespace {
-#define SELFRIONETTE_FIRMWARE_VERSION "0.1.0"
+#define SELFRIONETTE_FIRMWARE_VERSION "0.2.0-preview.1"
+
+#ifndef SELFRIONETTE_SOURCE_SHA
+#error "PlatformIO must inject SELFRIONETTE_SOURCE_SHA"
+#endif
+static_assert(sizeof(SELFRIONETTE_SOURCE_SHA) == 41,
+              "source SHA must contain exactly 40 characters");
 
 constexpr uint8_t kProtocolMajorVersion = 2;
 constexpr uint8_t kChannelCount = 7;
+constexpr uint8_t kAllChannelBits = (1U << kChannelCount) - 1U;
 constexpr unsigned long kSerialBaudRate = 115200UL;
 constexpr unsigned long kSampleRateHz = 80UL;
 constexpr unsigned long kSamplePeriodMicros = 1000000UL / kSampleRateHz;
-constexpr unsigned long kReadyTimeoutMs = 10UL;
+constexpr unsigned long kV3SamplePeriodMicros = 50000UL;
+constexpr unsigned long kReadyTimeoutMs = 25UL;
 constexpr unsigned long kReadyPollDelayMs = 1UL;
 constexpr uint8_t kSensorActivationReads = 10;
 constexpr uint8_t kCalibrationWarmupReads = 5;
@@ -26,11 +37,52 @@ constexpr double kCalibrationBatchSpreadThreshold = 2000.0;
 
 constexpr uint8_t kLoadcellDoutPins[kChannelCount] = {4, 6, 8, 10, 19, 3, 14};
 constexpr uint8_t kLoadcellSckPins[kChannelCount] = {5, 7, 9, 18, 20, 2, 15};
+constexpr uint16_t kOutputBufferCapacity = 256;
 
-constexpr uint8_t kCommandBufferSize = 64;
+class BufferedSerialOutput : public Print {
+ public:
+  bool beginLine(uint16_t reserve = 0) { return queue_.beginLine(reserve); }
+
+  bool endLine() {
+    const bool accepted = queue_.endLine();
+    if (!accepted) return false;
+    drain();
+    return true;
+  }
+
+  bool busy() const { return queue_.busy(); }
+
+  bool canQueue(uint16_t required) { return queue_.canQueue(required); }
+
+  void drain() { queue_.drain(Serial); }
+
+  size_t write(uint8_t value) override {
+    return queue_.write(value);
+  }
+
+ private:
+  selfrionette::firmware::BufferedLineQueue<kOutputBufferCapacity> queue_;
+};
+
+BufferedSerialOutput g_output;
+constexpr uint16_t kProtocolReplyReserveBytes = 37;
+constexpr uint16_t kInfo3MaxLineBytes = 200;
+constexpr uint16_t kCommandReplyReserveBytes =
+    kInfo3MaxLineBytes + kProtocolReplyReserveBytes;
+constexpr uint16_t kV3MaxSampleLineBytes = selfrionette::protocol3::kMaxSample3LineBytes;
+constexpr uint16_t kSampleQueueReserveBytes =
+    kV3MaxSampleLineBytes + kProtocolReplyReserveBytes;
+static_assert(kCommandReplyReserveBytes <= kOutputBufferCapacity,
+              "output buffer must reserve the largest v3 command reply and tare result");
+static_assert(kSampleQueueReserveBytes <= kOutputBufferCapacity,
+              "output buffer must reserve a full sample and asynchronous tare result");
+
+constexpr uint16_t kCommandBufferSize =
+    selfrionette::protocol3::kMaxValidCommandPayload + 1;
 char g_command_buffer[kCommandBufferSize];
 uint8_t g_command_length = 0;
 bool g_command_overflow = false;
+bool g_command_ready = false;
 
 constexpr int kIdentityBaseAddress = 0;
 constexpr uint8_t kIdentityMagic[4] = {'S', 'R', 'N', '2'};
@@ -49,50 +101,111 @@ HX711 g_scales[kChannelCount];
 double g_offsets[kChannelCount] = {0, 0, 0, 0, 0, 0, 0};
 double g_previous_values[kChannelCount] = {0, 0, 0, 0, 0, 0, 0};
 double g_current_values[kChannelCount] = {0, 0, 0, 0, 0, 0, 0};
+uint8_t g_legacy_timeout_warned = 0;
+
+using selfrionette::protocol3::Command;
+using selfrionette::protocol3::CommandKind;
+using selfrionette::protocol3::ParseStatus;
+using selfrionette::protocol3::SessionStart;
+using selfrionette::protocol3::StreamSession;
+using selfrionette::protocol3::TareWindow;
+using selfrionette::settings::Loaded;
+using selfrionette::settings::Settings;
+
+struct EepromStore {
+  uint8_t read(uint16_t address) const { return EEPROM.read(address); }
+  bool update(uint16_t address, uint8_t value) {
+    EEPROM.update(address, value);
+    return EEPROM.read(address) == value;
+  }
+};
+
+Loaded g_settings = {};
+StreamSession g_v3_stream;
+uint32_t g_v2_next_frame_us = 0;
+uint32_t g_v3_next_frame_us = 0;
+int32_t g_v3_raw[kChannelCount] = {0, 0, 0, 0, 0, 0, 0};
+uint32_t g_v3_last_read_ms[kChannelCount] = {0, 0, 0, 0, 0, 0, 0};
+uint8_t g_v3_has_raw = 0;
+uint8_t g_v3_fresh_this_frame = 0;
+uint8_t g_v3_sample_rejected = 0;
+uint8_t g_v3_rejected_next = 0;
+bool g_tare_active = false;
+bool g_tare_valid = false;
+uint32_t g_tare_epoch = 0;
+uint32_t g_tare_request = 0;
+uint32_t g_tare_started_ms = 0;
+int32_t g_tare_zero[kChannelCount] = {0, 0, 0, 0, 0, 0, 0};
+TareWindow g_tare_window;
+
+uint8_t channelBit(uint8_t channel) {
+  return static_cast<uint8_t>(1U << channel);
+}
+
+bool channelFlag(uint8_t flags, uint8_t channel) {
+  return (flags & channelBit(channel)) != 0;
+}
+
+void setChannelFlag(uint8_t& flags, uint8_t channel, bool enabled) {
+  const uint8_t bit = channelBit(channel);
+  if (enabled) flags |= bit;
+  else flags &= static_cast<uint8_t>(~bit);
+}
 
 void emitStatus(const __FlashStringHelper* token) {
-  Serial.print(F("status,"));
-  Serial.println(token);
+  if (!g_output.beginLine(kProtocolReplyReserveBytes)) return;
+  g_output.print(F("status,"));
+  g_output.print(token);
+  g_output.endLine();
 }
 
 void emitStatusChannelValue(const __FlashStringHelper* token, uint8_t channel, long value) {
-  Serial.print(F("status,"));
-  Serial.print(token);
-  Serial.print(',');
-  Serial.print(channel);
-  Serial.print(',');
-  Serial.println(value);
+  if (!g_output.beginLine(kProtocolReplyReserveBytes)) return;
+  g_output.print(F("status,"));
+  g_output.print(token);
+  g_output.print(',');
+  g_output.print(channel);
+  g_output.print(',');
+  g_output.print(value);
+  g_output.endLine();
 }
 
 void emitWarn(const __FlashStringHelper* token) {
-  Serial.print(F("warn,"));
-  Serial.println(token);
+  if (!g_output.beginLine(kProtocolReplyReserveBytes)) return;
+  g_output.print(F("warn,"));
+  g_output.print(token);
+  g_output.endLine();
 }
 
 void emitWarnChannel(const __FlashStringHelper* token, uint8_t channel) {
-  Serial.print(F("warn,"));
-  Serial.print(token);
-  Serial.print(',');
-  Serial.println(channel);
+  if (!g_output.beginLine(kProtocolReplyReserveBytes)) return;
+  g_output.print(F("warn,"));
+  g_output.print(token);
+  g_output.print(',');
+  g_output.print(channel);
+  g_output.endLine();
 }
 
 void emitWarnChannelValue(const __FlashStringHelper* token, uint8_t channel, double value) {
-  Serial.print(F("warn,"));
-  Serial.print(token);
-  Serial.print(',');
-  Serial.print(channel);
-  Serial.print(',');
-  Serial.println(value);
+  if (!g_output.beginLine(kProtocolReplyReserveBytes)) return;
+  g_output.print(F("warn,"));
+  g_output.print(token);
+  g_output.print(',');
+  g_output.print(channel);
+  g_output.print(',');
+  g_output.print(value);
+  g_output.endLine();
 }
 
 void printVectorLine(unsigned long timestamp_ms, const double* values) {
-  Serial.print(F("vector,"));
-  Serial.print(timestamp_ms);
+  if (!g_output.beginLine(kProtocolReplyReserveBytes)) return;
+  g_output.print(F("vector,"));
+  g_output.print(timestamp_ms);
   for (uint8_t i = 0; i < kChannelCount; ++i) {
-    Serial.print(',');
-    Serial.print(values[i]);
+    g_output.print(',');
+    g_output.print(values[i]);
   }
-  Serial.println();
+  g_output.endLine();
 }
 
 uint16_t updateCrc16Ccitt(uint16_t crc, uint8_t value) {
@@ -178,26 +291,97 @@ char hexDigit(uint8_t value) {
 }
 
 void printDeviceId(const uint8_t* id) {
-  Serial.print(F("srn-"));
+  g_output.print(F("srn-"));
   for (uint8_t i = 0; i < kIdentitySize; ++i) {
-    Serial.print(hexDigit(static_cast<uint8_t>(id[i] >> 4)));
-    Serial.print(hexDigit(static_cast<uint8_t>(id[i] & 0x0F)));
+    g_output.print(hexDigit(static_cast<uint8_t>(id[i] >> 4)));
+    g_output.print(hexDigit(static_cast<uint8_t>(id[i] & 0x0F)));
   }
 }
 
 void emitDeviceInfo() {
-  Serial.print(F("device,"));
-  Serial.print(kProtocolMajorVersion);
-  Serial.print(',');
-  Serial.print(F(SELFRIONETTE_FIRMWARE_VERSION));
-  Serial.print(',');
+  if (!g_output.beginLine(kProtocolReplyReserveBytes)) return;
+  g_output.print(F("device,"));
+  g_output.print(kProtocolMajorVersion);
+  g_output.print(',');
+  g_output.print(F(SELFRIONETTE_FIRMWARE_VERSION));
+  g_output.print(',');
   if (g_device_identity_valid) {
     printDeviceId(g_device_id);
   } else {
-    Serial.print(F("unprovisioned"));
+    g_output.print(F("unprovisioned"));
   }
-  Serial.print(',');
-  Serial.println(kChannelCount);
+  g_output.print(',');
+  g_output.print(kChannelCount);
+  g_output.endLine();
+}
+
+void emitError3(uint32_t request, const __FlashStringHelper* token) {
+  if (!g_output.beginLine()) return;
+  g_output.print(F("error3,"));
+  g_output.print(static_cast<unsigned long>(request));
+  g_output.print(',');
+  g_output.print(token);
+  g_output.endLine();
+}
+
+void emitOk3(uint32_t request, const __FlashStringHelper* operation, uint32_t value) {
+  if (!g_output.beginLine()) return;
+  g_output.print(F("ok3,"));
+  g_output.print(static_cast<unsigned long>(request));
+  g_output.print(',');
+  g_output.print(operation);
+  g_output.print(',');
+  g_output.print(static_cast<unsigned long>(value));
+  g_output.endLine();
+}
+
+bool settings_available() {
+  return g_settings.state == selfrionette::settings::State::Empty ||
+         g_settings.state == selfrionette::settings::State::Partial ||
+         g_settings.state == selfrionette::settings::State::Usable;
+}
+
+uint32_t current_generation() {
+  return g_settings.state == selfrionette::settings::State::Empty
+             ? 0U
+             : g_settings.value.generation;
+}
+
+void emitDeviceInfo3(uint32_t request) {
+  if (!settings_available()) {
+    emitError3(request, F("settings_corrupt"));
+    return;
+  }
+
+  const Settings* settings = &g_settings.value;
+  const uint32_t generation = current_generation();
+  const uint32_t assembly = generation == 0 ? 0U : settings->assembly;
+  const uint8_t known = generation == 0 ? 0 : settings->known;
+  const uint8_t negative = generation == 0 ? 0 : settings->negative;
+
+  if (!g_output.beginLine()) return;
+  g_output.print(F("info3,"));
+  g_output.print(static_cast<unsigned long>(request));
+  g_output.print(',');
+  g_output.print(F(SELFRIONETTE_FIRMWARE_VERSION));
+  g_output.print(',');
+  g_output.print(F(SELFRIONETTE_SOURCE_SHA));
+  g_output.print(F(",sparkfun_promicro16,atmega32u4,16000000,"));
+  if (g_device_identity_valid) printDeviceId(g_device_id);
+  else g_output.print(F("unprovisioned"));
+  g_output.print(',');
+  g_output.print(static_cast<unsigned long>(generation));
+  g_output.print(',');
+  g_output.print(static_cast<unsigned long>(assembly));
+  g_output.print(',');
+  g_output.print(known);
+  g_output.print(',');
+  g_output.print(negative);
+  g_output.print(',');
+  g_output.print(static_cast<unsigned long>(g_tare_epoch));
+  g_output.print(',');
+  g_output.print(g_tare_valid ? 1 : 0);
+  g_output.endLine();
 }
 
 int8_t parseLowerHexNibble(char value) {
@@ -231,12 +415,219 @@ bool parseDeviceId(const char* text, uint8_t* output) {
   return !isAllZeroIdentity(output);
 }
 
+void invalidateTare() {
+  g_tare_valid = false;
+  memset(g_tare_zero, 0, sizeof(g_tare_zero));
+}
+
+void cancelTare(const __FlashStringHelper* reason) {
+  if (!g_tare_active) return;
+  emitError3(g_tare_request, reason);
+  g_tare_active = false;
+  g_tare_window.reset();
+}
+
+void reloadSettings() {
+  EepromStore store;
+  g_settings = selfrionette::settings::load(store, g_device_id);
+  if (!g_device_identity_valid && g_settings.state != selfrionette::settings::State::Empty) {
+    g_settings.state = selfrionette::settings::State::Corrupt;
+  }
+}
+
+bool requestIdentityMatches(const Command& command) {
+  return g_device_identity_valid &&
+         memcmp(command.identity, g_device_id, kIdentitySize) == 0;
+}
+
+void beginTare(const Command& command) {
+  if (!g_device_identity_valid || !requestIdentityMatches(command)) {
+    emitError3(command.request, F("device_mismatch"));
+    return;
+  }
+  if (!settings_available()) {
+    emitError3(command.request, F("settings_corrupt"));
+    return;
+  }
+  if (command.expected_generation != current_generation()) {
+    emitError3(command.request, F("stale_generation"));
+    return;
+  }
+  if (g_tare_active) {
+    emitError3(command.request, F("busy"));
+    return;
+  }
+  if (g_tare_epoch == UINT32_MAX) {
+    emitError3(command.request, F("tare_epoch_exhausted"));
+    return;
+  }
+
+  invalidateTare();
+  g_tare_request = command.request;
+  g_tare_started_ms = millis();
+  g_tare_window.reset();
+  g_tare_active = true;
+}
+
+void failTare(const __FlashStringHelper* reason) {
+  if (!g_tare_active) return;
+  const uint32_t request = g_tare_request;
+  g_tare_active = false;
+  g_tare_window.reset();
+  invalidateTare();
+  g_v3_rejected_next = kAllChannelBits;
+  emitError3(request, reason);
+}
+
+void finishTareIfReady(uint32_t now_ms) {
+  if (!g_tare_active || !g_tare_window.complete()) return;
+  int32_t candidate[kChannelCount];
+  const selfrionette::protocol3::TareCompletion completion =
+      g_tare_window.finish_before_deadline(now_ms, g_tare_started_ms, candidate);
+  if (completion == selfrionette::protocol3::TareCompletion::TimedOut) {
+    failTare(F("tare_timeout"));
+    return;
+  }
+  if (completion == selfrionette::protocol3::TareCompletion::Unstable) {
+    failTare(F("tare_quality"));
+    return;
+  }
+  if (completion != selfrionette::protocol3::TareCompletion::Complete) return;
+
+  memcpy(g_tare_zero, candidate, sizeof(g_tare_zero));
+  ++g_tare_epoch;
+  g_tare_valid = true;
+  g_tare_active = false;
+  g_tare_window.reset();
+  emitOk3(g_tare_request, F("tare"), g_tare_epoch);
+}
+
+void observeRawReading(uint8_t channel, long raw, uint32_t now_ms) {
+  const double legacy_reading = -static_cast<double>(raw);
+  const double adjusted = legacy_reading - g_offsets[channel];
+  if (fabs(adjusted - g_previous_values[channel]) > kMaxChangeThreshold) {
+    g_current_values[channel] = g_previous_values[channel];
+    emitWarnChannelValue(F("spike"), channel, g_current_values[channel]);
+  } else {
+    g_current_values[channel] = adjusted;
+  }
+  g_previous_values[channel] = g_current_values[channel];
+  setChannelFlag(g_legacy_timeout_warned, channel, false);
+
+  g_v3_raw[channel] = static_cast<int32_t>(raw);
+  g_v3_last_read_ms[channel] = now_ms;
+  setChannelFlag(g_v3_has_raw, channel, true);
+  setChannelFlag(g_v3_fresh_this_frame, channel, true);
+  setChannelFlag(g_v3_sample_rejected, channel,
+                 channelFlag(g_v3_rejected_next, channel));
+  setChannelFlag(g_v3_rejected_next, channel, false);
+
+  if (g_tare_active) {
+    const uint8_t flags = selfrionette::protocol3::flags_for(
+        true, true, false, static_cast<int32_t>(raw), false);
+    const selfrionette::protocol3::TareAdmission admission =
+        g_tare_window.add_before_deadline(
+            now_ms, g_tare_started_ms, channel, static_cast<int32_t>(raw), flags);
+    if (admission == selfrionette::protocol3::TareAdmission::TimedOut) {
+      failTare(F("tare_timeout"));
+    } else if (admission == selfrionette::protocol3::TareAdmission::Rejected) {
+      setChannelFlag(g_v3_rejected_next, channel, true);
+    }
+    if (g_tare_active) finishTareIfReady(millis());
+  }
+}
+
+void updateSensors() {
+  const uint32_t now_ms = millis();
+  for (uint8_t channel = 0; channel < kChannelCount; ++channel) {
+    long raw = 0;
+    if (g_scales[channel].read_raw_if_ready(&raw)) {
+      observeRawReading(channel, raw, millis());
+    } else if (!channelFlag(g_legacy_timeout_warned, channel) &&
+               selfrionette::protocol3::deadline_elapsed(
+                   now_ms, g_v3_last_read_ms[channel], kReadyTimeoutMs)) {
+      emitWarnChannel(F("ready_timeout"), channel);
+      setChannelFlag(g_legacy_timeout_warned, channel, true);
+    }
+  }
+
+  if (g_tare_active && selfrionette::protocol3::deadline_elapsed(
+                           millis(), g_tare_started_ms,
+                           selfrionette::protocol3::kTareTimeoutMs)) {
+    failTare(F("tare_timeout"));
+  }
+}
+
+bool emitSample3(uint32_t now_ms) {
+  if (!g_v3_stream.active()) return false;
+  if (g_v3_stream.sequence() == UINT32_MAX) {
+    g_v3_stream.deactivate();
+    return false;
+  }
+  if (!g_output.canQueue(kSampleQueueReserveBytes)) return false;
+  uint32_t sequence = 0;
+  if (!g_v3_stream.advanceSequence(sequence)) {
+    g_v3_stream.deactivate();
+    return false;
+  }
+  if (!g_output.beginLine()) return false;
+
+  g_output.print(F("sample3,"));
+  g_output.print(static_cast<unsigned long>(g_v3_stream.challenge()));
+  g_output.print(',');
+  g_output.print(static_cast<unsigned long>(sequence));
+  g_output.print(',');
+  g_output.print(static_cast<unsigned long>(now_ms));
+  g_output.print(',');
+  g_output.print(static_cast<unsigned long>(g_tare_epoch));
+  g_output.print(',');
+  g_output.print(static_cast<unsigned long>(current_generation()));
+  g_output.print(',');
+  g_output.print(g_tare_valid ? 1 : 0);
+
+  uint8_t flags[kChannelCount];
+  for (uint8_t channel = 0; channel < kChannelCount; ++channel) {
+    const bool timed_out = selfrionette::protocol3::deadline_elapsed(
+        now_ms, g_v3_last_read_ms[channel],
+        selfrionette::protocol3::kFreshTimeoutMs);
+    const bool fresh = channelFlag(g_v3_fresh_this_frame, channel) && !timed_out;
+    flags[channel] = selfrionette::protocol3::flags_for(
+        channelFlag(g_v3_has_raw, channel), fresh, timed_out, g_v3_raw[channel],
+        channelFlag(g_v3_sample_rejected, channel));
+    g_output.print(',');
+    if (channelFlag(g_v3_has_raw, channel))
+      g_output.print(static_cast<long>(g_v3_raw[channel]));
+    else g_output.print('?');
+  }
+
+  for (uint8_t channel = 0; channel < kChannelCount; ++channel) {
+    int32_t oriented = 0;
+    const bool usable = flags[channel] == selfrionette::protocol3::kFresh &&
+        g_tare_valid && selfrionette::settings::orient_count(
+            g_settings, channel, g_v3_raw[channel], g_tare_zero[channel], oriented);
+    g_output.print(',');
+    if (usable) g_output.print(static_cast<long>(oriented));
+    else g_output.print('?');
+  }
+
+  for (uint8_t channel = 0; channel < kChannelCount; ++channel) {
+    g_output.print(',');
+    g_output.print(flags[channel]);
+  }
+  g_v3_fresh_this_frame = 0;
+  g_v3_sample_rejected = 0;
+  return g_output.endLine();
+}
+
 bool waitForReady(uint8_t channel) {
   return g_scales[channel].wait_ready_timeout(kReadyTimeoutMs, kReadyPollDelayMs);
 }
 
-long readSignedReading(uint8_t channel) {
-  return -g_scales[channel].read();
+bool readSignedReading(uint8_t channel, long* value) {
+  long raw = 0;
+  if (!g_scales[channel].read_raw_if_ready(&raw)) return false;
+  *value = -raw;
+  return true;
 }
 
 bool collectReadings(uint8_t channel, uint8_t sampleCount, long* samples, const __FlashStringHelper* timeoutReason) {
@@ -250,7 +641,10 @@ bool collectReadings(uint8_t channel, uint8_t sampleCount, long* samples, const 
       return false;
     }
 
-    samples[i] = readSignedReading(channel);
+    if (!readSignedReading(channel, &samples[i])) {
+      emitWarnChannel(timeoutReason, channel);
+      return false;
+    }
     delayMicroseconds(kCalibrationReadDelayMicros);
   }
 
@@ -327,7 +721,11 @@ void warmupChannel(uint8_t channel) {
       emitWarnChannel(F("warmup_timeout"), channel);
       return;
     }
-    (void)g_scales[channel].read();
+    long raw = 0;
+    if (!g_scales[channel].read_raw_if_ready(&raw)) {
+      emitWarnChannel(F("warmup_timeout"), channel);
+      return;
+    }
     delay(10);
   }
 }
@@ -340,7 +738,11 @@ bool calibrateChannel(uint8_t channel) {
       emitWarnChannel(F("calibration_warmup_timeout"), channel);
       break;
     }
-    (void)g_scales[channel].read();
+    long raw = 0;
+    if (!g_scales[channel].read_raw_if_ready(&raw)) {
+      emitWarnChannel(F("calibration_warmup_timeout"), channel);
+      break;
+    }
     delay(10);
   }
 
@@ -413,16 +815,129 @@ void handleProvisionCommand(const char* device_id_text) {
     return;
   }
 
+  reloadSettings();
+  invalidateTare();
   emitStatus(F("provision_ok"));
 }
 
-void executeCommand(char* command) {
+void handleStream3(const Command& command) {
+  if (command.enabled) {
+    const SessionStart started = g_v3_stream.start(command.session);
+    if (started == SessionStart::Invalid) {
+      emitError3(command.request, F("invalid_session"));
+      return;
+    }
+    if (started == SessionStart::AlreadyActive) {
+      emitOk3(command.request, F("stream"), g_v3_stream.challenge());
+      return;
+    }
+    if (started == SessionStart::NewSession) {
+      cancelTare(F("tare_cancelled"));
+      invalidateTare();
+    }
+    g_v3_fresh_this_frame = 0;
+    g_v3_sample_rejected = 0;
+    g_v3_next_frame_us = micros() + kV3SamplePeriodMicros;
+    g_v2_next_frame_us = micros() + kSamplePeriodMicros;
+    emitOk3(command.request, F("stream"), g_v3_stream.challenge());
+    return;
+  }
+
+  if (!g_v3_stream.stop(command.session)) {
+    emitError3(command.request, F("stale_session"));
+    return;
+  }
+  g_v3_next_frame_us = micros() + kV3SamplePeriodMicros;
+  g_v2_next_frame_us = micros() + kSamplePeriodMicros;
+  emitOk3(command.request, F("stream"), g_v3_stream.challenge());
+}
+
+void handleSettings3(const Command& command) {
+  if (!g_device_identity_valid || !requestIdentityMatches(command)) {
+    emitError3(command.request, F("device_mismatch"));
+    return;
+  }
+  if (g_tare_active) {
+    emitError3(command.request, F("busy"));
+    return;
+  }
+  if (!settings_available()) {
+    emitError3(command.request, F("settings_corrupt"));
+    return;
+  }
+  if (command.expected_generation != current_generation()) {
+    emitError3(command.request, F("stale_generation"));
+    return;
+  }
+
+  Settings requested = {};
+  requested.generation = command.expected_generation == 0 ? 1 : command.expected_generation;
+  requested.assembly = command.assembly;
+  memcpy(requested.identity, command.identity, sizeof(requested.identity));
+  requested.known = command.known;
+  requested.negative = command.negative;
+
+  EepromStore store;
+  const selfrionette::settings::SaveStatus saved = selfrionette::settings::save(
+      store, g_device_id, requested, command.expected_generation);
+  if (saved == selfrionette::settings::SaveStatus::Invalid) {
+    emitError3(command.request, F("invalid_settings"));
+    return;
+  }
+  if (saved == selfrionette::settings::SaveStatus::Stale) {
+    emitError3(command.request, F("stale_generation"));
+    return;
+  }
+  if (saved == selfrionette::settings::SaveStatus::Exhausted) {
+    emitError3(command.request, F("generation_exhausted"));
+    return;
+  }
+  if (saved == selfrionette::settings::SaveStatus::Unavailable ||
+      saved == selfrionette::settings::SaveStatus::WriteFailed) {
+    reloadSettings();
+    emitError3(command.request, F("settings_write_failed"));
+    return;
+  }
+
+  reloadSettings();
+  if ((g_settings.state != selfrionette::settings::State::Usable &&
+       g_settings.state != selfrionette::settings::State::Partial) ||
+      !selfrionette::settings::same_payload(g_settings.value, requested)) {
+    emitError3(command.request, F("settings_verify_failed"));
+    return;
+  }
+  if (saved == selfrionette::settings::SaveStatus::Saved) invalidateTare();
+  emitOk3(command.request, F("settings"), g_settings.value.generation);
+}
+
+void executeV3Command(const Command& command) {
+  switch (command.kind) {
+    case CommandKind::Info:
+      emitDeviceInfo3(command.request);
+      break;
+    case CommandKind::Stream:
+      handleStream3(command);
+      break;
+    case CommandKind::Settings:
+      handleSettings3(command);
+      break;
+    case CommandKind::Tare:
+      beginTare(command);
+      break;
+    case CommandKind::None:
+      break;
+  }
+}
+
+void executeLegacyCommand(char* command) {
   if (strcmp(command, "info") == 0) {
     emitDeviceInfo();
     return;
   }
 
   if (strcmp(command, "tare") == 0 || strcmp(command, "c") == 0) {
+    cancelTare(F("tare_cancelled"));
+    invalidateTare();
     emitStatus(F("tare_command_received"));
     calibrateAllChannels();
     return;
@@ -443,9 +958,21 @@ void executeCommand(char* command) {
 void finishCommand() {
   if (g_command_overflow) {
     emitWarn(F("command_too_long"));
-  } else {
+  } else if (g_command_length != 0) {
     g_command_buffer[g_command_length] = '\0';
-    executeCommand(g_command_buffer);
+    if (selfrionette::protocol3::is_v3_payload(g_command_buffer)) {
+      Command command = {};
+      const ParseStatus parsed = selfrionette::protocol3::parse_command(
+          g_command_buffer, command);
+      if (parsed == ParseStatus::Valid) executeV3Command(command);
+      else if (parsed == ParseStatus::Malformed && command.has_request) {
+        emitError3(command.request, F("malformed_command"));
+      }
+    } else if (g_command_length > 63) {
+      emitWarn(F("command_too_long"));
+    } else {
+      executeLegacyCommand(g_command_buffer);
+    }
   }
 
   g_command_length = 0;
@@ -453,23 +980,32 @@ void finishCommand() {
 }
 
 void handleSerialCommands() {
-  while (Serial.available() > 0) {
+  if (g_command_ready) {
+    if (!g_output.canQueue(kCommandReplyReserveBytes)) return;
+    g_command_ready = false;
+    finishCommand();
+    return;
+  }
+
+  uint8_t consumed = 0;
+  while (Serial.available() > 0 && consumed < 32) {
     const char value = static_cast<char>(Serial.read());
+    ++consumed;
 
     if (value == '\r') {
       continue;
     }
 
     if (value == '\n') {
-      finishCommand();
-      continue;
+      g_command_ready = true;
+      break;
     }
 
     if (g_command_overflow) {
       continue;
     }
 
-    if (g_command_length + 1 >= kCommandBufferSize) {
+    if (static_cast<uint16_t>(g_command_length) + 1U >= kCommandBufferSize) {
       g_command_overflow = true;
       continue;
     }
@@ -478,32 +1014,6 @@ void handleSerialCommands() {
   }
 }
 
-bool readChannelValue(uint8_t channel, double* value) {
-  if (!waitForReady(channel)) {
-    emitWarnChannel(F("ready_timeout"), channel);
-    *value = g_previous_values[channel];
-    return false;
-  }
-
-  const double reading = readSignedReading(channel);
-  const double adjusted = reading - g_offsets[channel];
-
-  if (fabs(adjusted - g_previous_values[channel]) > kMaxChangeThreshold) {
-    *value = g_previous_values[channel];
-    emitWarnChannelValue(F("spike"), channel, *value);
-  } else {
-    *value = adjusted;
-  }
-
-  g_previous_values[channel] = *value;
-  return true;
-}
-
-void updateAllValues() {
-  for (uint8_t channel = 0; channel < kChannelCount; ++channel) {
-    (void)readChannelValue(channel, &g_current_values[channel]);
-  }
-}
 }  // namespace
 
 void setup() {
@@ -515,19 +1025,33 @@ void setup() {
   emitStatus(F("setup_start"));
 
   g_device_identity_valid = loadDeviceIdentity();
+  reloadSettings();
   initializeScales();
   calibrateAllChannels();
+
+  const uint32_t now_us = micros();
+  g_v2_next_frame_us = now_us + kSamplePeriodMicros;
+  g_v3_next_frame_us = now_us + kV3SamplePeriodMicros;
 
   emitStatus(F("setup_end"));
 }
 
 void loop() {
-  const unsigned long cycle_start_us = micros();
-
+  g_output.drain();
   handleSerialCommands();
-  updateAllValues();
-  printVectorLine(millis(), g_current_values);
+  updateSensors();
 
-  while (micros() - cycle_start_us < kSamplePeriodMicros) {
+  const uint32_t now_us = micros();
+  if (g_v3_stream.active()) {
+    if (static_cast<int32_t>(now_us - g_v3_next_frame_us) >= 0) {
+      emitSample3(millis());
+      g_v3_next_frame_us = now_us + kV3SamplePeriodMicros;
+    }
+  } else if (static_cast<int32_t>(now_us - g_v2_next_frame_us) >= 0) {
+    printVectorLine(millis(), g_current_values);
+    g_v2_next_frame_us = now_us + kSamplePeriodMicros;
   }
+
+  g_output.drain();
+  delayMicroseconds(250);
 }
