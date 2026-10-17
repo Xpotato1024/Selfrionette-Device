@@ -1,3 +1,4 @@
+import {readFileSync} from 'node:fs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {wizardPlan,explainFailure} from './application-ui.mjs';
@@ -14,3 +15,16 @@ test('missing physical labels remain explicitly unknown instead of a thumb/index
  const plan=wizardPlan([]);assert(plan.slice(1).every(s=>s.instruction.includes('未設定の部位')));assert(!plan.some(s=>/親指|人差指|小指/.test(s.instruction)));
 });
 test('quality and context errors provide a concise next action in Japanese',()=>{assert.match(explainFailure('QualityUnusable'),/再測定/);assert.match(explainFailure('profile context mismatch'),/使用条件/);assert.match(explainFailure('IncompleteRepeats(3)'),/不足/);assert.match(explainFailure('unknown backend error'),/操作を完了できません/);});
+
+
+test('live setup controls retain associated labels and scoped table headers',()=>{
+ const ui=readFileSync(new URL('./application-ui.mjs',import.meta.url),'utf8');
+ assert(ui.includes("element('label',cell.getAttribute('aria-label'),{for:cell.id,class:'sr-only'})"));
+ assert(ui.includes('<label class="sr-only" for="live-method">採用する補正方法</label>'));
+ assert(!/<th>/.test(ui));assert((ui.match(/<th scope="col">/g)||[]).length>=13);
+});
+
+test('screen-reader labels stay inside their horizontally scrolled table cells',()=>{
+ const css=readFileSync(new URL('./style.css',import.meta.url),'utf8');
+ assert.match(css,/\.live-setup-table td\s*\{[^}]*position:relative/);
+});

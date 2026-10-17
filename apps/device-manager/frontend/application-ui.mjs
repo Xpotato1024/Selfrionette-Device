@@ -52,14 +52,14 @@ export function createApplicationUI({invoke,hardware}) {
   <h2>実際の配線・取付方向</h2>
   <p>一つの部位・既知の方向だけを動かし、全7chを観察します。極性だけで軸入替えや取付違いを解決したと判断しないでください。</p>
   <div class="live-form-line"><label>組立revision<input id="live-assembly" type="number" min="1" value="1"></label><label>構成revision<input id="live-config" type="number" min="1" value="1"></label></div>
-  <div class="live-channel-scroll"><table class="live-setup-table"><thead><tr><th>wire</th><th>論理軸</th><th>指・部位</th><th>正方向の説明</th><th>極性</th><th>対応・向きを独立確認</th></tr></thead><tbody id="live-setup-rows"></tbody></table></div>
+  <div class="live-channel-scroll"><table class="live-setup-table"><thead><tr><th scope="col">wire</th><th scope="col">論理軸</th><th scope="col">指・部位</th><th scope="col">正方向の説明</th><th scope="col">極性</th><th scope="col">対応・向きを独立確認</th></tr></thead><tbody id="live-setup-rows"></tbody></table></div>
   <div class="live-form-line"><label>既知方向の観測対象<select id="live-observe-channel"></select></label><button id="live-observe-rest">静止状態を記録</button><button id="live-observe-direction">既知の正方向を記録・極性候補を表示</button></div>
   <p id="live-observation" class="caption-note">極性候補はraw差分から提案します。別の試行で実際の部位・方向・全ch応答を確認し、各行の確認欄を選択してください。</p>
   <button id="live-setup-save" class="primary">確認済み設定を装置へ保存・読戻し</button>
   <h2>今回のtare</h2><p>装置を無荷重にして実行します。個人の使用姿勢のneutralとは別です。失敗時は以前の準備完了を失効させます。</p>
   <label class="check-line"><input id="live-tare-confirm" type="checkbox">対象と無荷重状態を確認しました</label><button id="live-tare">全7chのtareを実行</button>
   <h2>全7chの取得状態</h2><p class="caption-note">raw＝符号付きADC count。oriented＝装置極性と今回のtare適用後（wire順）。精度の認証ではありません。</p>
-  <table><thead><tr><th>wire</th><th>raw count</th><th>oriented count</th><th>取得状態</th></tr></thead><tbody id="live-sample-rows"></tbody></table>
+  <table><thead><tr><th scope="col">wire</th><th scope="col">raw count</th><th scope="col">oriented count</th><th scope="col">取得状態</th></tr></thead><tbody id="live-sample-rows"></tbody></table>
  </section>
  <section data-live-panel="calibrate" hidden>
   <h2>操作者と使用姿勢</h2>
@@ -72,7 +72,7 @@ export function createApplicationUI({invoke,hardware}) {
   <label class="check-line"><input id="live-reverse-safe" type="checkbox">逆方向も痛みなく安全に試せます（できない場合は欠測としてskip）</label>
   <div class="live-form-line"><button id="live-capture-start" class="primary">準備できたので、この手順を測定</button><button id="live-capture-retry">この手順を再試行</button><button id="live-capture-skip">欠測としてskip</button><button id="live-capture-abort">校正を中止</button></div>
   <p id="live-missing" class="field-error" hidden>未測定の必須方向があります。保存・適用はできません。該当手順を再測定してください。</p>
-  <div class="live-form-line"><button id="live-fit">候補A / Bを計算・比較</button><select id="live-method" aria-label="採用する補正方法"><option value="diagonal">A：独立軸</option><option value="coupled">B：干渉補償（条件を満たす場合のみ）</option></select></div>
+  <div class="live-form-line"><button id="live-fit">候補A / Bを計算・比較</button><label class="sr-only" for="live-method">採用する補正方法</label><select id="live-method" aria-label="採用する補正方法"><option value="diagonal">A：独立軸</option><option value="coupled">B：干渉補償（条件を満たす場合のみ）</option></select></div>
   <div id="live-fit-summary"></div>
   <h2>fitに使っていない操作で確認</h2><p>今回のneutralから、正逆方向・弱い入力・同時入力・除荷を別の記録で確認します。測定時の記録を再利用しません。</p>
   <label>検証する操作<select id="live-heldout-kind"><option value="positive">単独の正方向</option><option value="negative">単独の逆方向</option><option value="weak">弱い入力</option><option value="combined">二つ以上の同時入力</option></select></label>
@@ -88,7 +88,7 @@ export function createApplicationUI({invoke,hardware}) {
   <div class="live-form-line"><button id="live-profile-save">新しいprofileとして保存・再読込検査</button><button id="live-profile-apply" class="primary">選択したprofileを今回へ明示適用</button></div>
   <div class="live-form-line"><label>保存済みprofile<select id="live-profiles"><option value="">保存記録を選択</option></select></label><button id="live-profile-list">一覧を更新</button><button id="live-profile-load">互換性を確認して読み込む</button></div>
   <button id="live-neutral-start">今回の個人neutralを取り直す</button><p id="live-profile-result" role="status"></p>
-  <h2>現在の正規化入力</h2><table><thead><tr><th>論理軸</th><th>無次元入力（clamp前）</th><th>状態</th></tr></thead><tbody id="live-normalized-rows"></tbody></table>
+  <h2>現在の正規化入力</h2><table><thead><tr><th scope="col">論理軸</th><th scope="col">無次元入力（clamp前）</th><th scope="col">状態</th></tr></thead><tbody id="live-normalized-rows"></tbody></table>
   <p class="caption-note">Manager終了後も共通Rust runtimeと明示port/profile指定CLIを使えます。Xpotato-Simのadapter・robot mappingはこのreleaseには含まれません。</p>
  </section>
  <section data-live-panel="update" hidden>
@@ -116,7 +116,7 @@ export function createApplicationUI({invoke,hardware}) {
   const row=element('tr'),axis=element('select',undefined,{id:'live-axis-'+ch,'aria-label':'wire '+ch+' の論理軸'});axis.append(element('option','未確認',{value:''}));for(let n=0;n<7;n++)axis.append(element('option','軸 '+n,{value:n}));
   const sign=element('select',undefined,{id:'live-polarity-'+ch,'aria-label':'wire '+ch+' の極性'});for(const[value,label]of [['','未確認'],['1','+1'],['-1','−1']])sign.append(element('option',label,{value}));
   const location=element('input',undefined,{id:'live-location-'+ch,maxlength:128,'aria-label':'wire '+ch+' の部位'}),direction=element('input',undefined,{id:'live-direction-'+ch,maxlength:128,'aria-label':'wire '+ch+' の正方向'}),confirmed=element('input',undefined,{id:'live-confirm-'+ch,type:'checkbox','aria-label':'wire '+ch+' の独立した対応・向き確認'});
-  for(const cell of [element('span','CH'+ch),axis,location,direction,sign,confirmed]){const td=element('td');td.append(cell);row.append(td);}$('live-setup-rows').append(row);
+  for(const cell of [element('span','CH'+ch),axis,location,direction,sign,confirmed]){const td=element('td');if(cell.id)td.append(element('label',cell.getAttribute('aria-label'),{for:cell.id,class:'sr-only'}));td.append(cell);row.append(td);}$('live-setup-rows').append(row);
   $('live-observe-channel').append(element('option','wire CH'+ch,{value:ch}));$('live-heldout-axis').append(element('option','軸 '+ch,{value:ch}));$('live-heldout-second-axis').append(element('option','軸 '+ch,{value:ch}));
   for(const target of ['live-sample-rows','live-normalized-rows']){const r=element('tr');r.dataset.channel=ch;for(let n=0;n<(target==='live-sample-rows'?4:3);n++)r.append(element('td',n===0?'CH'+ch:'—'));$(target).append(r);}
    for(const input of [axis,sign,location,direction])input.addEventListener('change',()=>{$('live-confirm-'+ch).checked=false;observations.delete(ch);updaterPlan=null;});

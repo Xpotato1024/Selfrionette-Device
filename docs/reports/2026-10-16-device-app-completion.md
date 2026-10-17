@@ -147,3 +147,11 @@ Tauriのuntagged `FrontendDist`では`D:`をschemeとする`Url`へdeserialize�
 通常のDebug frontend、CSP、IPC権限、devtools設定、公開の検証gateは変更しない。
 Node回帰ではallowlist/不正pathを検証し、native Rust回帰では実際のTauri型でWindows drive文字列がURLになることとfile配列がassetsになることを検証する。
 修正版の配布CI・同じRelease EXEのGUI/更新検証・tag公開結果は、該当するGitHub Actions/Releaseを正とする。
+
+
+配布CI 38995306897では修正後のRelease起動・native IPCは成立した。続く従来の描画QAが、
+新しい取付設定35欄とmethod選択のHTML label関連付け、およびtable header scopeの不足を検出した。
+各欄の既存aria-labelと同じ説明を関連付けたsr-only labelと、全表のcol scopeを追加する。
+検査対象をhidden要素から除外したり既存QAのassertionを弱めたりせず、全入力欄の意味を保持する。
+
+ローカル再検証: frontend38件・配布35件の全73件、Debug build、実native smokeの全10 groupsがPASS。800/1100/1600pxの描画確認を含む`run-lzIkuq/report.json`に記録した。sr-only labelが内部table scrollport外へ出ないようcellを位置基準にし、失敗時だけのlayout診断も追加した。

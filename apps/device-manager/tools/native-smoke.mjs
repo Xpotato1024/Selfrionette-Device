@@ -61,7 +61,9 @@ async function launch(startupArgs=[],onlyMode=false){
      assert.equal(await page.locator('#tab-'+name).getAttribute('aria-controls'),'hardware-page-'+name);
      assert(await page.locator('#hardware-page-'+name).isVisible());
      assert.equal(await page.locator('[data-command]:visible').count(),0,'Real mode must not offer synthetic calibration commands');
-     assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1),'Hardware page overflow');
+     const layout=await page.evaluate(()=>({width:innerWidth,scrollWidth:document.documentElement.scrollWidth,overflow:[...document.querySelectorAll('body *')].filter(e=>e.getClientRects().length&&e.getBoundingClientRect().right>innerWidth+1).slice(0,15).map(e=>({id:e.id,tag:e.tagName,right:e.getBoundingClientRect().right,width:e.getBoundingClientRect().width}))}));
+     if(layout.scrollWidth>layout.width+1)await page.screenshot({path:join(run,'hardware-overflow.png'),fullPage:true});
+     assert(layout.scrollWidth<=layout.width+1,'Hardware page overflow '+name+': '+JSON.stringify(layout));
    }
  }
  await page.setViewportSize(hardwareSize);await page.locator('#tab-device').click();

@@ -20,7 +20,7 @@ button.primary:hover:not(:disabled) {background:#004e61;}
 .live-content {min-width:0;max-width:70rem;}.live-content section>h2:not(:first-child){margin-top:28px;}
 .live-form-line {display:flex;flex-wrap:wrap;gap:8px;align-items:end;margin:12px 0;}.live-form-line label {margin:0;}
 .live-context {display:grid;grid-template-columns:repeat(auto-fit,minmax(12rem,1fr));gap:12px;margin:12px 0;}
-.live-channel-scroll {overflow:auto;margin:12px 0;}.live-setup-table {min-width:720px;}.live-setup-table td {padding:6px;}
+.live-channel-scroll {overflow:auto;margin:12px 0;}.live-setup-table {min-width:720px;}.live-setup-table td {padding:6px;position:relative;}
 .live-setup-table input:not([type=checkbox]){min-width:8rem;}.live-setup-table select{min-width:5rem;}
 .live-setup-table input[type=checkbox]{width:20px;}.live-content input[type=file]{max-width:100%;}
 .live-content dd{overflow-wrap:anywhere;}.live-content .check-line input{width:auto;}
