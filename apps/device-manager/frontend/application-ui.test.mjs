@@ -28,3 +28,11 @@ test('screen-reader labels stay inside their horizontally scrolled table cells',
  const css=readFileSync(new URL('./style.css',import.meta.url),'utf8');
  assert.match(css,/\.live-setup-table td\s*\{[^}]*position:relative/);
 });
+
+test('fixed application DOM references exist in the rendered templates',()=>{
+ const ui=readFileSync(new URL('./application-ui.mjs',import.meta.url),'utf8');
+ const html=readFileSync(new URL('./index.html',import.meta.url),'utf8');
+ const ids=new Set([...`${ui}\n${html}`.matchAll(/id=["']([-\w]+)["']/g)].map(m=>m[1]));
+ const references=[...ui.matchAll(/\$\('([-\w]+)'\)/g)].map(m=>m[1]);
+ assert.deepEqual([...new Set(references.filter(id=>!ids.has(id)))],[]);
+});

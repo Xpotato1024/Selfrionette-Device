@@ -210,7 +210,6 @@ export function createApplicationUI({invoke,hardware,onOwner=()=>{}}) {
  async function pause(){invalidateWizard();await send({action:'disconnect'});}
  async function reconnect(){if(!view?.candidate||!window.confirm('同じ実物を再接続したことを確認してください。安全な情報照会で個体IDを照合します。中立値は取り直します。'))return;const r=await send({action:'reconnect',confirmed:true,metadata_supported:true});if(r&&!r.error)await send({action:'stream_start'});}
  $('live-disconnect').onclick=pause;$('live-reconnect').onclick=reconnect;
- $('live-modern-confirm').onchange=controls;
  $('live-provision-confirm').onchange=$('live-tare-confirm').onchange=$('live-profile-confirm').onchange=$('update-write-confirm').onchange=$('live-reverse-safe').onchange=controls;
  $('live-provision').onclick=()=>send({action:'provision',confirmed:$('live-provision-confirm').checked});
  $('live-tare').onclick=async()=>{lastCapture=null;await send({action:'tare',confirmed:$('live-tare-confirm').checked});$('live-tare-confirm').checked=false;controls();};
