@@ -37,7 +37,7 @@ export function installDesktopFixture(options={}) {
     Object.assign(m,{connected:true,owns_handle:true,ready:false,candidate:target,port:target.name,info:{device_id:'srn-11111111111111111111111111111111'},sample:null,output:null});
    }
    if(command.action==='disconnect'||command.action==='pause')Object.assign(m,{connected:false,owns_handle:false,ready:false,paused:true,sample:null,output:null});
-   if(['snapshot','disconnect','pause','connect','reconnect','stream_start','stream_poll'].includes(command.action))return {view:structuredClone(m)};
+   if(['snapshot','disconnect','pause','connect','reconnect','stream_start','stream_tick'].includes(command.action))return {view:structuredClone(m)};
    throw Error('表示fixtureでは装置設定・実個人校正は実行できません。');
   }
   if(name==='device_command'){if(!window.testMode.developer||window.testMode.source!=='synthetic')throw Error('synthetic gate');return {view:structuredClone(synthetic),error:null};}
