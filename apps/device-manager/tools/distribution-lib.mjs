@@ -1,3 +1,4 @@
+import {verifyFamilyCatalog,digest,sourceTreeHash,legacySource} from './firmware-packages.mjs';
 import {spawnSync} from 'node:child_process';
 import { readFileSync, readdirSync, statSync, copyFileSync, mkdirSync } from 'node:fs';
 import { dirname, join, basename, isAbsolute } from 'node:path';
@@ -44,6 +45,15 @@ export function verifyBundledUpdaterResources(applicationRoot, buildInfo) {
       manifest.source_sha !== firmware.source_sha || manifest.release_version !== buildInfo.application_version ||
       manifest.firmware_version !== buildInfo.application_version) {
     throw Error('Bundled firmware manifest fields disagree with BUILD-INFO.json or the firmware image.');
+  }
+  if(buildInfo.application_version==='0.2.0-preview.2'){
+   check(firmware,'catalog_file','catalog_sha256','distribution/firmware/catalog.json','firmware family catalog');
+   verifyFamilyCatalog(join(applicationRoot,'distribution/firmware'));
+   const sourceInfo=JSON.parse(check(firmware,'source_info_file','source_info_sha256','distribution/firmware/SOURCE-INFO.json','firmware source info'));
+   const sources=join(applicationRoot,'distribution/firmware/sources');
+   const legacy=JSON.parse(readFileSync(join(applicationRoot,'distribution/firmware/legacy-7ch/manifest.json')));
+   if(sourceInfo.schema!==1||sourceInfo.source_commit!==buildInfo.source_commit||sourceInfo.modern?.source_tree_sha256!==manifest.source_tree_sha256||sourceInfo.legacy?.source_tree_sha256!==legacy.source_tree_sha256||sourceTreeHash(join(sources,'loadcell_7ch'))!==manifest.source_tree_sha256||sourceTreeHash(join(sources,legacySource.slice('firmware/'.length)))!==legacy.source_tree_sha256||sourceTreeHash(join(sources,'shared'))!==sourceInfo.modern.shared_tree_sha256)throw Error('Packaged firmware source fingerprint mismatch');
+   for(const [name,path]of [['legacy_manifest_sha256','manifest.json'],['legacy_image_sha256','firmware.hex']])if(digest(readFileSync(join(applicationRoot,'distribution/firmware/legacy-7ch',path)))!==firmware[name])throw Error('Legacy firmware build binding mismatch');
   }
   return {manifest, imageBytes};
 }

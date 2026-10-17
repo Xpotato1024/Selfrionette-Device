@@ -1,8 +1,9 @@
+import {packageCatalog,legacyManifest,legacySource,sourceTreeHash} from './firmware-packages.mjs';
 import {appendFirmwareNotices,firmwareNoticePayload,isProductInput,verifyProductInputs} from './artifact-inputs.mjs';
 import {waitForAppPage} from './native-session.mjs';
 import {ciPolicyEnabled} from './ci-webview-policy.mjs';
 import {tmpdir} from 'node:os';import {join,dirname} from 'node:path';
-import test from 'node:test';import assert from 'node:assert/strict';import {readFileSync,mkdirSync,mkdtempSync,writeFileSync,rmSync} from 'node:fs';
+import test from 'node:test';import assert from 'node:assert/strict';import {readFileSync,cpSync,mkdirSync,mkdtempSync,writeFileSync,rmSync} from 'node:fs';
 import {createHash} from 'node:crypto';
 import {spawnSync} from 'node:child_process';
 import {fileURLToPath} from 'node:url';
@@ -26,7 +27,7 @@ function matchesAppLockVersion(text,version) {
  return text.replace(/\r\n/g,'\n').includes('name = "selfrionette-device-manager"\nversion = "'+version+'"');
 }
 test('Cargo version comparison accepts LF and CRLF without accepting another package or version',()=>{
- const version='0.2.0-preview.1',text='[[package]]\nname = "selfrionette-device-manager"\nversion = "'+version+'"\n';
+ const version='0.2.0-preview.2',text='[[package]]\nname = "selfrionette-device-manager"\nversion = "'+version+'"\n';
  for(const newline of ['\n','\r\n']) {
   const lock=text.replace(/\n/g,newline);
   assert(matchesAppLockVersion(lock,version));
@@ -34,7 +35,7 @@ test('Cargo version comparison accepts LF and CRLF without accepting another pac
   assert.equal(matchesAppLockVersion(lock.replace('selfrionette-device-manager','another-package'),version),false);
  }
 });
-test('application, Cargo, and npm package versions remain identical',()=>{const c=JSON.parse(readFileSync(new URL('../src-tauri/tauri.conf.json',import.meta.url)));const cargo=readFileSync(new URL('../src-tauri/Cargo.toml',import.meta.url),'utf8');const app=JSON.parse(readFileSync(new URL('../package.json',import.meta.url)));const npmLock=JSON.parse(readFileSync(new URL('../package-lock.json',import.meta.url)));const cargoLock=readFileSync(new URL('../src-tauri/Cargo.lock',import.meta.url),'utf8');assert.equal(c.version,'0.2.0-preview.1');assert(cargo.includes('version = "'+c.version+'"'));assert.equal(app.version,c.version);assert.equal(npmLock.version,c.version);assert.equal(npmLock.packages[''].version,c.version);assert(matchesAppLockVersion(cargoLock,c.version));});
+test('application, Cargo, and npm package versions remain identical',()=>{const c=JSON.parse(readFileSync(new URL('../src-tauri/tauri.conf.json',import.meta.url)));const cargo=readFileSync(new URL('../src-tauri/Cargo.toml',import.meta.url),'utf8');const app=JSON.parse(readFileSync(new URL('../package.json',import.meta.url)));const npmLock=JSON.parse(readFileSync(new URL('../package-lock.json',import.meta.url)));const cargoLock=readFileSync(new URL('../src-tauri/Cargo.lock',import.meta.url),'utf8');assert.equal(c.version,'0.2.0-preview.2');assert(cargo.includes('version = "'+c.version+'"'));assert.equal(app.version,c.version);assert.equal(npmLock.version,c.version);assert.equal(npmLock.packages[''].version,c.version);assert(matchesAppLockVersion(cargoLock,c.version));});
 test('release packaging locks firmware, updater runtime, CLI and merged license provenance',()=>{const packaging=readFileSync(new URL('./package-windows.mjs',import.meta.url),'utf8');const pins=readFileSync(new URL('./platformio-requirements.txt',import.meta.url),'utf8');const license=readFileSync(new URL('../licenses/avrdude-UPSTREAM.md',import.meta.url),'utf8');const ini=readFileSync(new URL('../../../firmware/loadcell_7ch/platformio.ini',import.meta.url),'utf8');assert.match(pins,/^platformio==6\.1\.19\s*$/m);assert.match(ini,/^\s*platform\s*=\s*atmelavr@\d+\.\d+\.\d+\s*$/m);assert(packaging.includes('SELFRIONETTE_SOURCE_SHA=commit'));assert(packaging.includes('AVRDUDE_ARCHIVE_SHA256'));assert(packaging.includes('AVRDUDE_COPYING_URL'));assert(packaging.includes("'target-feature=+crt-static'"));assert(packaging.includes('inspectConsolePE(cliBytes)'));assert(packaging.includes('mergePackageMetadata(guiMetadata,cliPackageMetadata)'));assert(packaging.includes("'distribution/'+CLI_EXECUTABLE"));assert(packaging.includes('firmwareNoticePayload(repo)'));assert(packaging.includes('firmwarePackageFile'));assert(packaging.includes('package_sha256'));assert(packaging.includes('appendFirmwareNotices'));assert(license.includes('8630c7d8bb9682a1685aaa9ad42550ae1131c9d13528f0d20975368ba615e9b0'));});
 test('checksums are SHA-256 over actual bytes',()=>assert.equal(sha256(Buffer.from('abc')),'ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad'));
 test('installed payload follows the NSIS destination and no-port runtime smoke requires success',()=>{
@@ -55,12 +56,20 @@ test('firmware package contains the full root notice and the notice is a product
 test('bundled updater files and both notice payloads match BUILD-INFO hashes',()=>{
  const run=mkdtempSync(join(tmpdir(),'srn-updater-resources-'));
  try {
-  const applicationVersion='0.2.0-preview.1',sourceCommit='1234567890abcdef1234567890abcdef12345678';
+  const sourceRepo=fileURLToPath(new URL('../../..',import.meta.url));
+  const applicationVersion='0.2.0-preview.2',sourceCommit='1234567890abcdef1234567890abcdef12345678';
   const firmware=Buffer.from('firmware hex bytes'),firmwareNotice=Buffer.from('complete firmware notice'),combinedNotice=Buffer.from('combined notices');
-  const manifest=Buffer.from(JSON.stringify({image_file:'firmware.hex',image_sha256:sha256(firmware),image_size:firmware.length,source_sha:sourceCommit,release_version:applicationVersion,firmware_version:applicationVersion}));
+  const manifest=Buffer.from(JSON.stringify({image_file:'firmware.hex',image_sha256:sha256(firmware),image_size:firmware.length,source_sha:sourceCommit,release_version:applicationVersion,firmware_version:applicationVersion,source_tree_sha256:sourceTreeHash(join(sourceRepo,'firmware/loadcell_7ch')),board:'sparkfun_promicro16',clock_hz:16000000,protocol_schema:3,settings_schema:1}));
   const put=(relative,bytes)=>{const path=join(run,...relative.split('/'));mkdirSync(dirname(path),{recursive:true});writeFileSync(path,bytes);return {file:relative,sha256:sha256(bytes)};};
   const manifestRecord=put('distribution/firmware/manifest.json',manifest);
   const imageRecord=put('distribution/firmware/firmware.hex',firmware);
+  const legacyBytes=Buffer.from(JSON.stringify(legacyManifest({version:applicationVersion,commit:sourceCommit,repo:fileURLToPath(new URL('../../..',import.meta.url)),image:firmware})));
+  const legacyRecord=put('distribution/firmware/legacy-7ch/manifest.json',legacyBytes);
+  put('distribution/firmware/legacy-7ch/firmware.hex',firmware);
+  const catalogRecord=put('distribution/firmware/catalog.json',Buffer.from(JSON.stringify(packageCatalog(manifest,legacyBytes))));
+  const sourceInfo={schema:1,source_commit:sourceCommit,modern:{source_tree_sha256:sourceTreeHash(join(sourceRepo,'firmware/loadcell_7ch')),shared_tree_sha256:sourceTreeHash(join(sourceRepo,'firmware/shared'))},legacy:{source_tree_sha256:JSON.parse(legacyBytes).source_tree_sha256}};
+  const sourceInfoRecord=put('distribution/firmware/SOURCE-INFO.json',Buffer.from(JSON.stringify(sourceInfo)));
+  for(const path of ['loadcell_7ch','shared',legacySource.slice('firmware/'.length)])cpSync(join(sourceRepo,'firmware',path),join(run,'distribution/firmware/sources',path),{recursive:true});
   const firmwareNoticeRecord=put('distribution/firmware/THIRD-PARTY-NOTICES.txt',firmwareNotice);
   const executableRecord=put('distribution/firmware-tools/avrdude.exe',Buffer.from('avrdude'));
   const configRecord=put('distribution/firmware-tools/avrdude.conf',Buffer.from('config'));
@@ -68,7 +77,7 @@ test('bundled updater files and both notice payloads match BUILD-INFO hashes',()
   const sourceRecord=put('distribution/firmware-tools/AVRDUDE-SOURCE.zip',Buffer.from('pinned source archive'));
   const combinedNoticeRecord=put('distribution/THIRD-PARTY-NOTICES.txt',combinedNotice);
   const info={application_version:applicationVersion,source_commit:sourceCommit,
-   firmware:{...manifestRecord,manifest_file:manifestRecord.file,manifest_sha256:manifestRecord.sha256,
+   firmware:{source_info_file:sourceInfoRecord.file,source_info_sha256:sourceInfoRecord.sha256,catalog_file:catalogRecord.file,catalog_sha256:catalogRecord.sha256,legacy_manifest_sha256:legacyRecord.sha256,legacy_image_sha256:sha256(firmware),...manifestRecord,manifest_file:manifestRecord.file,manifest_sha256:manifestRecord.sha256,
     image_file:imageRecord.file,image_sha256:imageRecord.sha256,source_sha:sourceCommit,
     notice_file:firmwareNoticeRecord.file,notice_sha256:firmwareNoticeRecord.sha256},
    updater_runtime:{executable_file:executableRecord.file,executable_sha256:executableRecord.sha256,
@@ -178,7 +187,7 @@ test('missing, changed, added and removed product inputs reject reuse',()=>{veri
 
 test('release staging accepts only matching verified bytes and license-complete manifests',()=>{
  const run=mkdtempSync(join(tmpdir(),'srn-release-stage-'));
- const tag='device-manager-v0.2.0-preview.1',sha='a'.repeat(40),version='0.2.0-preview.1';
+ const tag='device-manager-v0.2.0-preview.2',sha='a'.repeat(40),version='0.2.0-preview.2';
  const stem='Selfrionette-Device-Manager_'+version+'_'+sha.slice(0,8)+'_windows-x64';
  const dist=join(run,'dist','release-assets',stem),qa=join(run,'dist','release-qa','test');
  const notesDir=join(run,'docs','releases');mkdirSync(dist,{recursive:true});mkdirSync(qa,{recursive:true});mkdirSync(notesDir,{recursive:true});

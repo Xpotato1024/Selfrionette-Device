@@ -141,3 +141,22 @@ input[type='checkbox'],input[type='radio'] {width:16px;min-height:16px;height:16
 .port-details dd {font-family:Consolas,monospace;}
 #port-error {min-height:24px;}
 .task-tabs {overflow-y:hidden;}
+/* Stack captions above their controls, including narrow/zoomed native windows. */
+.live-content label:not(.check-line):not(.sr-only) {display:flex;flex-direction:column;gap:4px;min-width:0;max-width:100%;}
+.live-content select,.live-content input {min-width:0;width:100%;}
+.live-form-line label {flex:1 1 180px;}
+.live-content button {white-space:normal;max-width:100%;overflow-wrap:anywhere;}
+button.primary:disabled {background:#edf0f2;color:#63707a;border-color:#ccd2d7;font-weight:400;}
+.context-bar {flex-wrap:wrap;overflow:visible;}
+.target-group {flex-wrap:wrap;}
+.live-workflow {gap:16px;}
+.live-context {grid-template-columns:repeat(auto-fit,minmax(min(12rem,100%),1fr));}
+.live-content .about-values {grid-template-columns:minmax(0,10rem) minmax(0,1fr);}
+@media(max-width:720px) {
+ .page {padding:16px;}
+ .live-workflow {grid-template-columns:128px minmax(0,1fr);gap:12px;}
+ .live-outline {padding-right:8px;font-size:14px;}
+ .monitor-workbench {grid-template-columns:minmax(0,1fr);min-width:0;height:auto;}
+ .readings-pane {border-right:0;}.trace-pane {min-height:280px;}
+ .workflow-grid {min-width:0;grid-template-columns:128px minmax(0,1fr);}
+}

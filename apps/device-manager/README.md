@@ -2,7 +2,7 @@
 
 Rust coreを共有するTauri v2 GUIです。製品の目的・状態・操作体系は[製品・操作設計](../../docs/architecture/device-manager-workflow.md)を正とします。
 Windows native Debug build・起動・Rust IPC・合成記録の保存/再読込をLLM-01で確認しました。
-0.2.0-preview.1は、旧v2受信と、品質付きprotocol 3の装置設定・tare・実ストリームからの個人校正・永久profile保存/再利用・Firmware更新を扱う実験用release候補です。実機boardでの受入、既知荷重N係数、物理精度の認証は未実施です。合成fixtureは明示的な開発者モードに限定します。
+0.2.0-preview.2候補は、旧v2受信と、品質付きprotocol 3の装置設定・tare・実ストリームからの個人校正・永久profile保存/再利用・Firmware更新を扱う実験用release候補です。実機boardでの受入、既知荷重N係数、物理精度の認証は未実施です。合成fixtureは明示的な開発者モードに限定します。
 
 ## 使用者向け（ビルド不要）
 
@@ -100,3 +100,5 @@ Nodeだけで npm run preview を実行し、同じPCの http://127.0.0.1:4173 �
 
 ### 通常起動と開発用オプション
 通常の起動では合成試験は表示しません。ヘルプから開発者機能を明示有効化するか、ビルド済みEXEへ --developer-mode を渡します。--developer-mode --synthetic は合成画面で開始します。dev/build手順とclone/ローカルブランチ運用は変更しません。合成試験のIPCは通常モードではRust側で拒否されます。
+
+一時停止で接続を解放し、明示的に再接続できます。選択候補はモニター・設定・更新へ引き継ぎます。新版／保管7ch版の境界と復旧条件は[更新契約](../../docs/contracts/firmware-update.md)、表示と接続条件は[session契約](../../docs/contracts/device-manager-session.md)を参照してください。

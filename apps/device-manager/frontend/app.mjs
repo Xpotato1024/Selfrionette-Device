@@ -8,9 +8,12 @@ const native = typeof window.__TAURI__?.core?.invoke === 'function';
 const designPreview = !native && new URLSearchParams(location.search).get('design-preview') === '1';
 const transport = native ? request => window.__TAURI__.core.invoke('device_command', { request }) : createDesignPreview();
 const $ = id => document.getElementById(id);
+let lastOwner='monitor';
 let sourceMode = 'hardware', sessionMode = null, modeQueue = Promise.resolve();
-const hardware = createHardwareUI(request => window.__TAURI__.core.invoke('hardware_command', {request}));
-const application = createApplicationUI({hardware,invoke:command=>window.__TAURI__.core.invoke('application_command',{command})});
+const hardware = createHardwareUI(request => window.__TAURI__.core.invoke('hardware_command', {request}),{onOwner:()=>{lastOwner='monitor';}});
+const application = createApplicationUI({onOwner:()=>{lastOwner='modern';},hardware,invoke:command=>window.__TAURI__.core.invoke('application_command',{command})});
+$('hardware-reconnect').onclick=()=>{if(lastOwner==='modern')void application.reconnect();else void hardware.reconnect();};
+$('hardware-disconnect').onclick=()=>{if(application.ownsHandle)void application.pause();else void hardware.disconnect();};
 const phaseNames = { not_started: '未開始', baseline: '基準の確認待ち', assessment: '応答の確認待ち', preview: '入力の比較待ち', confirmation: '結果の確認待ち', record: '合成結果を確認済み' };
 const numbers = new Intl.NumberFormat('ja-JP', { maximumFractionDigits: 4 });
 const number = value => value === null || value === undefined ? '—' : numbers.format(value);
@@ -292,6 +295,8 @@ function menuAction(id) {
   switch(id) {
     case 'choose-device': void hardware.choose();break;
     case 'disconnect': void Promise.all([hardware.disconnect(),application.disconnect()]);break;
+    case 'pause': if(application.ownsHandle)void application.pause();else void hardware.disconnect();break;
+    case 'reconnect': if(lastOwner==='modern')void application.reconnect();else void hardware.reconnect();break;
     case 'about': void showAbout();break;
     case 'help': $('help-dialog').showModal();break;
     case 'enable-developer': $('developer-dialog').showModal();break;

@@ -292,14 +292,14 @@ checksum = "94143f37725109f92c262ed2cf5e59bce7498c01bcc1502d7b9afe439a4e9f49"
 
 [[package]]
 name = "selfrionette-core"
-version = "0.2.0-preview.1"
+version = "0.2.0-preview.2"
 dependencies = [
  "serde",
 ]
 
 [[package]]
 name = "selfrionette-serial"
-version = "0.2.0-preview.1"
+version = "0.2.0-preview.2"
 dependencies = [
  "getrandom",
  "selfrionette-core",
@@ -310,7 +310,7 @@ dependencies = [
 
 [[package]]
 name = "selfrionettectl"
-version = "0.2.0-preview.1"
+version = "0.2.0-preview.2"
 dependencies = [
  "crossterm",
  "ctrlc",

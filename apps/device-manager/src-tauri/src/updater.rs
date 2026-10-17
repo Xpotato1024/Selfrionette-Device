@@ -4,6 +4,7 @@
 //! an executable, programmer, MCU, memory region, or command-line argument.
 
 use crate::discovery::{PortKey, PortView};
+use crate::firmware_family::{self, Family};
 use selfrionette_serial::{
     LineTransport, SerialPortTransport, TransportError, available_port_summaries,
 };
@@ -61,6 +62,10 @@ pub struct SelectedPackageInput {
 #[derive(Clone, Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct PrepareRequest {
+    #[serde(default)]
+    pub metadata_supported: bool,
+    #[serde(default)]
+    pub family: Family,
     pub target: PortKey,
     /// `None` selects the release package embedded in the installed application.
     /// `Some` is local user input; its source provenance is never inferred from
@@ -87,6 +92,14 @@ pub struct ApplyRequest {
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct FirmwarePackageManifest {
+    #[serde(default)]
+    pub family: Family,
+    #[serde(default)]
+    pub source_tree_sha256: Option<String>,
+    #[serde(default)]
+    pub source_path: Option<String>,
+    #[serde(default)]
+    pub capabilities: Vec<String>,
     pub schema: u8,
     pub release_version: String,
     pub application: String,
@@ -217,6 +230,8 @@ pub struct SettingsSnapshot {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct RecoveryJournal {
+    #[serde(default)]
+    legacy_image_verified: bool,
     schema: u8,
     plan_id: String,
     target: PortKey,
@@ -243,6 +258,7 @@ struct PreparedPackage {
 
 #[derive(Clone, Debug)]
 struct PendingPlan {
+    metadata_supported: bool,
     plan_id: String,
     target: PortKey,
     binding: TargetBinding,
@@ -266,6 +282,13 @@ struct TargetBinding {
 struct PortRecord {
     key: PortKey,
     location_path: Option<String>,
+}
+#[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RetainedState {
+    target: PortKey,
+    binding: TargetBinding,
+    observation: DeviceObservation,
 }
 
 #[derive(Clone, Debug)]
@@ -299,7 +322,22 @@ pub struct FlashError {
 /// opens only the selected USB serial port and invokes the fixed avrdude flow.
 trait Backend: Send {
     fn ports(&mut self) -> Result<Vec<PortRecord>, String>;
-    fn inspect(&mut self, target: &PortKey) -> Result<DeviceObservation, String>;
+    fn inspect(
+        &mut self,
+        target: &PortKey,
+        metadata_supported: bool,
+    ) -> Result<DeviceObservation, String>;
+    fn legacy_stream(&mut self, _target: &PortKey) -> Result<(), String> {
+        Err("旧7chの受信確認が未実装のbackendです。".into())
+    }
+    fn verify_flash(
+        &mut self,
+        _target: &PortKey,
+        _image: &Path,
+        _runtime: &ProgrammerRuntime,
+    ) -> Result<(), String> {
+        Err("全application flashの確認が未実装のbackendです。".into())
+    }
     fn reset_to_bootloader(&mut self, target: &PortKey) -> Result<(), FlashError>;
     fn flash(
         &mut self,
@@ -318,6 +356,13 @@ pub struct UpdaterService {
 }
 
 impl UpdaterService {
+    pub fn invalidate(&mut self) -> Result<(), String> {
+        self.pending_plan = None;
+        if self.pending_journal_path().exists() {
+            return Err("更新が中断中です。確認・復旧を完了してください。".into());
+        }
+        Ok(())
+    }
     pub fn new(resource_dir: PathBuf, app_config_dir: PathBuf) -> Self {
         Self::with_backend(resource_dir, app_config_dir, Box::new(SystemBackend))
     }
@@ -363,12 +408,44 @@ impl UpdaterService {
         self.pending_plan = None;
 
         validate_target_key(&request.target)?;
-        let package = self.load_package(request.package.as_ref())?;
+        let package = self.load_family_package(request.package.as_ref(), request.family)?;
         let ports = self.backend.ports()?;
         let (topology, binding) = validate_topology(&ports, &request.target)?;
-        let before = self.backend.inspect(&request.target)?;
+        let before = self
+            .backend
+            .inspect(&request.target, request.metadata_supported)?;
         validate_observation(&before)?;
         validate_board_if_reported(&before)?;
+        if package.manifest.family == Family::Legacy7ch
+            && binding.location_path.is_none()
+            && binding.serial_number.is_none()
+        {
+            return Err("旧7ch版への更新にはUSB接続位置またはserialの照合情報が必要です。接続先情報を確認してください。".into());
+        }
+        if let Some(retained) = self.retained_state()? {
+            if retained.binding != binding {
+                return Err(
+                    "設定保持が未確認の別の接続先です。元の装置を新版へ戻して確認してください。"
+                        .into(),
+                );
+            }
+            let old_id = match &retained.observation {
+                DeviceObservation::Protocol3 { info } => Some(info.device_id.as_str()),
+                DeviceObservation::Legacy { info } => Some(info.device_id.as_str()),
+                DeviceObservation::Unidentified => None,
+            };
+            let current_id = match &before {
+                DeviceObservation::Protocol3 { info } => Some(info.device_id.as_str()),
+                DeviceObservation::Legacy { info } => Some(info.device_id.as_str()),
+                DeviceObservation::Unidentified => None,
+            };
+            if old_id
+                .zip(current_id)
+                .is_some_and(|(old, current)| old != current)
+            {
+                return Err("退避した個体IDと現在の装置が一致しません。".into());
+            }
+        }
 
         let manual_required = !matches!(before, DeviceObservation::Protocol3 { .. });
         if manual_required && !request.manual_board_confirmation {
@@ -409,6 +486,7 @@ impl UpdaterService {
         persist_backup(&self.app_config_dir, &backup)?;
         let backup_status = backup.settings_backup_status;
         self.pending_plan = Some(PendingPlan {
+            metadata_supported: request.metadata_supported,
             plan_id: plan_id.clone(),
             target: request.target.clone(),
             binding,
@@ -463,6 +541,9 @@ impl UpdaterService {
             return Err("The update recovery marker and prepared stage disagree. Keep the device connected and recover before proceeding.".into());
         }
         if !plan.reset_completed {
+            // Any failed preflight consumes the unstarted approval. Restoring
+            // the old topology later must not resurrect a stale plan.
+            self.pending_plan = None;
             if request.bootloader_target.is_some() || request.manual_bootloader_confirmation {
                 return Err("A bootloader target can only be confirmed after the application port has reset and re-enumerated.".into());
             }
@@ -471,7 +552,9 @@ impl UpdaterService {
             if binding != plan.binding || topology.status != plan.topology.status {
                 return Err("USB location or serial topology changed after preparation. Stop and prepare the target again.".into());
             }
-            let latest = self.backend.inspect(&plan.target)?;
+            let latest = self
+                .backend
+                .inspect(&plan.target, plan.metadata_supported)?;
             validate_observation(&latest)?;
             if latest != plan.before {
                 return Err("Device identity, firmware, or settings changed after preparation. Stop and prepare the target again.".into());
@@ -492,6 +575,7 @@ impl UpdaterService {
             verify_runtime_hashes(&self.resource_dir, &self.runtime_pins)?;
 
             let journal = RecoveryJournal {
+                legacy_image_verified: false,
                 schema: 3,
                 plan_id: plan.plan_id.clone(),
                 target: plan.target.clone(),
@@ -615,11 +699,42 @@ impl UpdaterService {
         let runtime = runtime_paths(&self.resource_dir);
 
         let target = bootloader;
-        let image_path = plan.package.firmware_hex_path.clone();
+        let image_bytes = read_bounded(&plan.package.firmware_hex_path, MAX_HEX_BYTES)?;
+        if sha256(&image_bytes) != plan.package.firmware_sha256 {
+            return Err("Firmware image changed before full-flash staging.".into());
+        }
+        let image = parse_intel_hex(&String::from_utf8(image_bytes).map_err(|e| e.to_string())?)?;
+        let full_hex = firmware_family::full_application_hex(&image.bytes);
+        let full_dir = self
+            .app_config_dir
+            .join(MANAGER_UPDATE_DIR)
+            .join("full-flash")
+            .join(&plan.package.firmware_sha256);
+        fs::create_dir_all(&full_dir).map_err(|e| e.to_string())?;
+        let image_path = full_dir.join("firmware.hex");
+        write_immutable_file(&image_path, full_hex.as_bytes())?;
         let backup_id = plan.backup_id.clone();
         let before = plan.before.clone();
         let binding = plan.binding.clone();
         let manifest = plan.package.manifest.clone();
+        if manifest.family == Family::Legacy7ch
+            && !matches!(before, DeviceObservation::Unidentified)
+            && self.retained_state()?.is_none()
+        {
+            let baseline = self
+                .app_config_dir
+                .join(MANAGER_UPDATE_DIR)
+                .join("retained-modern.json");
+            write_immutable_file(
+                &baseline,
+                &serde_json::to_vec(&RetainedState {
+                    target: plan.target.clone(),
+                    binding: binding.clone(),
+                    observation: before.clone(),
+                })
+                .map_err(|e| e.to_string())?,
+            )?;
+        }
         if let Err(error) = self.persist_programmer_start(&plan) {
             self.pending_plan = None;
             return Ok(recovery_apply_reply(
@@ -652,11 +767,44 @@ impl UpdaterService {
             });
         }
 
-        match self.verify_after_flash(&binding, &before, &manifest) {
-            Ok(readback) => match fs::remove_file(&journal_path) {
-                Ok(()) => Ok(reply_from_readback(
-                    "verified", "readback", false, backup_id, readback,
+        if manifest.family == Family::Legacy7ch {
+            // flash() has completed write AND explicit dense flash verify while
+            // still bound to the selected bootloader in the same programmer run.
+            let mut journal: RecoveryJournal =
+                serde_json::from_slice(&read_bounded(&journal_path, MAX_JOURNAL_BYTES as usize)?)
+                    .map_err(|e| e.to_string())?;
+            journal.legacy_image_verified = true;
+            self.replace_pending_journal(&journal)?;
+            let result = self.verify_legacy_return(&binding);
+            return match result {
+                Ok(()) => {
+                    fs::remove_file(&journal_path).map_err(|e| e.to_string())?;
+                    Ok(legacy_apply_reply(
+                        backup_id,
+                        false,
+                        "image_verified_legacy_identity_unavailable",
+                    ))
+                }
+                Err(message) => Ok(recovery_apply_reply(
+                    "legacy_stream",
+                    backup_id,
+                    Vec::new(),
+                    message,
                 )),
+            };
+        }
+
+        let retained = self.retained_modern()?;
+        let before = retained.as_ref().unwrap_or(&before);
+
+        match self.verify_after_flash(&binding, before, &manifest) {
+            Ok(readback) => match fs::remove_file(&journal_path) {
+                Ok(()) => {
+                    self.clear_retained_modern()?;
+                    Ok(reply_from_readback(
+                        "verified", "readback", false, backup_id, readback,
+                    ))
+                }
                 Err(error) => Ok(ApplyReply {
                     status: "needs_recovery",
                     phase: "journal_cleanup",
@@ -692,7 +840,7 @@ impl UpdaterService {
     }
 
     /// A recovery attempt only performs bounded read-back. It never reflashes.
-    pub fn recover(&mut self) -> Result<RecoveryReply, String> {
+    pub fn recover(&mut self, metadata_supported: bool) -> Result<RecoveryReply, String> {
         let path = self.pending_journal_path();
         if !path.exists() {
             return Ok(RecoveryReply {
@@ -711,32 +859,55 @@ impl UpdaterService {
             format!("The recovery journal is invalid; keep it and contact support: {error}")
         })?;
         validate_journal(&journal)?;
+        if journal.manifest.family == Family::Legacy7ch && journal_write_may_have_started(&journal)
+        {
+            if !journal.legacy_image_verified {
+                self.verify_legacy_recovery_image(&journal)?;
+                let mut verified = journal.clone();
+                verified.legacy_image_verified = true;
+                self.replace_pending_journal(&verified)?;
+            }
+            self.verify_legacy_return(&journal.binding)?;
+            fs::remove_file(&path).map_err(|e| e.to_string())?;
+            return Ok(RecoveryReply{status:"image_verified_legacy_identity_unavailable",needs_recovery:false,backup_id:Some(journal.backup_id),firmware_version:None,source_sha:None,device_id:None,settings_preserved:None,message:"画像確認済み。旧版の個体ID・版・設定保持は確認できません。退避記録は保持しています。".into()});
+        }
+        if !metadata_supported {
+            return Err("中断した更新の安全な情報照会（?2 / ?3）を有効にしてください。info / info3への自動fallbackは行いません。".into());
+        }
         let write_may_have_started = journal_write_may_have_started(&journal);
         let result = if write_may_have_started {
-            self.verify_after_flash(&journal.binding, &journal.before, &journal.manifest)
+            let retained = self.retained_modern()?;
+            self.verify_after_flash(
+                &journal.binding,
+                retained.as_ref().unwrap_or(&journal.before),
+                &journal.manifest,
+            )
         } else {
             self.verify_original_before_programmer(&journal.binding, &journal.before)
         };
         match result {
             Ok(readback) => match fs::remove_file(&path) {
-                Ok(()) => Ok(RecoveryReply {
-                    status: if write_may_have_started {
-                        "verified"
-                    } else {
-                        "aborted_no_change"
-                    },
-                    needs_recovery: false,
-                    backup_id: Some(journal.backup_id),
-                    firmware_version: Some(readback.info.firmware_version),
-                    source_sha: Some(readback.info.source_sha),
-                    device_id: Some(readback.info.device_id),
-                    settings_preserved: readback.settings_preserved,
-                    message: if write_may_have_started {
-                        "Recovery read-back verified the target firmware, identity, and available persistent settings. The incomplete-update marker was cleared.".into()
-                    } else {
-                        "No programmer was launched. Recovery read-back exactly matched the original protocol 3 firmware, source, identity, schema, and persistent settings; the update was aborted without change and the marker was cleared.".into()
-                    },
-                }),
+                Ok(()) => {
+                    self.clear_retained_modern()?;
+                    Ok(RecoveryReply {
+                        status: if write_may_have_started {
+                            "verified"
+                        } else {
+                            "aborted_no_change"
+                        },
+                        needs_recovery: false,
+                        backup_id: Some(journal.backup_id),
+                        firmware_version: Some(readback.info.firmware_version),
+                        source_sha: Some(readback.info.source_sha),
+                        device_id: Some(readback.info.device_id),
+                        settings_preserved: readback.settings_preserved,
+                        message: if write_may_have_started {
+                            "Recovery read-back verified the target firmware, identity, and available persistent settings. The incomplete-update marker was cleared.".into()
+                        } else {
+                            "No programmer was launched. Recovery read-back exactly matched the original protocol 3 firmware, source, identity, schema, and persistent settings; the update was aborted without change and the marker was cleared.".into()
+                        },
+                    })
+                }
                 Err(error) => Ok(RecoveryReply {
                     status: "needs_recovery",
                     needs_recovery: true,
@@ -765,9 +936,10 @@ impl UpdaterService {
         }
     }
 
-    fn load_package(
+    fn load_family_package(
         &self,
         selected: Option<&SelectedPackageInput>,
+        family: Family,
     ) -> Result<PreparedPackage, String> {
         if let Some(input) = selected {
             if input.manifest_json.len() > MAX_MANIFEST_BYTES {
@@ -776,15 +948,24 @@ impl UpdaterService {
             if input.firmware_hex.len() > MAX_HEX_BYTES {
                 return Err("The selected Intel HEX image exceeds the size limit.".into());
             }
-            return self.prepare_package_bytes(
+            let package = self.prepare_package_bytes(
                 input.manifest_json.as_bytes(),
                 input.firmware_hex.as_bytes(),
                 "user_selected_unverified",
                 true,
-            );
+            )?;
+            if package.manifest.family != family {
+                return Err("選択したFirmware系統とpackageが一致しません。".into());
+            }
+            return Ok(package);
         }
 
         let bundle = self.resource_dir.join("distribution").join("firmware");
+        let bundle = if family == Family::Legacy7ch {
+            bundle.join("legacy-7ch")
+        } else {
+            bundle
+        };
         let manifest_path = bundle.join("manifest.json");
         let image_path = bundle.join("firmware.hex");
         let manifest_bytes = read_bounded(&manifest_path, MAX_MANIFEST_BYTES)?;
@@ -795,8 +976,20 @@ impl UpdaterService {
             "bundled_provenance_matched",
             false,
         )?;
-        if EXPECTED_FIRMWARE_MANIFEST_SHA256 != Some(prepared.manifest_sha256.as_str())
-            || EXPECTED_FIRMWARE_IMAGE_SHA256 != Some(prepared.firmware_sha256.as_str())
+        let (manifest_pin, image_pin) = if family == Family::Legacy7ch {
+            (
+                firmware_family::LEGACY_MANIFEST_PIN,
+                firmware_family::LEGACY_IMAGE_PIN,
+            )
+        } else {
+            (
+                EXPECTED_FIRMWARE_MANIFEST_SHA256,
+                EXPECTED_FIRMWARE_IMAGE_SHA256,
+            )
+        };
+        if prepared.manifest.family != family
+            || manifest_pin != Some(prepared.manifest_sha256.as_str())
+            || image_pin != Some(prepared.firmware_sha256.as_str())
             || EXPECTED_SOURCE_SHA != Some(prepared.manifest.source_sha.as_str())
         {
             return Err("The bundled package is not bound to this application build. Use a locally selected package only after reviewing its source and checksum.".into());
@@ -863,6 +1056,92 @@ impl UpdaterService {
         self.app_config_dir
             .join(MANAGER_UPDATE_DIR)
             .join(PENDING_JOURNAL)
+    }
+    fn clear_retained_modern(&self) -> Result<(), String> {
+        let path = self
+            .app_config_dir
+            .join(MANAGER_UPDATE_DIR)
+            .join("retained-modern.json");
+        if path.exists() {
+            fs::remove_file(path).map_err(|e| e.to_string())?;
+        }
+        Ok(())
+    }
+    fn retained_state(&self) -> Result<Option<RetainedState>, String> {
+        let path = self
+            .app_config_dir
+            .join(MANAGER_UPDATE_DIR)
+            .join("retained-modern.json");
+        if !path.exists() {
+            return Ok(None);
+        }
+        let value: RetainedState =
+            serde_json::from_slice(&read_bounded(&path, MAX_MANIFEST_BYTES)?)
+                .map_err(|e| e.to_string())?;
+        validate_target_key(&value.target)?;
+        validate_observation(&value.observation)?;
+        Ok(Some(value))
+    }
+    fn retained_modern(&self) -> Result<Option<DeviceObservation>, String> {
+        Ok(self.retained_state()?.map(|s| s.observation))
+    }
+    fn verify_legacy_return(&mut self, binding: &TargetBinding) -> Result<(), String> {
+        let start = Instant::now();
+        let mut error = "旧7chの再接続待ちです。".to_owned();
+        while start.elapsed() < POST_FLASH_TIMEOUT {
+            let ports = self.backend.ports()?;
+            match returning_application_target(&ports, binding) {
+                Ok(target) => return self.backend.legacy_stream(&target),
+                Err(e) => error = e,
+            }
+            thread::sleep(Duration::from_millis(250));
+        }
+        Err(error)
+    }
+    fn verify_legacy_recovery_image(&mut self, journal: &RecoveryJournal) -> Result<(), String> {
+        verify_runtime_hashes(&self.resource_dir, &self.runtime_pins)?;
+        let image = self
+            .app_config_dir
+            .join(MANAGER_UPDATE_DIR)
+            .join("full-flash")
+            .join(&journal.firmware_sha256)
+            .join("firmware.hex");
+        let package_id =
+            sha256(format!("{}:{}", journal.manifest_sha256, journal.firmware_sha256).as_bytes());
+        let original = if journal.source_trust == "bundled_provenance_matched" {
+            self.resource_dir
+                .join("distribution/firmware/legacy-7ch/firmware.hex")
+        } else {
+            self.app_config_dir
+                .join(MANAGER_UPDATE_DIR)
+                .join("packages")
+                .join(package_id)
+                .join("firmware.hex")
+        };
+        let bytes = read_bounded(&original, MAX_HEX_BYTES)?;
+        if sha256(&bytes) != journal.firmware_sha256 {
+            return Err("復旧用の元画像が変わりました。".into());
+        }
+        let parsed = parse_intel_hex(std::str::from_utf8(&bytes).map_err(|e| e.to_string())?)?;
+        if read_bounded(&image, MAX_HEX_BYTES)?
+            != firmware_family::full_application_hex(&parsed.bytes).as_bytes()
+        {
+            return Err("全application flash確認用画像が一致しません。".into());
+        }
+        let ports = self.backend.ports()?;
+        let BootloaderSelection::Ready(target) = resolve_bootloader_target(
+            &ports,
+            &journal.target,
+            &journal.binding,
+            None,
+            false,
+            false,
+        )?
+        else {
+            return Err("接続先を照合できる書込み待機状態で再確認してください。自動reset・再書込みは行いません。".into());
+        };
+        self.backend
+            .verify_flash(&target, &image, &runtime_paths(&self.resource_dir))
     }
 
     fn write_pending_journal(&self, journal: &RecoveryJournal) -> Result<PathBuf, String> {
@@ -950,7 +1229,7 @@ impl UpdaterService {
         while started.elapsed() < POST_FLASH_TIMEOUT {
             let ports = self.backend.ports()?;
             match returning_application_target(&ports, binding) {
-                Ok(target) => match self.backend.inspect(&target) {
+                Ok(target) => match self.backend.inspect(&target, true) {
                     Ok(DeviceObservation::Protocol3 { info }) => {
                         if let Err(error) = validate_info3(&info) {
                             last_error = error;
@@ -985,7 +1264,7 @@ impl UpdaterService {
             let ports = self.backend.ports()?;
             match returning_application_target(&ports, binding) {
                 Ok(target) => {
-                    match self.backend.inspect(&target) {
+                    match self.backend.inspect(&target, true) {
                         Ok(DeviceObservation::Protocol3 { info }) => {
                             if let Err(error) = validate_info3(&info) {
                                 last_error = error;
@@ -1201,6 +1480,44 @@ fn windows_location_paths_by_port() -> Result<BTreeMap<String, String>, String> 
 }
 
 impl Backend for SystemBackend {
+    fn verify_flash(
+        &mut self,
+        target: &PortKey,
+        image: &Path,
+        runtime: &ProgrammerRuntime,
+    ) -> Result<(), String> {
+        run_avrdude_operation(target, image, runtime, false).map_err(|e| e.message)
+    }
+    fn legacy_stream(&mut self, target: &PortKey) -> Result<(), String> {
+        use selfrionette_core::{ProtocolFrame, parse_line};
+        let mut transport =
+            SerialPortTransport::open_with_dtr(&target.name).map_err(|e| e.to_string())?;
+        let start = Instant::now();
+        let mut last = None;
+        let mut count = 0;
+        while start.elapsed() < Duration::from_secs(12) {
+            let line = match transport.read_line(Duration::from_millis(50)) {
+                Ok(line) => line,
+                Err(TransportError::Timeout) => continue,
+                Err(e) => return Err(e.to_string()),
+            };
+            match parse_line(&line).map_err(|e| e.to_string())? {
+                ProtocolFrame::Vector(frame) => {
+                    if last.is_some_and(|t| frame.timestamp_ms <= t) {
+                        return Err("旧7chの時刻が更新されません。".into());
+                    }
+                    last = Some(frame.timestamp_ms);
+                    count += 1;
+                    if count == 3 {
+                        return Ok(());
+                    }
+                }
+                ProtocolFrame::Device(_) => return Err("保管7ch版と異なる応答です。".into()),
+                _ => {}
+            }
+        }
+        Err("旧7chの有限受信確認が時間内に完了しませんでした。".into())
+    }
     fn ports(&mut self) -> Result<Vec<PortRecord>, String> {
         let summaries = available_port_summaries().map_err(|error| error.to_string())?;
         if summaries.len() > 128 {
@@ -1220,55 +1537,24 @@ impl Backend for SystemBackend {
             .collect())
     }
 
-    fn inspect(&mut self, target: &PortKey) -> Result<DeviceObservation, String> {
-        validate_target_key(target)?;
-        let mut transport = SerialPortTransport::open(&target.name)
-            .map_err(|error| format!("Could not open the selected device port: {error}"))?;
-        let request = next_request_id();
-        transport
-            .discard_input()
-            .map_err(|error| format!("Could not clear stale serial input: {error}"))?;
-        transport
-            .write_line(&format!("info3,{request}\n"))
-            .map_err(|error| format!("Could not request protocol 3 device information: {error}"))?;
-
-        match read_info3(&mut transport, request) {
-            Ok(Some(info)) => return Ok(DeviceObservation::Protocol3 { info }),
-            Ok(None) => {}
-            Err(error) => return Err(error),
+    fn inspect(
+        &mut self,
+        target: &PortKey,
+        metadata_supported: bool,
+    ) -> Result<DeviceObservation, String> {
+        if !metadata_supported {
+            return Ok(DeviceObservation::Unidentified);
         }
-
-        transport
-            .discard_input()
-            .map_err(|error| format!("Could not clear stale serial input: {error}"))?;
-        transport
-            .write_line("info\n")
-            .map_err(|error| format!("Could not request legacy device information: {error}"))?;
-        read_legacy_info(&mut transport)
+        validate_target_key(target)?;
+        // Explicit updater inspection/recovery owns this selected native USB port.
+        // DTR is required for CDC replies; generic CLI open policy is unchanged.
+        let mut transport = SerialPortTransport::open_with_dtr(&target.name)
+            .map_err(|error| format!("Could not open the selected device port: {error}"))?;
+        inspect_transport(&mut transport)
     }
 
     fn reset_to_bootloader(&mut self, target: &PortKey) -> Result<(), FlashError> {
-        #[cfg(windows)]
-        {
-            let port = serialport::new(&target.name, 1200)
-                .timeout(Duration::from_millis(500))
-                .dtr_on_open(true)
-                .open()
-                .map_err(|error| FlashError {
-                    writes_may_have_started: false,
-                    message: format!("Could not open the selected application port for the 1200-bps bootloader touch: {error}"),
-                })?;
-            drop(port);
-            Ok(())
-        }
-        #[cfg(not(windows))]
-        {
-            let _ = target;
-            Err(FlashError {
-                writes_may_have_started: false,
-                message: "The firmware updater requires the Windows native USB reset path.".into(),
-            })
-        }
+        reset_to_bootloader(target)
     }
 
     fn flash(
@@ -1278,6 +1564,55 @@ impl Backend for SystemBackend {
         runtime: &ProgrammerRuntime,
     ) -> Result<(), FlashError> {
         run_avrdude(target, image_path, runtime)
+    }
+}
+
+/// Only aliases proven inert in both frozen sources; never fall back to `i`.
+fn inspect_transport(transport: &mut impl LineTransport) -> Result<DeviceObservation, String> {
+    let request = next_request_id();
+    transport
+        .discard_input()
+        .map_err(|error| format!("Could not clear stale serial input: {error}"))?;
+    transport
+        .write_line(&format!("?3,{request}\n"))
+        .map_err(|error| format!("Could not request protocol 3 device information: {error}"))?;
+
+    match read_info3(transport, request) {
+        Ok(Some(info)) => return Ok(DeviceObservation::Protocol3 { info }),
+        Ok(None) => {}
+        Err(error) => return Err(error),
+    }
+
+    transport
+        .discard_input()
+        .map_err(|error| format!("Could not clear stale serial input: {error}"))?;
+    transport
+        .write_line("?2\n")
+        .map_err(|error| format!("Could not request legacy device information: {error}"))?;
+    read_legacy_info(transport)
+}
+
+fn reset_to_bootloader(target: &PortKey) -> Result<(), FlashError> {
+    #[cfg(windows)]
+    {
+        let port = serialport::new(&target.name, 1200)
+                .timeout(Duration::from_millis(500))
+                .dtr_on_open(true)
+                .open()
+                .map_err(|error| FlashError {
+                    writes_may_have_started: false,
+                    message: format!("Could not open the selected application port for the 1200-bps bootloader touch: {error}"),
+                })?;
+        drop(port);
+        Ok(())
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = target;
+        Err(FlashError {
+            writes_may_have_started: false,
+            message: "The firmware updater requires the Windows native USB reset path.".into(),
+        })
     }
 }
 
@@ -1653,7 +1988,10 @@ fn returning_application_target(
         candidates.clone()
     };
     match matches.as_slice() {
-        [target] => Ok(target.key.clone()),
+        [target] => {
+            if binding.serial_number.as_ref().is_some_and(|s|target.key.serial_number.as_ref()!=Some(s)) || binding.location_path.as_ref().is_some_and(|p|target.location_path.as_ref()!=Some(p)) {return Err("再接続先の既知USB情報が変わりました。".into());}
+            Ok(target.key.clone())
+        },
         [] => Err("The application-mode port does not match the selected USB location or serial binding.".into()),
         _ => Err("More than one application-mode port matches the selected target; recovery remains required.".into()),
     }
@@ -1720,21 +2058,63 @@ fn validate_manifest_and_hex(
 }
 
 fn validate_manifest(manifest: &FirmwarePackageManifest, image_size: u64) -> Result<(), String> {
-    if manifest.schema != 1
+    let legacy = manifest.family == Family::Legacy7ch;
+    if !(manifest.schema == 1 && !legacy || manifest.schema == 2)
         || manifest.release_version != APP_RELEASE_VERSION
         || manifest.application != APPLICATION
         || manifest.board != BOARD
         || manifest.mcu != MCU
         || manifest.clock_hz != CLOCK_HZ
-        || manifest.protocol_schema != PROTOCOL_SCHEMA
-        || manifest.settings_schema != SETTINGS_SCHEMA
+        || manifest.protocol_schema != if legacy { 0 } else { PROTOCOL_SCHEMA }
+        || manifest.settings_schema != if legacy { 0 } else { SETTINGS_SCHEMA }
         || manifest.flash_start != APP_FLASH_START
         || manifest.flash_end_exclusive != APP_FLASH_END_EXCLUSIVE
         || manifest.image_file != "firmware.hex"
     {
         return Err("The firmware manifest targets an unsupported application, schema, version, board, MCU, or flash range.".into());
     }
-    validate_version(&manifest.firmware_version)?;
+    if manifest.schema == 2 {
+        let expected_source = if legacy {
+            "firmware/legacy/xpotato-sim/arduino/legacy_selfrionette/loadcell_7ch_legacy"
+        } else {
+            "firmware/loadcell_7ch"
+        };
+        if manifest.source_path.as_deref() != Some(expected_source) {
+            return Err("Firmware family source path does not match the selected archive.".into());
+        }
+        validate_sha256(
+            manifest
+                .source_tree_sha256
+                .as_deref()
+                .ok_or("Source tree hash is required.")?,
+            "source tree",
+        )?;
+        let expected: Vec<String> = if legacy {
+            vec!["legacy_vector7".into()]
+        } else {
+            vec![
+                "info3".into(),
+                "device_settings".into(),
+                "personal_calibration".into(),
+                "safe_metadata_probe".into(),
+            ]
+        };
+        if manifest.capabilities != expected {
+            return Err("Unsupported firmware family capabilities.".into());
+        }
+    } else if manifest.source_tree_sha256.is_some()
+        || manifest.source_path.is_some()
+        || !manifest.capabilities.is_empty()
+    {
+        return Err("Schema 1 does not declare family extensions.".into());
+    }
+    if legacy {
+        if !manifest.firmware_version.is_empty() {
+            return Err("Legacy firmware has no reported version.".into());
+        }
+    } else {
+        validate_version(&manifest.firmware_version)?;
+    }
     validate_sha40(&manifest.source_sha, "firmware source SHA")?;
     validate_sha256(&manifest.image_sha256, "firmware image SHA-256")?;
     if manifest.image_size != image_size {
@@ -1975,6 +2355,10 @@ fn reply_from_readback(
     }
 }
 
+fn legacy_apply_reply(backup_id: String, needs_recovery: bool, status: &'static str) -> ApplyReply {
+    ApplyReply{status,phase:"legacy_confirmation",needs_recovery,manual_bootloader_confirmation_required:false,bootloader_candidates:Vec::new(),backup_id,firmware_version:None,source_sha:None,device_id:None,settings_preserved:None,message:"画像確認済み・旧版の個体IDと版情報は取得不可。設定保持は未確認です。退避記録を保持し、新版へ戻した際に照合します。".into()}
+}
+
 fn recovery_apply_reply(
     phase: &'static str,
     backup_id: String,
@@ -2152,6 +2536,14 @@ fn run_avrdude(
     image_path: &Path,
     runtime: &ProgrammerRuntime,
 ) -> Result<(), FlashError> {
+    run_avrdude_operation(target, image_path, runtime, true)
+}
+fn run_avrdude_operation(
+    target: &PortKey,
+    image_path: &Path,
+    runtime: &ProgrammerRuntime,
+    write: bool,
+) -> Result<(), FlashError> {
     if !Path::new(".").is_dir() || !image_path.is_file() {
         return Err(FlashError {
             writes_may_have_started: false,
@@ -2173,7 +2565,7 @@ fn run_avrdude(
             message: "The staged image filename is invalid.".into(),
         })?;
     let port = target.name.as_str();
-    let args = programmer_args(port, file_name, &runtime.config);
+    let args = programmer_operation_args(port, file_name, &runtime.config, write);
     let mut command = Command::new(&runtime.executable);
     command
         .args(&args)
@@ -2260,9 +2652,18 @@ fn run_avrdude(
     Ok(())
 }
 
+#[cfg(test)]
 fn programmer_args(port: &str, image_file: &str, config: &Path) -> Vec<std::ffi::OsString> {
+    programmer_operation_args(port, image_file, config, true)
+}
+fn programmer_operation_args(
+    port: &str,
+    image_file: &str,
+    config: &Path,
+    write: bool,
+) -> Vec<std::ffi::OsString> {
     use std::ffi::OsString;
-    vec![
+    let mut args = vec![
         OsString::from("-N"),
         OsString::from("-C"),
         config.as_os_str().to_owned(),
@@ -2275,9 +2676,19 @@ fn programmer_args(port: &str, image_file: &str, config: &Path) -> Vec<std::ffi:
         OsString::from("-b"),
         OsString::from("57600"),
         OsString::from("-D"),
+        OsString::from("-A"),
+    ];
+    if write {
+        args.extend([
+            OsString::from("-U"),
+            OsString::from(format!("flash:w:{image_file}:i")),
+        ]);
+    }
+    args.extend([
         OsString::from("-U"),
-        OsString::from(format!("flash:w:{image_file}:i")),
-    ]
+        OsString::from(format!("flash:v:{image_file}:i")),
+    ]);
+    args
 }
 
 fn configure_child_environment(command: &mut Command) {
@@ -2490,6 +2901,8 @@ mod tests {
 
     #[derive(Clone)]
     struct FakeState {
+        source_is_original: bool,
+        calibrations: usize,
         ports: Vec<PortRecord>,
         bootloader_port: PortRecord,
         application_after_flash: PortRecord,
@@ -2506,11 +2919,49 @@ mod tests {
     }
     struct FakeBackend(Arc<Mutex<FakeState>>);
     impl Backend for FakeBackend {
+        fn legacy_stream(&mut self, _target: &PortKey) -> Result<(), String> {
+            if matches!(
+                self.0.lock().unwrap().observations.last(),
+                Some(DeviceObservation::Unidentified)
+            ) {
+                Ok(())
+            } else {
+                Err("scripted legacy stream failed".into())
+            }
+        }
+        fn verify_flash(
+            &mut self,
+            target: &PortKey,
+            image: &Path,
+            _runtime: &ProgrammerRuntime,
+        ) -> Result<(), String> {
+            let mut state = self.0.lock().unwrap();
+            if target != &state.bootloader_port.key {
+                return Err("wrong bootloader".into());
+            }
+            let parsed = parse_intel_hex(&fs::read_to_string(image).map_err(|e| e.to_string())?)?;
+            if parsed.bytes.len() != 0x7000 {
+                return Err("not a full application image".into());
+            }
+            state.ports = vec![state.application_after_flash.clone()];
+            Ok(())
+        }
         fn ports(&mut self) -> Result<Vec<PortRecord>, String> {
             Ok(self.0.lock().unwrap().ports.clone())
         }
-        fn inspect(&mut self, target: &PortKey) -> Result<DeviceObservation, String> {
+        fn inspect(
+            &mut self,
+            target: &PortKey,
+            metadata_supported: bool,
+        ) -> Result<DeviceObservation, String> {
+            if !metadata_supported {
+                return Ok(DeviceObservation::Unidentified);
+            }
             let mut state = self.0.lock().unwrap();
+            if state.source_is_original {
+                state.calibrations += 1;
+                return Ok(DeviceObservation::Unidentified);
+            }
             if !state.ports.iter().any(|port| port.key == *target) {
                 return Err(
                     "The scripted target is not present in the current USB topology.".into(),
@@ -2544,6 +2995,9 @@ mod tests {
             _image_path: &Path,
             _runtime: &ProgrammerRuntime,
         ) -> Result<(), FlashError> {
+            let dense = parse_intel_hex(&fs::read_to_string(_image_path).unwrap()).unwrap();
+            assert_eq!(dense.bytes.len(), 0x7000);
+            assert_eq!(dense.bytes[&0x6fff], 0xff);
             let mut state = self.0.lock().unwrap();
             if !state.ports.iter().any(|port| port.key == *target) {
                 return Err(FlashError {
@@ -2653,6 +3107,10 @@ mod tests {
 
     fn manifest() -> FirmwarePackageManifest {
         FirmwarePackageManifest {
+            family: Family::Modern,
+            source_tree_sha256: None,
+            source_path: None,
+            capabilities: Vec::new(),
             schema: 1,
             release_version: APP_RELEASE_VERSION.into(),
             application: APPLICATION.into(),
@@ -2671,11 +3129,306 @@ mod tests {
         }
     }
 
+    #[test]
+    fn unknown_legacy_and_preview1_probes_never_write_i_or_mutate_tare() {
+        struct LegacySource {
+            writes: Vec<String>,
+            mutations: usize,
+            vector: bool,
+        }
+        impl LineTransport for LegacySource {
+            fn discard_input(&mut self) -> Result<(), TransportError> {
+                Ok(())
+            }
+            fn write_line(&mut self, line: &str) -> Result<(), TransportError> {
+                self.mutations += line.bytes().filter(|b| *b == b'i').count();
+                self.writes.push(line.into());
+                Ok(())
+            }
+            fn read_line(&mut self, _: Duration) -> Result<String, TransportError> {
+                if self.vector {
+                    self.vector = false;
+                    return Ok("vector,1,1,2,3,4,5,6,7".into());
+                }
+                Err(TransportError::Timeout)
+            }
+        }
+        for vector in [true, false] {
+            let mut source = LegacySource {
+                writes: Vec::new(),
+                mutations: 0,
+                vector,
+            };
+            assert!(matches!(
+                inspect_transport(&mut source).unwrap(),
+                DeviceObservation::Unidentified
+            ));
+            assert_eq!(source.mutations, 0);
+            assert_eq!(source.writes.len(), 2);
+            assert!(source.writes[0].starts_with("?3,"));
+            assert_eq!(source.writes[1], "?2\n");
+        }
+    }
+
     fn package_input() -> SelectedPackageInput {
         SelectedPackageInput {
             manifest_json: serde_json::to_string(&manifest()).unwrap(),
             firmware_hex: HEX.into(),
         }
+    }
+    fn legacy_input() -> SelectedPackageInput {
+        let mut m = manifest();
+        m.schema = 2;
+        m.family = Family::Legacy7ch;
+        m.source_tree_sha256 = Some("a".repeat(64));
+        m.source_path = Some(
+            "firmware/legacy/xpotato-sim/arduino/legacy_selfrionette/loadcell_7ch_legacy".into(),
+        );
+        m.capabilities = vec!["legacy_vector7".into()];
+        m.protocol_schema = 0;
+        m.settings_schema = 0;
+        m.firmware_version = String::new();
+        SelectedPackageInput {
+            manifest_json: serde_json::to_string(&m).unwrap(),
+            firmware_hex: HEX.into(),
+        }
+    }
+    fn apply_prepared(
+        updater: &mut UpdaterService,
+        prepared: PrepareReply,
+    ) -> Result<ApplyReply, String> {
+        updater.apply(ApplyRequest {
+            plan_id: prepared.plan_id.unwrap(),
+            operator_confirmed: true,
+            bootloader_target: None,
+            manual_bootloader_confirmation: false,
+        })
+    }
+    #[test]
+    fn dense_flash_covers_gaps_and_verify_only_never_writes() {
+        let bytes = parse_intel_hex(HEX).unwrap().bytes;
+        let dense = parse_intel_hex(&firmware_family::full_application_hex(&bytes)).unwrap();
+        assert_eq!(dense.bytes.len(), 0x7000);
+        assert_eq!(dense.bytes[&0], 1);
+        assert_eq!(dense.bytes[&4], 0xff);
+        assert_eq!(dense.bytes[&0x6fff], 0xff);
+        let args =
+            programmer_operation_args("COM7", "firmware.hex", Path::new("fixed.conf"), false);
+        let args: Vec<_> = args.iter().map(|s| s.to_string_lossy()).collect();
+        assert!(args.iter().any(|s| s == "flash:v:firmware.hex:i"));
+        assert!(!args.iter().any(|s| s.contains(":w:") || s == "-e"));
+    }
+    #[test]
+    fn family_board_schema_and_capability_mismatches_reject_before_reset() {
+        let scratch = Scratch::new();
+        let (mut u, state) = service(&scratch, vec![info("0.1.0", SOURCE_SHA, 1)]);
+        assert!(
+            u.prepare(PrepareRequest {
+                metadata_supported: true,
+                family: Family::Modern,
+                target: target(),
+                package: Some(legacy_input()),
+                manual_board_confirmation: true
+            })
+            .is_err()
+        );
+        for field in [
+            "board",
+            "settings_schema",
+            "protocol_schema",
+            "family",
+            "capabilities",
+        ] {
+            let mut value: serde_json::Value =
+                serde_json::from_str(&legacy_input().manifest_json).unwrap();
+            value[field] = match field {
+                "settings_schema" | "protocol_schema" => serde_json::json!(3),
+                "capabilities" => serde_json::json!(["info3"]),
+                "family" => serde_json::json!("modern"),
+                _ => serde_json::json!("wrong"),
+            };
+            assert!(
+                u.prepare(PrepareRequest {
+                    metadata_supported: true,
+                    family: Family::Legacy7ch,
+                    target: target(),
+                    package: Some(SelectedPackageInput {
+                        manifest_json: value.to_string(),
+                        firmware_hex: HEX.into()
+                    }),
+                    manual_board_confirmation: true
+                })
+                .is_err()
+            );
+        }
+        assert_eq!(state.lock().unwrap().flash_calls, 0);
+        assert!(state.lock().unwrap().reset_targets.is_empty());
+    }
+    #[test]
+    fn switching_modern_to_legacy_and_back_compares_retained_settings() {
+        let scratch = Scratch::new();
+        let original = info("0.1.0", SOURCE_SHA, 1);
+        let (mut u, state) = service(
+            &scratch,
+            vec![original.clone(), original, DeviceObservation::Unidentified],
+        );
+        let p = u
+            .prepare(PrepareRequest {
+                metadata_supported: true,
+                family: Family::Legacy7ch,
+                target: target(),
+                package: Some(legacy_input()),
+                manual_board_confirmation: false,
+            })
+            .unwrap();
+        let r = apply_prepared(&mut u, p).unwrap();
+        assert_eq!(r.status, "image_verified_legacy_identity_unavailable");
+        assert_eq!(r.settings_preserved, None);
+        assert_eq!(r.device_id, None);
+        assert!(!r.needs_recovery);
+        assert!(u.retained_modern().unwrap().is_some());
+        {
+            let mut s = state.lock().unwrap();
+            s.inspection_count = 0;
+            s.observations = vec![
+                DeviceObservation::Unidentified,
+                DeviceObservation::Unidentified,
+                info(APP_RELEASE_VERSION, SOURCE_SHA, 1),
+            ];
+        }
+        let t = application_after_flash().key;
+        let p = u
+            .prepare(PrepareRequest {
+                metadata_supported: true,
+                family: Family::Modern,
+                target: t,
+                package: Some(package_input()),
+                manual_board_confirmation: true,
+            })
+            .unwrap();
+        let r = apply_prepared(&mut u, p).unwrap();
+        assert_eq!(r.status, "verified");
+        assert_eq!(r.settings_preserved, Some(true));
+        assert!(u.retained_modern().unwrap().is_none());
+    }
+    #[test]
+    fn interrupted_legacy_flash_requires_full_image_verification_before_stream_recovery() {
+        let scratch = Scratch::new();
+        let original = info("0.1.0", SOURCE_SHA, 1);
+        let (mut u, state) = service(
+            &scratch,
+            vec![original.clone(), original, DeviceObservation::Unidentified],
+        );
+        state.lock().unwrap().flash_result = Err(FlashError {
+            writes_may_have_started: true,
+            message: "power interrupted".into(),
+        });
+        let p = u
+            .prepare(PrepareRequest {
+                metadata_supported: true,
+                family: Family::Legacy7ch,
+                target: target(),
+                package: Some(legacy_input()),
+                manual_board_confirmation: false,
+            })
+            .unwrap();
+        assert!(apply_prepared(&mut u, p).unwrap().needs_recovery);
+        // Application traffic is insufficient when full image verification was interrupted.
+        {
+            let mut s = state.lock().unwrap();
+            s.ports = vec![s.application_after_flash.clone()];
+        }
+        assert!(u.recover(true).is_err());
+        assert!(u.pending_journal_path().exists());
+        {
+            let mut s = state.lock().unwrap();
+            s.ports = vec![s.bootloader_port.clone()];
+        }
+        let r = u.recover(true).unwrap();
+        assert_eq!(r.status, "image_verified_legacy_identity_unavailable");
+        assert_eq!(r.settings_preserved, None);
+        assert!(!u.pending_journal_path().exists());
+        assert!(u.retained_modern().unwrap().is_some());
+    }
+    #[test]
+    fn invalidation_prevents_replaying_an_approved_plan() {
+        let scratch = Scratch::new();
+        let original = info("0.1.0", SOURCE_SHA, 1);
+        let (mut u, state) = service(&scratch, vec![original]);
+        let p = u
+            .prepare(PrepareRequest {
+                metadata_supported: true,
+                family: Family::Modern,
+                target: target(),
+                package: Some(package_input()),
+                manual_board_confirmation: false,
+            })
+            .unwrap();
+        u.invalidate().unwrap();
+        assert!(apply_prepared(&mut u, p).is_err());
+        assert!(state.lock().unwrap().reset_targets.is_empty());
+    }
+    #[test]
+    fn unknown_original_source_preflight_is_passive_even_when_destination_is_modern() {
+        let scratch = Scratch::new();
+        let (mut u, state) = service(&scratch, vec![DeviceObservation::Unidentified]);
+        state.lock().unwrap().source_is_original = true;
+        let p = u
+            .prepare(PrepareRequest {
+                metadata_supported: false,
+                family: Family::Modern,
+                target: target(),
+                package: Some(package_input()),
+                manual_board_confirmation: true,
+            })
+            .unwrap();
+        assert!(p.apply_enabled);
+        assert!(matches!(p.observation, DeviceObservation::Unidentified));
+        let s = state.lock().unwrap();
+        assert_eq!(s.calibrations, 0);
+        assert!(s.inspected_targets.is_empty());
+        assert!(s.reset_targets.is_empty());
+    }
+    #[test]
+    fn changed_selection_during_bootloader_confirmation_revokes_plan_but_keeps_recovery() {
+        let scratch = Scratch::new();
+        let original = info("0.1.0", SOURCE_SHA, 1);
+        let (mut u, state) = service(&scratch, vec![original.clone(), original]);
+        let mut t = target();
+        t.serial_number = None;
+        {
+            let mut s = state.lock().unwrap();
+            s.ports[0].key = t.clone();
+            s.ports[0].location_path = None;
+            s.bootloader_port.key.serial_number = None;
+            s.bootloader_port.location_path = None;
+        }
+        let p = u
+            .prepare(PrepareRequest {
+                metadata_supported: true,
+                family: Family::Modern,
+                target: t,
+                package: Some(package_input()),
+                manual_board_confirmation: false,
+            })
+            .unwrap();
+        let id = p.plan_id.clone().unwrap();
+        assert_eq!(
+            apply_prepared(&mut u, p).unwrap().status,
+            "awaiting_bootloader_confirmation"
+        );
+        assert!(u.invalidate().is_err());
+        assert!(u.pending_journal_path().exists());
+        assert!(
+            u.apply(ApplyRequest {
+                plan_id: id,
+                operator_confirmed: true,
+                bootloader_target: Some(state.lock().unwrap().bootloader_port.key.clone()),
+                manual_bootloader_confirmation: true
+            })
+            .is_err()
+        );
+        assert_eq!(state.lock().unwrap().flash_calls, 0);
     }
 
     fn service(
@@ -2689,6 +3442,8 @@ mod tests {
         fs::write(runtime_dir.join("avrdude.exe"), executable).unwrap();
         fs::write(runtime_dir.join("avrdude.conf"), config).unwrap();
         let state = Arc::new(Mutex::new(FakeState {
+            source_is_original: false,
+            calibrations: 0,
             ports: vec![application_port()],
             bootloader_port: bootloader_port(),
             application_after_flash: application_after_flash(),
@@ -2809,6 +3564,8 @@ mod tests {
         let (mut updater, state) = service(&scratch, vec![DeviceObservation::Unidentified]);
         let result = updater
             .prepare(PrepareRequest {
+                metadata_supported: true,
+                family: Family::Modern,
                 target: target(),
                 package: Some(package_input()),
                 manual_board_confirmation: false,
@@ -2834,6 +3591,8 @@ mod tests {
         let (mut updater, state) = service(&scratch, vec![initial.clone(), initial]);
         let a = updater
             .prepare(PrepareRequest {
+                metadata_supported: true,
+                family: Family::Modern,
                 target: target(),
                 package: Some(package_input()),
                 manual_board_confirmation: false,
@@ -2842,6 +3601,8 @@ mod tests {
         let old = a.plan_id.unwrap();
         let b = updater
             .prepare(PrepareRequest {
+                metadata_supported: true,
+                family: Family::Modern,
                 target: target(),
                 package: Some(package_input()),
                 manual_board_confirmation: false,
@@ -2865,6 +3626,8 @@ mod tests {
         assert!(
             updater
                 .prepare(PrepareRequest {
+                    metadata_supported: true,
+                    family: Family::Modern,
                     target: target(),
                     package: Some(package_input()),
                     manual_board_confirmation: false
@@ -2882,6 +3645,8 @@ mod tests {
         let (mut updater, state) = service(&scratch, vec![initial.clone(), initial, final_state]);
         let prepared = updater
             .prepare(PrepareRequest {
+                metadata_supported: true,
+                family: Family::Modern,
                 target: target(),
                 package: Some(package_input()),
                 manual_board_confirmation: false,
@@ -2929,6 +3694,8 @@ mod tests {
         state.lock().unwrap().bootloader_port.location_path = None;
         let prepared = updater
             .prepare(PrepareRequest {
+                metadata_supported: true,
+                family: Family::Modern,
                 target: target(),
                 package: Some(package_input()),
                 manual_board_confirmation: false,
@@ -2992,6 +3759,8 @@ mod tests {
         });
         let prepared = updater
             .prepare(PrepareRequest {
+                metadata_supported: true,
+                family: Family::Modern,
                 target: target(),
                 package: Some(package_input()),
                 manual_board_confirmation: false,
@@ -3008,7 +3777,7 @@ mod tests {
         assert!(applied.needs_recovery);
         assert!(updater.pending_journal_path().exists());
         assert!(state.lock().unwrap().flash_marker_had_write_started);
-        let recovered = updater.recover().unwrap();
+        let recovered = updater.recover(true).unwrap();
         assert_eq!(recovered.status, "verified");
         assert!(!recovered.needs_recovery);
         assert!(!updater.pending_journal_path().exists());
@@ -3026,6 +3795,8 @@ mod tests {
         });
         let prepared = updater
             .prepare(PrepareRequest {
+                metadata_supported: true,
+                family: Family::Modern,
                 target: target(),
                 package: Some(package_input()),
                 manual_board_confirmation: false,
@@ -3044,7 +3815,7 @@ mod tests {
         assert!(updater.pending_journal_path().exists());
         assert_eq!(state.lock().unwrap().flash_calls, 0);
 
-        let recovered = updater.recover().unwrap();
+        let recovered = updater.recover(true).unwrap();
         assert_eq!(recovered.status, "aborted_no_change");
         assert!(!recovered.needs_recovery);
         assert_eq!(recovered.settings_preserved, Some(true));
@@ -3067,6 +3838,8 @@ mod tests {
         });
         let prepared = updater
             .prepare(PrepareRequest {
+                metadata_supported: true,
+                family: Family::Modern,
                 target: target(),
                 package: Some(package_input()),
                 manual_board_confirmation: true,
@@ -3081,7 +3854,7 @@ mod tests {
             })
             .unwrap();
         assert!(applied.needs_recovery);
-        let recovered = updater.recover().unwrap();
+        let recovered = updater.recover(true).unwrap();
         assert_eq!(recovered.status, "needs_recovery");
         assert!(recovered.needs_recovery);
         assert!(
@@ -3105,6 +3878,8 @@ mod tests {
         });
         let prepared = updater
             .prepare(PrepareRequest {
+                metadata_supported: true,
+                family: Family::Modern,
                 target: target(),
                 package: Some(package_input()),
                 manual_board_confirmation: false,
@@ -3121,7 +3896,7 @@ mod tests {
         assert!(applied.needs_recovery);
         assert!(state.lock().unwrap().flash_marker_had_write_started);
 
-        let recovered = updater.recover().unwrap();
+        let recovered = updater.recover(true).unwrap();
         assert_eq!(recovered.status, "needs_recovery");
         assert!(recovered.needs_recovery);
         assert!(

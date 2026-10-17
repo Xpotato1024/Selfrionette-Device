@@ -7,6 +7,8 @@ export function isProductInput(path){
  || /^apps\/device-manager\/licenses\/[^/]+\.(txt|md)$/.test(path)
  || /^(crates\/.*\.(rs|toml)|Cargo\.(toml|lock)|rust-toolchain.*|\.cargo\/.*)$/.test(path)
  || /^firmware\/(loadcell_7ch\/.*\.(cpp|h|ini|py)|shared\/.*\.(h|cpp))$/.test(path)
+ || /^firmware\/(legacy\/.*|legacy_7ch_package\/.*)$/.test(path)
+ || path==='apps/device-manager/tools/firmware-packages.mjs'
  || /^docs\/contracts\/(firmware-protocol-v3|firmware-update|firmware-memory-budget)\.md$/.test(path)
  || /^tools\/check_firmware_size\.py$/.test(path)
  || /^(apps\/device-manager\/src-tauri\/.*|apps\/device-manager\/(package(-lock)?\.json|frontend\/(?!.*\.test\.mjs$).*|tools\/(package-windows|distribution-lib|artifact-inputs)\.mjs|tools\/platformio-requirements\.txt)|docs\/operations\/device-manager-distribution\.md)$/.test(path);

@@ -15,6 +15,14 @@ void parser_contract() {
   char info[] = "info3,4294967295";
   CHECK(parse_command(info, command) == ParseStatus::Valid);
   CHECK(command.kind == CommandKind::Info && command.request == UINT32_MAX);
+  char safe_info[] = "?3,4294967295";
+  CHECK(is_v3_payload(safe_info));
+  CHECK(parse_command(safe_info, command) == ParseStatus::Valid);
+  CHECK(command.kind == CommandKind::Info && command.request == UINT32_MAX);
+  char bad_alias[] = "?3,0";
+  CHECK(parse_command(bad_alias, command) == ParseStatus::InvalidRequest);
+  char extra_alias[] = "?3,1,extra";
+  CHECK(parse_command(extra_alias, command) == ParseStatus::Malformed);
 
   char stream[] = "stream3,8,17,1";
   CHECK(parse_command(stream, command) == ParseStatus::Valid);

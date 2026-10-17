@@ -6,10 +6,10 @@ export function createHardwareController(invoke, {render, error, busy}) {
   async function execute(task) {
     running=task;
     try {
-      if (!task.passive && task.command.action!=='connect' && task.session!==view?.connection_id) {
+      if (!task.passive && (task.command.action!=='connect'||task.queued) && task.session!==view?.connection_id) {
         error('操作待ちの間に接続対象が変わりました。選び直してください。'); task.resolve(null); return;
       }
-      const reply=await invoke({expected:task.expected ?? view?.revision ?? null,command:task.command});
+      const reply=await invoke({expected:task.queued ? view?.revision ?? null : task.expected ?? view?.revision ?? null,command:task.command});
       view=reply.view;render(view);error(reply.error ?? '');task.resolve(reply);
     } catch (failure) {
       view=null;render(null);error('接続状態を取得できません。再検索してください。'+String(failure));task.resolve(null);
@@ -32,10 +32,17 @@ export function createHardwareController(invoke, {render, error, busy}) {
         pending.resolve({cancelled:true});pending=null;
       }
       let resolve;const promise=new Promise(r=>{resolve=r;});
-      const task={command,expected,passive:background,session:view?.connection_id,resolve,promise};
+      const task={command,expected,queued:!!running,passive:background,session:view?.connection_id,resolve,promise};
       if(!background)busy(true,command.action);
       if(running)pending=task;else void execute(task);
       return promise;
     }
   };
+}
+
+// Only the owner of a connected monitor performs background I/O. Discovery is
+// explicit (startup, chooser, rescan, reconnect), never an idle polling task
+// competing with the calibration/updater service's single runtime lock.
+export function monitorBackgroundCommand({connected,externalOwner,choosing,pendingOperation}) {
+  return connected&&!externalOwner&&!choosing&&!pendingOperation?{action:'read'}:null;
 }

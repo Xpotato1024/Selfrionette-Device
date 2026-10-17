@@ -67,7 +67,7 @@ related:
 | validation categories | [validation.md](operations/validation.md) |
 | hardware / serial / flashing safety | [hardware-safety.md](operations/hardware-safety.md) |
 
-公開済み版は[0.1.0-preview.5（source `3435764`、検証済み8 assets）](https://github.com/Xpotato1024/Selfrionette-Device/releases/tag/device-manager-v0.1.0-preview.5)。`0.2.0-preview.1`は未公開のrelease候補であり、[配布手順](operations/device-manager-distribution.md)に従って検証する。
+公開済み版は[0.2.0-preview.1](https://github.com/Xpotato1024/Selfrionette-Device/releases/tag/device-manager-v0.2.0-preview.1)。`0.2.0-preview.2`は未公開の次版候補であり、[配布手順](operations/device-manager-distribution.md)と[Release本文](releases/device-manager-v0.2.0-preview.2.md)に従って検証する。
 
 ## 必須setupと必須個人校正
 
