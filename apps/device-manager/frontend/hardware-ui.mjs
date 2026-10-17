@@ -1,6 +1,6 @@
 import {createReadout} from './readout.mjs';
 import {createTrace} from './trace.mjs';
-import {createHardwareController} from './hardware-controller.mjs';
+import {createHardwareController,monitorBackgroundCommand} from './hardware-controller.mjs';
 import {portTarget,sameTarget,visiblePorts,canSelect} from './port-selection.mjs';
 export function createHardwareUI(invoke,{onOwner=()=>{}}={}) {
   let ownerConnection=null;
@@ -97,7 +97,8 @@ export function createHardwareUI(invoke,{onOwner=()=>{}}={}) {
   }
   async function tick() {
     if(!active)return;
-    if(!$('hardware-connect-dialog').open&&!controller.pendingOperation)await controller.send({action:controller.view?.connected?'read':'scan'});
+    const command=monitorBackgroundCommand({connected:!!controller.view?.connected,externalOwner,choosing:$('hardware-connect-dialog').open,pendingOperation:controller.pendingOperation});
+    if(command)await controller.send(command);
     if(active)timer=setTimeout(tick,controller.view?.connected?150:2000);
   }
   function showPage(name){page=name;for(const key of ['device','adjust','diagnostics'])$('hardware-page-'+key).hidden=!active||key!==page;}

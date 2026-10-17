@@ -38,3 +38,12 @@ test('a queued connect also rejects a changed session instead of refreshing its 
  await c.send({action:'snapshot'});const reading=c.send({action:'read'}),connect=c.send({action:'connect',target:{name:'chosen'}},1);
  release({view:{revision:2,connection_id:8},error:null});await reading;assert.equal(await connect,null);assert.equal(requests.length,2);
 });
+
+test('paused and externally owned monitors never compete with live calibration by idle scan',async()=>{
+ const {monitorBackgroundCommand}=await import('./hardware-controller.mjs');
+ const context={connected:true,externalOwner:false,choosing:false,pendingOperation:null};
+ assert.deepEqual(monitorBackgroundCommand(context),{action:'read'});
+ for(const change of [{connected:false},{externalOwner:true},{choosing:true},{pendingOperation:'disconnect'}])assert.equal(monitorBackgroundCommand({...context,...change}),null);
+ // An old candidate is not a reason to enumerate continuously after releasing COM.
+ assert.equal(monitorBackgroundCommand({...context,connected:false,candidate:{name:'COM8'}}),null);
+});

@@ -39,3 +39,10 @@ export function createHardwareController(invoke, {render, error, busy}) {
     }
   };
 }
+
+// Only the owner of a connected monitor performs background I/O. Discovery is
+// explicit (startup, chooser, rescan, reconnect), never an idle polling task
+// competing with the calibration/updater service's single runtime lock.
+export function monitorBackgroundCommand({connected,externalOwner,choosing,pendingOperation}) {
+  return connected&&!externalOwner&&!choosing&&!pendingOperation?{action:'read'}:null;
+}
