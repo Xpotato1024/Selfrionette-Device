@@ -67,7 +67,7 @@ try{
   await page.locator('#live-confirm-'+wire).check();
  }
  assert.equal(await page.locator('#live-polarity-0').inputValue(),'-1');await act('live-setup-save','save_device_settings');
- await page.waitForFunction(()=>document.getElementById('live-info').textContent.includes('settings generation1'));
+ await page.waitForFunction(()=>[...document.querySelectorAll('#live-info dt')].some(label=>label.textContent==='設定の保存世代'&&label.nextElementSibling?.textContent==='1'));
  await setRaw(baseline);await page.locator('#live-tare-confirm').check();await act('live-tare','tare');assert((await status()).info.tare_valid);
  await page.screenshot({path:join(run,'01-device-direction-tare.png'),fullPage:true});report.screenshots.push('01-device-direction-tare.png');report.cases.push('native startup, OS-RNG provisioning, all7 mapping, reverse sensor, settings readback, explicit tare');
  await page.locator('[data-live-page="calibrate"]').click();await page.locator('#live-operator').fill('scripted-operator');await page.locator('#live-posture').fill('scripted-seated');await page.locator('#live-grip').fill('scripted-grip');await act('live-context-save','set_operator');await page.locator('#live-reverse-safe').check();
@@ -80,7 +80,7 @@ try{
   report.captures=(report.captures??0)+1;
  }
  for(const step of plan){const raw=baseline.slice();if(step.axis!==null&&['ramp','hold'].includes(step.phase))raw[step.axis]+=step.direction*(step.axis===0?-10_000:10_000);await measure(raw,'live-capture-start');}
- await act('live-fit','fit');await page.waitForFunction(()=>document.getElementById('live-fit-summary').textContent.includes('正方向span'));
+ await act('live-fit','fit');await page.waitForFunction(()=>document.getElementById('live-fit-summary').textContent.includes('正方向の操作範囲'));
  const fitted=(await status()).fit;assert.deepEqual(fitted.positive_span_counts,Array(7).fill(10_000));assert.deepEqual(fitted.negative_span_counts,Array(7).fill(10_000));
  const heldout=[];for(let axis=0;axis<7;axis++)for(const kind of ['positive','negative'])heldout.push({kind,axis});heldout.push({kind:'weak',axis:0},{kind:'combined',axis:0});
  for(const {kind,axis}of heldout){await page.locator('#live-heldout-kind').selectOption(kind);await page.locator('#live-heldout-axis').selectOption(String(axis));for(let phase=0;phase<4;phase++){const raw=baseline.slice();if(phase===1||phase===2){raw[axis]+=(axis===0?-1:1)*(kind==='negative'?-10_000:kind==='weak'?2500:kind==='combined'?5000:10_000);if(kind==='combined')raw[1]+=5000;}await measure(raw,'live-heldout-start');}}
@@ -105,7 +105,7 @@ try{
  assert.equal((await status()).info.device_id,reconnectIdentity);assert.equal((await status()).ready,false);
  assert.equal((await status()).output,null,'pause/resume must not restore previous neutral or output');
  report.cases.push('input-page pause uses native handle ownership; resume retains ID and invalidates previously ready neutral');
- await page.locator('[data-live-page="setup"]').click();await act('live-disconnect','disconnect');assert.equal((await status()).connected,false);
+ await page.locator('#tab-adjust').click();await page.locator('[data-live-page="setup"]').click();await act('live-disconnect','disconnect');assert.equal((await status()).connected,false);
  assert.deepEqual(errors,[]);report.result='PASS';
 }catch(error){report.result='FAIL';report.error=String(error.stack??error);if(page){await page.screenshot({path:join(run,'failure.png'),fullPage:true}).catch(()=>{});report.ui=await page.locator('body').innerText().catch(()=>null);}throw error;}
 finally{writeFileSync(join(run,'REPORT.json'),JSON.stringify(report,null,2)+'\n');await browser?.close().catch(()=>{});if(child&&child.exitCode===null){child.kill();await new Promise(r=>child.once('exit',r));}if(policy)removeCIPolicy();console.log(JSON.stringify(report));}
