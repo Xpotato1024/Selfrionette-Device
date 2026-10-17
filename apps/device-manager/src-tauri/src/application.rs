@@ -11,6 +11,7 @@ pub struct Application {
     service: Option<LiveService>,
     target: Option<PortKey>,
     fixture: Option<crate::scripted::Shared>,
+    known_id: Option<String>,
 }
 impl Application {
     pub fn scripted() -> Self {
@@ -67,22 +68,46 @@ impl Application {
                 .collect::<Vec<_>>();
             return Ok(json!({"ports": ports}));
         }
-        if action == "disconnect" {
+        if action == "disconnect" || action == "pause" {
+            let mut failure = None;
             if let Some(service) = self.service.as_mut() {
+                let snapshot: Command = serde_json::from_value(json!({"action":"snapshot"}))
+                    .map_err(|e| e.to_string())?;
+                if let Ok(reply) = service.execute(snapshot, root) {
+                    let value = serde_json::to_value(reply).map_err(|e| e.to_string())?;
+                    let view = value.get("view").unwrap_or(&value);
+                    if let Some(id) = view["info"]["device_id"]
+                        .as_str()
+                        .filter(|id| *id != "unprovisioned")
+                    {
+                        self.known_id = Some(id.into());
+                    }
+                }
                 let disconnect: Command = serde_json::from_value(json!({"action":"disconnect"}))
                     .map_err(|e| e.to_string())?;
                 // Checkpoint measured evidence before releasing the handle.
                 if let Err(error) = service.execute(disconnect, root) {
-                    return Err(error.to_string());
+                    failure = Some(error.to_string());
                 }
             }
             // Dropping the exclusively owned transport releases it even after failure.
             self.service = None;
-            self.target = None;
-            return Ok(json!({"view":{"connected":false,"ready":false}}));
+            return Ok(
+                json!({"view":{"connected":false,"ready":false,"candidate":self.target,"paused":true},"error":failure}),
+            );
         }
         if action == "snapshot" && self.service.is_none() {
-            return Ok(json!({"view":{"connected":false,"ready":false}}));
+            return Ok(json!({"view":{"connected":false,"ready":false,"candidate":self.target}}));
+        }
+        if action == "reconnect" {
+            let target = self.target.clone().ok_or("接続先を選んでください。")?;
+            if self.known_id.is_none()
+                && command.get("confirmed").and_then(Value::as_bool) != Some(true)
+            {
+                return Err("同じ実物を再接続したことを確認してください。".into());
+            }
+            self.execute(json!({"action":"pause"}), root)?;
+            return self.execute(json!({"action":"connect","target":target,"metadata_supported":command.get("metadata_supported").and_then(Value::as_bool)==Some(true)}), root);
         }
         if action == "connect" {
             if self.connected() {
@@ -91,6 +116,10 @@ impl Application {
             let target: PortKey =
                 serde_json::from_value(command.get("target").cloned().ok_or("対象がありません。")?)
                     .map_err(|e| e.to_string())?;
+            let expected_id = self
+                .known_id
+                .as_deref()
+                .filter(|_| self.target.as_ref() == Some(&target));
             let transport: Box<dyn selfrionette_serial::LineTransport + Send> =
                 if let Some(fixture) = &self.fixture {
                     if target.name != "SCRIPTED" {
@@ -103,6 +132,7 @@ impl Application {
                         .into_iter()
                         .map(PortView::from)
                         .collect::<Vec<_>>();
+                    crate::discovery::validate_candidate_topology(&ports, &target)?;
                     if !ports
                         .iter()
                         .any(|p| p.target == target && p.category != "bootloader")
@@ -116,10 +146,21 @@ impl Application {
                             .map_err(|e| e.to_string())?,
                     )
                 };
-            let mut service = LiveService::new(transport);
+            let mut service = LiveService::with_safe_metadata_probe(transport);
             let parsed: Command =
                 serde_json::from_value(json!({"action":"connect"})).map_err(|e| e.to_string())?;
-            let reply = service.execute(parsed, root).map_err(|e| e.to_string())?;
+            let reply = service.execute(parsed, root).map_err(|e| format!("{e} 安全な情報照会（?3）に対応するFirmwareが必要です。旧版・preview.1はFirmware更新から導入してください。info3への自動fallbackは行いません。"))?;
+            let observed = serde_json::to_value(&reply).map_err(|e| e.to_string())?;
+            let observed = observed.get("view").unwrap_or(&observed);
+            let id = observed["info"]["device_id"].as_str();
+            if expected_id.is_some_and(|known| Some(known) != id) {
+                return Err("同じ接続先で個体IDが変わりました。接続を停止しました。".into());
+            }
+            if let Some(id) = id.filter(|id| *id != "unprovisioned") {
+                self.known_id = Some(id.into());
+            } else {
+                self.known_id = None;
+            }
             self.service = Some(service);
             self.target = Some(target);
             return self.reply(reply);
@@ -152,7 +193,6 @@ impl Application {
                     }
                     Err(_) => {
                         self.service = None;
-                        self.target = None;
                         Ok(json!({"view":{"connected":false,"ready":false},"error":message}))
                     }
                 }
@@ -172,6 +212,7 @@ impl Application {
         result["view"]["owns_handle"] = Value::Bool(self.connected());
         result["view"]["scripted"] = Value::Bool(self.fixture.is_some());
         result["view"]["port"] = json!(self.target.as_ref().map(|t| &t.name));
+        result["view"]["candidate"] = json!(self.target);
         Ok(result)
     }
 }
@@ -235,7 +276,7 @@ mod tests {
         }
     }
     fn connect(app: &mut Application, store: &Path) -> Value {
-        app.execute(json!({"action":"connect","target":{"name":"SCRIPTED","kind":"usb","serial_number":"developer-only","product":"Scripted transport","manufacturer":"fixture","vid":6991,"pid":37382}}),store).unwrap()
+        app.execute(json!({"action":"connect","metadata_supported":true,"target":{"name":"SCRIPTED","kind":"usb","serial_number":"developer-only","product":"Scripted transport","manufacturer":"fixture","vid":6991,"pid":37382}}),store).unwrap()
     }
     #[test]
     fn ordinary_adapter_rejects_fixture_input_without_creating_storage() {
@@ -249,6 +290,13 @@ mod tests {
             .is_err()
         );
         assert!(!app.connected());
+    }
+    #[test]
+    fn explicit_setup_uses_safe_alias_without_current_firmware_confirmation() {
+        let store = Store::new();
+        let mut app = Application::scripted();
+        assert!(app.execute(json!({"action":"connect","target":{"name":"SCRIPTED","kind":"usb","serial_number":null,"product":null,"manufacturer":null,"vid":6991,"pid":37382}}),&store.0).is_ok());
+        assert!(app.connected());
     }
     #[test]
     fn scripted_transport_uses_native_service_provision_readback_and_rejects_rewrite() {
@@ -288,5 +336,37 @@ mod tests {
             app.fixture.as_ref().unwrap().lock().unwrap().raw,
             [1_000_000; 7]
         );
+    }
+    #[test]
+    fn pause_reconnect_retains_candidate_but_requires_fresh_neutral_and_identity() {
+        let store = Store::new();
+        let mut app = Application::scripted();
+        connect(&mut app, &store.0);
+        app.execute(json!({"action":"provision","confirmed":true}), &store.0)
+            .unwrap();
+        let id=app.execute(json!({"action":"snapshot"}),&store.0).unwrap()["view"]["info"]["device_id"].clone();
+        let paused = app.execute(json!({"action":"pause"}), &store.0).unwrap();
+        assert!(!app.connected());
+        assert!(paused["view"]["candidate"].is_object());
+        let reply = app
+            .execute(
+                json!({"action":"reconnect","metadata_supported":true,"confirmed":false}),
+                &store.0,
+            )
+            .unwrap();
+        assert_eq!(reply["view"]["info"]["device_id"], id);
+        assert_eq!(reply["view"]["ready"], false);
+        assert!(reply["view"]["sample"].is_null());
+        app.execute(json!({"action":"pause"}), &store.0).unwrap();
+        app.fixture.as_ref().unwrap().lock().unwrap().identity =
+            "srn-22222222222222222222222222222222".into();
+        assert!(
+            app.execute(
+                json!({"action":"reconnect","metadata_supported":true,"confirmed":true}),
+                &store.0
+            )
+            .is_err()
+        );
+        assert!(!app.connected());
     }
 }

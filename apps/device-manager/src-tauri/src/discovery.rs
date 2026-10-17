@@ -37,6 +37,42 @@ impl From<PortSummary> for PortView {
         }
     }
 }
+pub fn validate_candidate_topology(ports: &[PortView], target: &PortKey) -> Result<(), String> {
+    if ports.len() > 128
+        || ports
+            .iter()
+            .filter(|p| p.target.name == target.name)
+            .count()
+            != 1
+    {
+        return Err("接続先の列挙結果が曖昧です。".into());
+    }
+    let matches = if let Some(serial) = &target.serial_number {
+        ports
+            .iter()
+            .filter(|p| p.target.serial_number.as_ref() == Some(serial))
+            .count()
+    } else {
+        ports
+            .iter()
+            .filter(|p| {
+                let t = &p.target;
+                t.kind == target.kind
+                    && t.serial_number.is_none()
+                    && t.product == target.product
+                    && t.manufacturer == target.manufacturer
+                    && t.vid == target.vid
+                    && t.pid == target.pid
+            })
+            .count()
+    };
+    if matches != 1 {
+        return Err(
+            "USB情報が同じ接続先が複数あります。対象を一台にして再確認してください。".into(),
+        );
+    }
+    Ok(())
+}
 // Manufacturer board definitions, not an application authentication allowlist.
 // SparkFun: Arduino_Boards/main/sparkfun/avr/boards.txt (Pro Micro 8/16MHz)
 // Arduino: ArduinoCore-avr/master/boards.txt (Leonardo / Micro)
@@ -94,5 +130,21 @@ mod tests {
         let mut other = view.target.clone();
         other.serial_number = Some("B".into());
         assert_ne!(other, view.target);
+    }
+    #[test]
+    fn identical_descriptor_candidates_without_serial_are_ambiguous() {
+        let a = PortView::from(PortSummary {
+            name: "COM8".into(),
+            kind: selfrionette_serial::PortKind::Usb,
+            serial_number: None,
+            product: Some("same".into()),
+            manufacturer: None,
+            vid: Some(0x1b4f),
+            pid: Some(0x9206),
+        });
+        let mut b = a.clone();
+        b.target.name = "COM9".into();
+        assert!(validate_candidate_topology(&[a.clone(), b], &a.target).is_err());
+        assert!(validate_candidate_topology(std::slice::from_ref(&a), &a.target).is_ok());
     }
 }

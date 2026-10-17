@@ -1,7 +1,7 @@
 ---
 status: canonical
 owner: apps/device-manager
-last_verified: 2026-10-14
+last_verified: 2026-10-17
 related:
   - docs/contracts/firmware-protocol-v2.md
   - docs/contracts/serial-transport.md
@@ -16,7 +16,7 @@ OSのport候補、接続済み、7ch形式受信、個体情報応答、物理�
 ## 接続
 表示したportを人が選び、接続前確認を通した一台だけを115200 baudでopenする。現存するOS一覧との再照合を行う。DTR/RTSの開始によって機器が初期化され得ることを説明する。
 自動接続・自動再接続・1200 baud touch・tare/c・provision・EEPROM・flash・robot送信は行わない。切断とアプリ終了でhandleを解放する。合成モードへの切替前に切断する。
-旧Sim互換のvector形式とProtocol v2のvector形式を共通parserで受け付ける。接続dialogの「個体情報を照会」が有効な場合だけ、選択した一台にinfoを送る。対応基板候補ではチェック済み、その他/不明では未チェックを初期値にする。無送信の旧Firmware受信も維持する。診断からの明示照会もinfoだけを送る。応答なしを架空IDで補わない。
+旧Sim互換のvector形式とProtocol v2のvector形式を共通parserで受け付ける。接続dialogの安全な情報照会が有効な場合だけ、選択した一台に`?2\n`を送る。初期値は全候補で未チェック。通常の未知・旧版監視とその再開は受信専用とする。診断の明示照会も`?2`だけを送る。初期保管版・preview.1はalias非対応で、`info`への自動fallbackはしない。初期保管版の`i`は物理tareなので、基板確認をtare許可とみなさない。既知IDがある再開は安全な照会でIDを照合し、矛盾・応答なしで停止する。応答なしを架空IDで補わない。
 
 ## 受信と異常
 一回の受信処理は最大40ms/128行。行の上限は共通transportの1024 bytes。最新7値と直近8診断だけを保持し、全履歴を蓄積しない。途中の行は次のpollへ保持する。
@@ -28,10 +28,14 @@ OSのport候補、接続済み、7ch形式受信、個体情報応答、物理�
 Rustがconnection revisionを所有し、connect/read/info/disconnectは期待revisionを照合する。frontendは要求を一つずつ送り、受信中の利用者操作は一つの待機欄へ保持する。読取はボタンを無効化せず、切断は進行中読取の後に実行する。接続session変更時は待機要求を拒否する。通信不明時は現在値を消す。blocking I/OはTauriのUI threadの外で実行する。
 
 ## 検証
-偽backendで列挙がopen/writeしないこと、対象照合、旧要求拒否、旧Firmwareの無送信受信、infoだけの送信、7ch有限値、切断/不正行/再起動/metadata変化、鮮度失効、診断上限を試験する。
+偽backendで列挙がopen/writeしないこと、対象照合、旧要求拒否、旧Firmwareの無送信受信、安全な?2だけの送信、7ch有限値、切断/不正行/再起動/metadata変化、鮮度失効、診断上限を試験する。
 native QAは実機モード起動とOS列挙を確認した後、明示的に合成モードへ切り替えて従来の全試験を実行する。実機にポートを開く試験は明示許可した対象で別途行い、software testを実機受入と呼ばない。
 
 ## 表示層の限定的な履歴
 Rust受信側の最新7値/直近8診断の上限は変更しない。frontendの表示履歴だけは直近30秒、最大200表示点を保持する。これはサンプリング済みの表示用データであり、受信全件や物理品質の証拠として書き出さない。失効時は現在値だけを消し、過去30秒分の表示履歴を「更新停止」として時刻固定で保持する。再受信時は欠測区間の線を結ばず、新しいconnection sessionでは同じCOMでも履歴を破棄する。数値の更新ではDOMを作り直さず、列境界/小数点位置/未受信時の表配置を保つ。
 
 通常/開発者の入口、USB候補の根拠、descriptor照合は[session契約](device-manager-session.md)を参照する。
+
+## 接続先の引継ぎ
+
+旧モニターは「受信可能・設定未確認」。入力確認・debug・旧consumer利用に校正を強制しない。新版の補正入力だけが装置設定・個人校正・保存profile・今回の中立値を必要とする。更新画面への遷移はmetadataだけを列挙し、full descriptorで候補を引き継ぐ。明示handoffが接続を解放するまで更新のpreflightを開始しない。停止・再接続の条件は[session契約](device-manager-session.md)、更新条件は[更新契約](firmware-update.md)を正とする。

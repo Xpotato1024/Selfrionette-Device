@@ -1,10 +1,11 @@
 import {installDesktopFixture} from './desktop-fixture.mjs';
+import {verifyUsability} from './usability-ui.mjs';
 // Production HTML/CSS/JS with a test-only in-memory IPC fixture. Never opens a device.
 import {chromium} from 'playwright-core';import {createServer} from 'node:http';import {readFileSync,existsSync,mkdirSync,mkdtempSync,writeFileSync} from 'node:fs';import {resolve,join,extname} from 'node:path';import {fileURLToPath} from 'node:url';import assert from 'node:assert/strict';
 const app=resolve(fileURLToPath(new URL('..',import.meta.url))),dir=join(app,'frontend');
 const output=join(app,'src-tauri/target/desktop-qa');mkdirSync(output,{recursive:true});const run=mkdtempSync(join(output,'run-'));
 const server=createServer((req,res)=>{try{const name=new URL(req.url,'http://localhost').pathname.slice(1)||'index.html';if(!/^[a-zA-Z0-9_.-]+$/.test(name))throw Error('path');res.setHeader('Content-Type',({'.html':'text/html','.mjs':'text/javascript','.css':'text/css'})[extname(name)]||'text/plain');res.end(readFileSync(join(dir,name)));}catch{res.writeHead(404);res.end();}});
-await new Promise(r=>server.listen(0,'127.0.0.1',r));const candidates=[process.env.SELFRIONETTE_UI_BROWSER_EXE,((process.env.SystemDrive||'C:')+'/Program Files (x86)/Microsoft/Edge/Application/msedge.exe'),((process.env.SystemDrive||'C:')+'/Program Files/Microsoft/Edge/Application/msedge.exe')].filter(Boolean);const browserPath=candidates.find(p=>existsSync(p));if(!browserPath){server.close();throw Error('No installed Edge. Set SELFRIONETTE_UI_BROWSER_EXE to a verified Chromium browser.');}const browser=await chromium.launch({executablePath:browserPath,headless:true});const report={scope:'production UI / in-memory fixture, no device I/O',cases:[],limitations:['deviceScaleFactor is not a real Windows DPI transition']};
+await new Promise(r=>server.listen(0,'127.0.0.1',r));const candidates=[process.env.SELFRIONETTE_UI_BROWSER_EXE,((process.env.SystemDrive||'C:')+'/Program Files (x86)/Microsoft/Edge/Application/msedge.exe'),((process.env.SystemDrive||'C:')+'/Program Files/Microsoft/Edge/Application/msedge.exe')].filter(Boolean);const browserPath=candidates.find(p=>existsSync(p));if(!browserPath){server.close();throw Error('No installed Edge. Set SELFRIONETTE_UI_BROWSER_EXE to a verified Chromium browser.');}const browser=process.env.SELFRIONETTE_UI_CDP_URL?await chromium.connectOverCDP(process.env.SELFRIONETTE_UI_CDP_URL):await chromium.launch({executablePath:browserPath,headless:true});const report={scope:'production UI / in-memory fixture, no device I/O',cases:[],limitations:['deviceScaleFactor is not a real Windows DPI transition']};
 try {
  for(const scale of [1,1.5,2]){
   const context=await browser.newContext({viewport:{width:1100,height:720},deviceScaleFactor:scale});const page=await context.newPage();const errors=[];page.on('pageerror',e=>errors.push(String(e)));
@@ -38,7 +39,7 @@ try {
  assert(await page.evaluate(()=>!window.fixtureRequests.some(r=>r.name==='device_command')),'Normal startup invoked synthetic commands');
  await page.locator('#hardware-choose').click();await page.waitForFunction(()=>document.querySelectorAll('#port-rows tr').length===2);
  assert.deepEqual(await page.locator('#port-rows tr').evaluateAll(rows=>rows.map(r=>r.dataset.name)),['COM8','COM9']);
- await page.locator('#port-option-0').check();assert(await page.locator('#query-on-connect').isChecked());
+ await page.locator('#port-option-0').check();assert(!await page.locator('#query-on-connect').isChecked());
  await page.screenshot({path:join(run,'candidate-selection.png')});
  await page.locator('#show-other-ports').check();assert.equal(await page.locator('#port-rows tr').count(),3);
  await page.locator('#hardware-connect-cancel').click();assert(await page.evaluate(()=>!window.fixtureRequests.some(r=>r.request?.command.action==='connect')));
@@ -56,7 +57,7 @@ try {
  assert.equal(await page.locator('#workspace').getAttribute('data-source'),'hardware');
  await page.evaluate(()=>{window.fixtureHoldRead=true;});await page.waitForFunction(()=>typeof window.fixtureReleaseRead==='function');
  assert(await page.locator('#hardware-disconnect').isEnabled(),'Polling disabled disconnect');await page.locator('#hardware-disconnect').click();
- await page.evaluate(()=>window.fixtureReleaseRead());await page.waitForFunction(()=>document.getElementById('environment').textContent==='未接続');
+ await page.evaluate(()=>window.fixtureReleaseRead());await page.waitForFunction(()=>document.getElementById('environment').textContent==='一時停止（接続を解放）');
  assert(await page.evaluate(()=>window.fixtureRequests.some(r=>r.request?.command.action==='disconnect')),'Disconnect was dropped');
  await page.evaluate(()=>window.fixtureMenu('source-synthetic'));await page.waitForFunction(()=>document.getElementById('workspace').dataset.source==='synthetic');
  await page.evaluate(()=>window.fixtureMenu('disable-developer'));await page.waitForFunction(()=>document.getElementById('workspace').dataset.developer==='false');
@@ -64,5 +65,6 @@ try {
  await page.locator('#hardware-ch-3').click();assert.equal(await page.locator('#trace-title').innerText(),'ch 3 の履歴');
  await page.keyboard.press('ArrowDown');assert.equal(await page.locator('#hardware-ch-4').getAttribute('aria-pressed'),'true');
  report.interactions=['normal gate','candidate/fallback list','descriptor replacement','explicit developer enable/cancel','connected source gate','queued disconnect during read','row-linked trace'];await context.close();
+ report.usability=await verifyUsability(browser,'http://127.0.0.1:'+server.address().port,run);
  report.result='PASS';console.log('Desktop UI PASS: '+report.cases.length+' size/pixel-density combinations; stable rows and decimal anchors.');
 } finally {writeFileSync(join(run,'report.json'),JSON.stringify(report,null,2));await browser.close();await new Promise(r=>server.close(r));}

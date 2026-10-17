@@ -111,12 +111,20 @@ impl Mode {
     }
 }
 pub struct Runtime {
+    pub operation_epoch: u64,
     pub mode: Mode,
     pub workspace: workflow::Workspace,
     pub monitor: hardware::Monitor,
     pub application: application::Application,
 }
 impl Runtime {
+    pub fn require_unowned(&self) -> Result<(), String> {
+        if self.monitor.connected() || self.application.connected() {
+            Err("受信を停止して接続を解放してください。".into())
+        } else {
+            Ok(())
+        }
+    }
     pub fn new(mode: Mode) -> Self {
         let application = if mode.scripted_hardware {
             application::Application::scripted()
@@ -124,6 +132,7 @@ impl Runtime {
             application::Application::default()
         };
         Self {
+            operation_epoch: 0,
             mode,
             workspace: workflow::Workspace::default(),
             monitor: hardware::Monitor::default(),
@@ -140,7 +149,10 @@ impl Runtime {
     }
     pub fn hardware(&mut self, request: hardware::Request) -> Result<hardware::Reply, String> {
         if self.application.connected()
-            && matches!(request.command, hardware::Command::Connect { .. })
+            && matches!(
+                request.command,
+                hardware::Command::Connect { .. } | hardware::Command::Reconnect { .. }
+            )
         {
             return Err("先に調整画面の品質付き接続を解放してください。".into());
         }
@@ -150,6 +162,16 @@ impl Runtime {
             return Err("合成画面では実機通信を実行できません。".into());
         }
         Ok(self.monitor.execute(request))
+    }
+    pub fn advance_operation(&mut self, expected: u64) -> Result<(), String> {
+        if expected != self.operation_epoch {
+            return Err("操作待ちの間に状態が変わりました。現在の対象を確認してください。".into());
+        }
+        self.operation_epoch = self
+            .operation_epoch
+            .checked_add(1)
+            .ok_or("操作番号が上限です。")?;
+        Ok(())
     }
     pub fn set_mode(&mut self, request: ModeRequest) -> Result<Mode, String> {
         self.mode.apply(
@@ -161,6 +183,38 @@ impl Runtime {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn live_owner_excludes_updater_and_monitor_reconnect_before_any_os_access() {
+        let mut r = Runtime::new(
+            Mode::startup(["--developer-mode".into(), "--scripted-hardware".into()]).unwrap(),
+        );
+        let root = std::env::temp_dir().join("unused-owner-test");
+        r.application.execute(serde_json::json!({"action":"connect","metadata_supported":true,"target":{"name":"SCRIPTED","kind":"usb","serial_number":null,"product":null,"manufacturer":null,"vid":6991,"pid":37382}}),&root).unwrap();
+        assert!(r.require_unowned().is_err());
+        assert!(
+            r.hardware(hardware::Request {
+                expected: None,
+                command: hardware::Command::Reconnect {
+                    confirmed: true,
+                    metadata_supported: false
+                }
+            })
+            .is_err()
+        );
+        r.application
+            .execute(serde_json::json!({"action":"disconnect"}), &root)
+            .unwrap();
+        assert!(r.require_unowned().is_ok());
+        assert!(!root.exists());
+    }
+    #[test]
+    fn delayed_operations_cannot_execute_after_another_owner_or_configuration_change() {
+        let mut runtime = Runtime::new(Mode::default());
+        let expected = runtime.operation_epoch;
+        runtime.advance_operation(expected).unwrap();
+        assert!(runtime.advance_operation(expected).is_err());
+        assert_eq!(runtime.operation_epoch, expected + 1);
+    }
     fn args(values: &[&str]) -> Result<Mode, String> {
         Mode::startup(values.iter().map(|s| s.to_string()))
     }

@@ -32,3 +32,9 @@ test('a queued operation is rejected instead of retargeted when the connection s
   await c.send({action:'scan'});const poll=c.send({action:'read'}),stop=c.send({action:'disconnect'});
   resolveRead({view:{revision:2,connection_id:8},error:null});await poll;assert.equal(await stop,null);assert.equal(requests.length,2);assert(messages.some(m=>m.includes('接続対象')));
 });
+test('a queued connect also rejects a changed session instead of refreshing its old approval',async()=>{
+ let release;const requests=[];
+ const c=createHardwareController(async request=>{requests.push(request);if(request.command.action==='read')return new Promise(resolve=>release=resolve);return {view:{revision:1,connection_id:7},error:null};},hooks());
+ await c.send({action:'snapshot'});const reading=c.send({action:'read'}),connect=c.send({action:'connect',target:{name:'chosen'}},1);
+ release({view:{revision:2,connection_id:8},error:null});await reading;assert.equal(await connect,null);assert.equal(requests.length,2);
+});

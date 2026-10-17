@@ -8,7 +8,7 @@
     <div id="hardware-target" class="target-group">
       <span class="toolbar-label">デバイス</span><span id="device-summary">—</span>
       <button id="hardware-choose" type="button" aria-haspopup="dialog" disabled>接続先を選ぶ…</button>
-      <button id="hardware-disconnect" type="button" disabled>切断</button>
+      <button id="hardware-disconnect" type="button" disabled>一時停止（接続を解放）</button><button id="hardware-reconnect" type="button" disabled>再開・再接続</button>
     </div>
     <div id="synthetic-target" class="target-group" hidden>
       <label for="role">試験個体</label><select id="role" aria-describedby="role-help"><option value="left">左入力用の合成個体</option><option value="right">右入力用の合成個体</option></select>
@@ -123,7 +123,7 @@
   <p id="port-empty" class="caption-note" hidden></p>
   <label class="check-line"><input id="show-other-ports" type="checkbox">その他のポートも表示</label>
   <details class="port-details"><summary>選択した接続先の詳細</summary><dl id="port-details" class="about-values"></dl></details>
-  <label class="check-line"><input id="query-on-connect" type="checkbox">接続後に個体情報を照会（info）</label>
+  <label class="check-line"><input id="query-on-connect" type="checkbox">接続時に安全な情報照会（?2）を送る</label><p class="caption-note">通常は受信専用です。初期保管版・preview.1はこの照会に応答しません。infoへの自動fallbackは行いません。</p>
   <p class="caption-note">115200 baudで選択した一台に接続します。機器が初期化される場合があります。他のアプリとの接続は先に解放してください。</p>
   <p id="port-error" class="field-error" role="status" hidden></p>
   <div class="dialog-actions"><button id="hardware-connect-cancel" autofocus>取り消す</button><button id="hardware-connect-confirm" class="primary" disabled>接続する</button></div>

@@ -9,7 +9,7 @@
 #include "../../shared/firmware_protocol_v3.h"
 
 namespace {
-#define SELFRIONETTE_FIRMWARE_VERSION "0.2.0-preview.1"
+#define SELFRIONETTE_FIRMWARE_VERSION "0.2.0-preview.2"
 
 #ifndef SELFRIONETTE_SOURCE_SHA
 #error "PlatformIO must inject SELFRIONETTE_SOURCE_SHA"
@@ -930,7 +930,7 @@ void executeV3Command(const Command& command) {
 }
 
 void executeLegacyCommand(char* command) {
-  if (strcmp(command, "info") == 0) {
+  if (strcmp(command, "info") == 0 || strcmp(command, "?2") == 0) {
     emitDeviceInfo();
     return;
   }

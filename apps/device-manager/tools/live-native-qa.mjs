@@ -45,6 +45,12 @@ try{
  await page.waitForFunction(()=>document.getElementById('live-info').textContent.includes('unprovisioned'));
  await page.locator('#live-provision-confirm').check();await act('live-provision','provision');await page.waitForFunction(()=>document.getElementById('live-info').textContent.includes('srn-'));
  assert.match((await status()).info.device_id,/^srn-[0-9a-f]{32}$/);
+ const reconnectIdentity=(await status()).info.device_id;
+ await act('live-disconnect','disconnect');assert.equal((await status()).connected,false);
+ assert(await page.locator('#live-reconnect').isEnabled());
+ page.once('dialog',dialog=>dialog.accept());await act('live-reconnect','stream_start');
+ assert.equal((await status()).info.device_id,reconnectIdentity);assert.equal((await status()).ready,false);
+ report.cases.push('pause releases the scripted owner; GUI resume performs a new handshake, checks known ID and never restores ready');
  const setRaw=async(raw,flags=Array(7).fill(1))=>{
   const prior=await page.locator('#application-workflow').getAttribute('data-sample-sequence');
   await ipc({action:'fixture_input',raw,flags});
@@ -91,6 +97,14 @@ try{
  assert(Math.abs((await status()).output.normalized[0]-0.5)<0.01,'reverse polarity must be corrected exactly once');
  await page.screenshot({path:join(run,'03-saved-runtime-input.png'),fullPage:true});report.screenshots.push('03-saved-runtime-input.png');report.cases.push('GUI measured positive/negative repeated trials, heldout direction/weak/combined/release, immutable profile save, current neutral and runtime');
  await setRaw(input,[2,1,1,1,1,1,1]);assert.equal((await status()).ready,false);assert.equal((await status()).output,null);report.cases.push('nonfresh quality invalidates current runtime');
+ await setRaw(baseline);await measure(baseline,'live-neutral-start');await act('live-profile-apply','apply_calibration');
+ assert.equal((await status()).ready,true);
+ await page.locator('#tab-device').click();await act('hardware-disconnect','disconnect');
+ assert.equal((await status()).connected,false);assert.equal((await status()).ready,false);
+ page.once('dialog',dialog=>dialog.accept());await act('hardware-reconnect','stream_start');
+ assert.equal((await status()).info.device_id,reconnectIdentity);assert.equal((await status()).ready,false);
+ assert.equal((await status()).output,null,'pause/resume must not restore previous neutral or output');
+ report.cases.push('input-page pause uses native handle ownership; resume retains ID and invalidates previously ready neutral');
  await page.locator('[data-live-page="setup"]').click();await act('live-disconnect','disconnect');assert.equal((await status()).connected,false);
  assert.deepEqual(errors,[]);report.result='PASS';
 }catch(error){report.result='FAIL';report.error=String(error.stack??error);if(page){await page.screenshot({path:join(run,'failure.png'),fullPage:true}).catch(()=>{});report.ui=await page.locator('body').innerText().catch(()=>null);}throw error;}

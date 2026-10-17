@@ -62,6 +62,8 @@ impl LegacySerialTransport {
             .map_err(|e| TransportError::Serial(e.to_string()))?;
         port.write_request_to_send(true)
             .map_err(|e| TransportError::Serial(e.to_string()))?;
+        port.clear(serialport::ClearBuffer::Input)
+            .map_err(|e| TransportError::Serial(e.to_string()))?;
         Ok(Self {
             port,
             pending: Vec::with_capacity(128),

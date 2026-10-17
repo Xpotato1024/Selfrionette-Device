@@ -13,6 +13,7 @@ on:
       - "docs/contracts/device-identity.md"
       - "docs/contracts/firmware-memory-budget.md"
       - "tools/check_firmware_size.py"
+      - "tools/test-firmware-command-safety.mjs"
       - "tests/test_check_firmware_size.py"
       - ".github/workflows/firmware.yml"
   pull_request:
@@ -25,6 +26,7 @@ on:
       - "docs/contracts/device-identity.md"
       - "docs/contracts/firmware-memory-budget.md"
       - "tools/check_firmware_size.py"
+      - "tools/test-firmware-command-safety.mjs"
       - "tests/test_check_firmware_size.py"
       - ".github/workflows/firmware.yml"
   workflow_dispatch:
@@ -49,6 +51,15 @@ jobs:
           "$RUNNER_TEMP/device-settings-test"
           g++ -std=c++11 -Wall -Wextra -Werror firmware/tests/firmware_protocol_v3.cpp -o "$RUNNER_TEMP/firmware-protocol-v3-test"
           "$RUNNER_TEMP/firmware-protocol-v3-test"
+
+      - uses: actions/setup-node@v7.1.0
+        with:
+          node-version: '24'
+      - name: Execute actual archived and modern command dispatch without hardware
+        run: |
+          node tools/test-firmware-command-safety.mjs --emit-cpp "$RUNNER_TEMP/command-safety.cpp"
+          g++ -std=c++11 -Wall -Wextra "$RUNNER_TEMP/command-safety.cpp" -o "$RUNNER_TEMP/command-safety"
+          "$RUNNER_TEMP/command-safety"
 
       - name: Test memory budget parser
         run: python -m unittest tests/test_check_firmware_size.py
@@ -88,6 +99,8 @@ jobs:
             environment: pro_micro_7ch
           - project: firmware/legacy/xpotato-sim/arduino/legacy_selfrionette/loadcell_7ch_legacy
             environment: sparkfun_promicro16
+          - project: firmware/legacy_7ch_package
+            environment: legacy_7ch
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v7

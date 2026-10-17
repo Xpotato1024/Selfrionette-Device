@@ -18,8 +18,8 @@ related:
 
 ## 製品要件と今回の到達点
 
-正常入力の前提は、**個体ごとの装置設定**と**操作者ごとの個人校正**の両方である。
-個人校正は追加改善ではなく、操作者・姿勢・握り方に適した入力を得るための必須機能とする。
+新版の補正入力の前提は、**個体ごとの装置設定**と**操作者ごとの個人校正**の両方である。
+旧形式の入力確認・debug・旧consumer利用は校正不要。個人校正は新版の補正入力では追加改善ではなく、操作者・姿勢・握り方に適した入力を得るための必須機能とする。
 既存の合成preview、v2受信、JSON生成、schema検証、compile成功だけでは、この要件を満たさない。
 
 本書は二つのworkflowと実装順の正本。既存GUIの現在の操作・配置は
@@ -217,3 +217,5 @@ Xpotato-SimはInput Source consumerとしてversion/domain/品質/ID/profile適�
 保存・明示適用までGUIだけで完遂できること、別操作者/取付変更/切断/tareで正しく止まること、
 Managerを終了したconsumerが互換profileと新neutralで正常入力を使えること。
 Firmware/backendの完成だけでGUI end-to-end受入や利用者要求を完了としない。
+
+preview.2のsetup接続は安全な?3で現時点のmetadataを取得・検証します。旧版やalias非対応preview.1の無応答から管理対応を推定せず、Firmware更新からの初回導入へ案内します。停止・再開はbackendのhandle所有・candidate・既知IDを使い、以前の中立値・ready・出力を復元しません。

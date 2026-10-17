@@ -38,10 +38,21 @@ pub enum Command {
         target: PortKey,
         #[serde(default)]
         query_info: bool,
+        #[serde(default)]
+        metadata_supported: bool,
     },
     Read {},
-    Info {},
+    Info {
+        #[serde(default)]
+        metadata_supported: bool,
+    },
     Disconnect {},
+    Pause {},
+    Reconnect {
+        confirmed: bool,
+        #[serde(default)]
+        metadata_supported: bool,
+    },
 }
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -57,6 +68,8 @@ pub struct Sample {
 }
 #[derive(Debug, Serialize)]
 pub struct View {
+    pub expected_id: Option<String>,
+    pub candidate: Option<PortKey>,
     pub revision: u64,
     pub connection_id: u64,
     pub identity_state: &'static str,
@@ -95,6 +108,10 @@ pub struct Monitor {
     info_started: Option<Instant>,
     diagnostics: VecDeque<String>,
     failure: Option<String>,
+    candidate: Option<PortKey>,
+    known_id: Option<String>,
+    checking_identity: bool,
+    paused: bool,
 }
 impl Default for Monitor {
     fn default() -> Self {
@@ -118,12 +135,16 @@ impl Monitor {
             info_started: None,
             diagnostics: VecDeque::new(),
             failure: None,
+            candidate: None,
+            known_id: None,
+            checking_identity: false,
+            paused: false,
         }
     }
     fn view_at(&self, now: Instant) -> View {
         let sample = self.frame.as_ref().and_then(|f| {
             let age = now.saturating_duration_since(self.received_at?);
-            (self.io.is_some() && age <= FRESH_FOR).then_some(Sample {
+            (self.io.is_some() && !self.checking_identity && age <= FRESH_FOR).then_some(Sample {
                 timestamp_ms: f.timestamp_ms,
                 values: f.channels,
                 received_age_ms: age.as_millis() as u64,
@@ -131,6 +152,8 @@ impl Monitor {
         });
         let phase = if self.failure.is_some() {
             "error"
+        } else if self.paused {
+            "paused"
         } else if self.io.is_none() {
             "disconnected"
         } else if sample.is_some() {
@@ -141,6 +164,8 @@ impl Monitor {
             "waiting"
         };
         View {
+            expected_id: self.known_id.clone(),
+            candidate: self.candidate.clone(),
             revision: self.revision,
             connection_id: self.connection_id,
             identity_state: if let Some(metadata) = &self.metadata {
@@ -234,7 +259,14 @@ impl Monitor {
         match command {
             Command::Snapshot {} => Ok(()),
             Command::Scan {} => self.scan(),
-            Command::Connect { target, query_info } => {
+            Command::Connect {
+                target,
+                query_info,
+                metadata_supported,
+            } => {
+                if query_info && !metadata_supported {
+                    return Err("情報照会を選択してください。通常の入力確認は受信専用です。".into());
+                }
                 let port = target.name.clone();
                 if self.io.is_some() {
                     return Err("先に現在の接続を切断してください。".into());
@@ -244,6 +276,7 @@ impl Monitor {
                 self.diagnostics.clear();
                 self.failure = None;
                 self.scan()?;
+                crate::discovery::validate_candidate_topology(&self.ports, &target)?;
                 let selected = self.ports.iter().find(|p| p.target == target);
                 if selected.is_some_and(|p| p.category == "bootloader") {
                     return Err("書込み待機用ポートには入力監視として接続しません。".into());
@@ -254,12 +287,20 @@ impl Monitor {
                     );
                 }
                 self.port = Some(port.clone());
+                if self.candidate.as_ref() != Some(&target) {
+                    self.known_id = None;
+                }
+                self.candidate = Some(target);
+                self.paused = false;
+                self.checking_identity = self.known_id.is_some();
                 match self.backend.open(&port) {
                     Ok(io) => {
                         self.io = Some(io);
                         self.connection_id = self.revision;
-                        if query_info {
-                            self.apply(Command::Info {})
+                        if query_info || self.checking_identity {
+                            self.apply(Command::Info {
+                                metadata_supported: true,
+                            })
                         } else {
                             Ok(())
                         }
@@ -273,20 +314,43 @@ impl Monitor {
                     }
                 }
             }
-            Command::Disconnect {} => {
+            Command::Reconnect {
+                confirmed,
+                metadata_supported,
+            } => {
+                let target = self.candidate.clone().ok_or("接続先を選択してください。")?;
+                if self.known_id.is_none() && !confirmed {
+                    return Err(
+                        "個体IDを確認できません。同じ実物を再接続したことを確認してください。"
+                            .into(),
+                    );
+                }
+                self.io = None;
+                self.apply(Command::Connect {
+                    target,
+                    query_info: false,
+                    metadata_supported,
+                })
+            }
+            Command::Pause {} | Command::Disconnect {} => {
                 self.io = None;
                 self.clear_measurements();
-                self.port = None;
+                self.paused = true;
                 self.failure = None;
                 self.frames = 0;
                 Ok(())
             }
-            Command::Info {} => {
+            Command::Info { metadata_supported } => {
+                if !metadata_supported {
+                    return Err(
+                        "情報照会は明示操作でのみ行います。通常の入力確認は受信専用です。".into(),
+                    );
+                }
                 if self.info_started.is_some() {
                     return Err("個体情報の応答を待っています。".into());
                 }
                 let io = self.io.as_mut().ok_or("先に対象を接続してください。")?;
-                if let Err(e) = io.write("info\n") {
+                if let Err(e) = io.write("?2\n") {
                     self.stop(e.clone());
                     return Err(e);
                 }
@@ -332,6 +396,10 @@ impl Monitor {
             .is_some_and(|t| t.elapsed() > Duration::from_secs(2))
         {
             self.info_started = None;
+            if self.checking_identity {
+                self.stop("既知の個体IDを再確認できません。接続先を確認してください。".into());
+                return Err(self.failure.clone().unwrap());
+            }
             self.note("個体情報の応答なし。旧FirmwareまたはProtocol v2非対応の可能性があります。受信値から個体IDは推定しません。");
         }
         Ok(())
@@ -359,6 +427,14 @@ impl Monitor {
             }
             ProtocolFrame::Device(info) => {
                 info.validate_compatibility().map_err(|e| e.to_string())?;
+                let id = info.identity.to_string();
+                if self.known_id.as_ref().is_some_and(|known| known != &id) {
+                    return Err("同じ接続先で別の個体IDを検出しました。接続を停止しました。".into());
+                }
+                if id != "unprovisioned" {
+                    self.known_id = Some(id);
+                }
+                self.checking_identity = false;
                 if self.metadata.as_ref().is_some_and(|old| old != &info) {
                     return Err("接続中に個体情報が変わりました。接続し直してください。".into());
                 }
@@ -393,6 +469,7 @@ mod tests {
     use std::sync::{Arc, Mutex};
     #[derive(Default)]
     struct Evidence {
+        calibrations: usize,
         opens: Vec<String>,
         writes: Vec<String>,
         drops: usize,
@@ -426,7 +503,9 @@ mod tests {
             self.0.lock().unwrap().lines.pop_front().unwrap_or(Ok(None))
         }
         fn write(&mut self, text: &str) -> Result<(), String> {
-            self.0.lock().unwrap().writes.push(text.into());
+            let mut evidence = self.0.lock().unwrap();
+            evidence.calibrations += text.bytes().filter(|b| *b == b'i').count();
+            evidence.writes.push(text.into());
             Ok(())
         }
     }
@@ -462,7 +541,8 @@ mod tests {
                 m,
                 Command::Connect {
                     target: key("COM_TEST"),
-                    query_info: false
+                    query_info: false,
+                    metadata_supported: true
                 }
             )
             .error
@@ -474,6 +554,169 @@ mod tests {
     }
     const VECTOR: &str = "vector,100,1,-2,3,4,5,6,7";
     const INFO: &str = "device,2,0.1.0,srn-11111111111111111111111111111111,7";
+    #[test]
+    fn original_legacy_monitor_and_reconnect_never_send_implicit_i_calibration() {
+        let (mut m, e) = setup();
+        assert!(
+            run(
+                &mut m,
+                Command::Connect {
+                    target: key("COM_TEST"),
+                    query_info: false,
+                    metadata_supported: false
+                }
+            )
+            .error
+            .is_none()
+        );
+        line(&e, VECTOR);
+        assert!(run(&mut m, Command::Read {}).view.sample.is_some());
+        assert!(
+            run(
+                &mut m,
+                Command::Info {
+                    metadata_supported: false
+                }
+            )
+            .error
+            .is_some()
+        );
+        run(&mut m, Command::Pause {});
+        assert!(
+            run(
+                &mut m,
+                Command::Reconnect {
+                    confirmed: true,
+                    metadata_supported: false
+                }
+            )
+            .error
+            .is_none()
+        );
+        let e = e.lock().unwrap();
+        assert!(e.writes.is_empty());
+        assert_eq!(e.calibrations, 0);
+    }
+    #[test]
+    fn pause_and_failed_read_reopen_the_retained_candidate_without_stale_samples() {
+        let (mut m, e) = setup();
+        connect(&mut m);
+        line(&e, VECTOR);
+        let first = run(&mut m, Command::Read {}).view;
+        assert!(first.sample.is_some());
+        let paused = run(&mut m, Command::Pause {}).view;
+        assert!(!paused.connected);
+        assert!(paused.candidate.is_some());
+        assert!(paused.sample.is_none());
+        assert_eq!(e.lock().unwrap().drops, 1);
+        assert!(
+            run(
+                &mut m,
+                Command::Reconnect {
+                    confirmed: false,
+                    metadata_supported: true
+                }
+            )
+            .error
+            .is_some()
+        );
+        let reopened = run(
+            &mut m,
+            Command::Reconnect {
+                confirmed: true,
+                metadata_supported: true,
+            },
+        )
+        .view;
+        assert!(reopened.connected);
+        assert_ne!(first.connection_id, reopened.connection_id);
+        assert!(reopened.sample.is_none());
+        e.lock().unwrap().lines.push_back(Err("removed".into()));
+        assert!(!run(&mut m, Command::Read {}).view.connected);
+        assert!(
+            run(
+                &mut m,
+                Command::Reconnect {
+                    confirmed: true,
+                    metadata_supported: true
+                }
+            )
+            .view
+            .connected
+        );
+        assert_eq!(e.lock().unwrap().opens.len(), 3);
+    }
+    #[test]
+    fn reconnect_waits_for_known_identity_and_rejects_same_com_swap() {
+        let (mut m, e) = setup();
+        connect(&mut m);
+        line(&e, INFO);
+        run(&mut m, Command::Read {});
+        run(&mut m, Command::Pause {});
+        run(
+            &mut m,
+            Command::Reconnect {
+                confirmed: false,
+                metadata_supported: true,
+            },
+        );
+        line(&e, VECTOR);
+        let pending = run(&mut m, Command::Read {});
+        assert!(pending.view.sample.is_none());
+        line(
+            &e,
+            &INFO.replace(
+                "11111111111111111111111111111111",
+                "22222222222222222222222222222222",
+            ),
+        );
+        let swapped = run(&mut m, Command::Read {});
+        assert!(swapped.error.is_some());
+        assert!(!swapped.view.connected);
+        assert!(swapped.view.sample.is_none());
+    }
+    #[test]
+    fn reconnect_descriptor_change_is_rejected_before_open() {
+        let (mut m, e) = setup();
+        connect(&mut m);
+        run(&mut m, Command::Pause {});
+        let mut p = PortSummary {
+            name: "COM_TEST".into(),
+            kind: selfrionette_serial::PortKind::Usb,
+            serial_number: Some("changed".into()),
+            product: Some("fixture".into()),
+            manufacturer: None,
+            vid: Some(0),
+            pid: Some(0),
+        };
+        e.lock().unwrap().ports = Some(vec![p.clone()]);
+        assert!(
+            run(
+                &mut m,
+                Command::Reconnect {
+                    confirmed: true,
+                    metadata_supported: true
+                }
+            )
+            .error
+            .is_some()
+        );
+        assert_eq!(e.lock().unwrap().opens.len(), 1);
+        p.serial_number = Some("fixture-serial".into());
+        e.lock().unwrap().ports = Some(vec![p.clone(), p]);
+        assert!(
+            run(
+                &mut m,
+                Command::Reconnect {
+                    confirmed: true,
+                    metadata_supported: true
+                }
+            )
+            .error
+            .is_some()
+        );
+        assert_eq!(e.lock().unwrap().opens.len(), 1);
+    }
     #[test]
     fn enumeration_and_snapshot_never_open_or_write() {
         let (mut m, e) = setup();
@@ -493,7 +736,8 @@ mod tests {
                 &mut m,
                 Command::Connect {
                     target: key("COM_OTHER"),
-                    query_info: false
+                    query_info: false,
+                    metadata_supported: true
                 }
             )
             .error
@@ -506,7 +750,8 @@ mod tests {
                 &mut m,
                 Command::Connect {
                     target: key("COM_TEST"),
-                    query_info: false
+                    query_info: false,
+                    metadata_supported: true
                 }
             )
             .error
@@ -531,8 +776,26 @@ mod tests {
     fn explicit_info_is_the_only_available_output_command() {
         let (mut m, e) = setup();
         connect(&mut m);
-        assert!(run(&mut m, Command::Info {}).error.is_none());
-        assert!(run(&mut m, Command::Info {}).error.is_some());
+        assert!(
+            run(
+                &mut m,
+                Command::Info {
+                    metadata_supported: true
+                }
+            )
+            .error
+            .is_none()
+        );
+        assert!(
+            run(
+                &mut m,
+                Command::Info {
+                    metadata_supported: true
+                }
+            )
+            .error
+            .is_some()
+        );
         line(&e, INFO);
         let v = run(&mut m, Command::Read {}).view;
         assert_eq!(
@@ -540,7 +803,7 @@ mod tests {
             Some("srn-11111111111111111111111111111111")
         );
         assert!(!v.info_pending);
-        assert_eq!(e.lock().unwrap().writes, ["info\n"]);
+        assert_eq!(e.lock().unwrap().writes, ["?2\n"]);
     }
     #[test]
     fn stale_mutation_cannot_change_another_connection_state() {
@@ -678,7 +941,8 @@ mod tests {
                 &mut m,
                 Command::Connect {
                     target,
-                    query_info: false
+                    query_info: false,
+                    metadata_supported: true
                 }
             )
             .error
@@ -704,7 +968,8 @@ mod tests {
                 &mut m,
                 Command::Connect {
                     target,
-                    query_info: true
+                    query_info: true,
+                    metadata_supported: true
                 }
             )
             .error
@@ -717,13 +982,14 @@ mod tests {
                 &mut m,
                 Command::Connect {
                     target: key("COM_TEST"),
-                    query_info: true
+                    query_info: true,
+                    metadata_supported: true
                 }
             )
             .error
             .is_none()
         );
-        assert_eq!(e.lock().unwrap().writes, vec!["info\n"]);
+        assert_eq!(e.lock().unwrap().writes, vec!["?2\n"]);
         assert_eq!(m.view_at(Instant::now()).identity_state, "querying");
     }
     #[test]
@@ -731,7 +997,12 @@ mod tests {
         let (mut m, e) = setup();
         connect(&mut m);
         let previous = m.connection_id;
-        run(&mut m, Command::Info {});
+        run(
+            &mut m,
+            Command::Info {
+                metadata_supported: true,
+            },
+        );
         m.info_started = Some(Instant::now() - Duration::from_secs(3));
         line(&e, VECTOR);
         let v = run(&mut m, Command::Read {}).view;

@@ -34,7 +34,7 @@ robot mapping、Xpotato-Sim command semantics、GUI behaviorは対象外。
 
 firmwareは通常streaming中にもmanagement commandを受け取れる。`info`はstreamを止めずに応答する。`tare`等のsensor state変更や`provision`のboundedなEEPROM writeでは、その処理期間だけsample出力を一時停止してよい。
 
-hostはport open後、bounded deadline内に`info`を送信し、validな`device` frameを確認してからstable identityを必要とするoperationへ進む。
+hostはport open後、bounded deadline内にvalidな`device` frameを確認してからstable identityを必要とするoperationへ進む。preview.2 GUIの照会は`?2`を使い、未知の通常モニターでは受信のみ行う。既存の明示CLIの`info`契約は維持するが、初期保管ソースへの自動送信には使わない。
 
 port openした事実だけをdevice readyの証拠にしない。
 
@@ -210,3 +210,7 @@ v2の`vector` frame shapeは既存v1と同じである。
 - compression
 - network transport
 - authentication / encryption
+
+## preview.2の安全な情報照会alias
+
+?2 は既存の情報照会と同じframeを返し、stream・tare・EEPROMを変更しません。両凍結保管ソースが無視する文字だけを使います。通常の未知モニターは受信専用で、明示Info・setup・updateと既知IDの再照合ではaliasを使用します。GUIは無応答時にinfo / info3へ自動fallbackしません。preview.1はalias非対応なので、GUIの自動照会には対応Firmwareの初回導入が必要です。既存の明示CLIコマンドとv2/v3のwire frame形式は維持します。

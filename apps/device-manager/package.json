@@ -1,6 +1,6 @@
 {
   "name": "selfrionette-device-manager",
-  "version": "0.2.0-preview.1",
+  "version": "0.2.0-preview.2",
   "private": true,
   "type": "module",
   "scripts": {
@@ -9,7 +9,7 @@
     "test": "node --test frontend/*.test.mjs",
     "test:native": "node tools/native-smoke.mjs",
     "preview": "node preview-server.mjs",
-    "test:package": "node --test tools/distribution.test.mjs",
+    "test:package": "node --test tools/distribution.test.mjs tools/firmware-packages.test.mjs",
     "package:windows": "node tools/package-windows.mjs",
     "test:distribution": "node tools/test-distribution.mjs",
     "check:fast": "node tools/check-fast.mjs",

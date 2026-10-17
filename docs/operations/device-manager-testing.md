@@ -35,3 +35,11 @@ npm run reuse:artifact -- <展開したbuild artifactのディレクトリ> はS
 ## 通常モード・COM候補の回帰試験
 Fast UIはtest-onlyのin-memory adapterで候補2台/その他1台、descriptor変更、明示開発者確認、接続中切替拒否、読取待機中の切断を再現する。adapterは配布frontendに含めない。
 実Tauri試験は通常起動で合成IPCが拒否されることとWin32 GetMenuによるnative menuの実在を確認する。開発者機能は実menu commandから有効化し、その後は従来の合成校正/履歴/失効試験を維持する。CLIオプションと再起動resetも別processで確認する。実機portは開かない。
+
+## preview.2の回帰範囲
+
+`tools/usability-ui.mjs`は既存desktop試験から呼び、800/1100/1600pxと125/150%相当の利用可能幅で、更新画面への候補引継ぎ、再検索、ラベル/control矩形、横overflow、handoff、計画＋確認による書込みgate、系統変更による承認失効、pause/resumeの古い表示消去を検査する。`SELFRIONETTE_UI_CDP_URL`は既に起動済みの検証用browserを利用する入口で、製品には含めない。実OS DPI切替の証拠にはしない。
+
+Rustのnative adapterとupdater mockは、受信失敗後の再open、known ID差替え、descriptor変更・重複、owner排他、operation epoch、modern/legacy往復、全application領域のdense HEXとverify-only、中断journalを検査する。native GUI通し試験には明示pause/resumeを加える。実機portは開かない。
+
+ローカル実行環境で子process起動が拒否された場合、GUI/installer検証をPASSに置き換えない。primaryは確定HEADで既存のfast/native/distribution/installer gatesを実行し、同じexe hashの画面証拠を保持する。

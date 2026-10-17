@@ -1,7 +1,7 @@
 ---
 status: canonical
 owner: apps/device-manager
-last_verified: 2026-10-14
+last_verified: 2026-10-17
 canonical_for:
   - Device Manager developer gate and native menu
   - Candidate discovery and selected-port validation
@@ -20,7 +20,7 @@ OS列挙からUSB種別、VID/PID、製品/メーカー、USB serialを保持す
 接続先dialogで候補一覧を表示し、その他も明示表示できる。選択中の一覧は自動更新・並べ替えしない。手動更新でdescriptorが変われば選択を破棄する。
 接続直前に選択時descriptorと再列挙結果を比較する。bootloaderは受信接続不可。シリアル番号を持たない同型機の物理交換を完全識別できるとはしない。
 選択した一台だけ開く。初期化され得ることをその場で説明する。info照会はdialog内の明示されたoptionだけで実行し、その他のポートでは既定off。旧Firmwareは無送信受信を残す。
-USB候補/7ch形式受信/v2応答/個体ID/物理校正は別状態。COM順やVID/PIDから左右役割を割り当てない。個体の恒久登録/二台同時監視/自動再接続は今回行わない。
+USB候補/7ch形式受信/v2応答/個体ID/物理校正は別状態。COM順やVID/PIDから左右役割を割り当てない。最後の明示選択候補をローカルpreferencesに保存する。起動時の自動接続、二台同時監視、無制限の再試行は行わない。
 
 ## 受信と表示
 バックグラウンドreadは操作部を無効化しない。読取中の操作は有限の待機欄で保持し、同じconnection sessionのままのときだけ最新revisionで実行する。切断要求は以後のpollを止め、進行中read終了後に実行する。要求を黙って落とさない。
@@ -37,4 +37,12 @@ SparkFun Pro Micro: VID 1b4f、通常PID 9204/9206、bootloader PID 9203/9205。
 - https://github.com/arduino/ArduinoCore-avr/blob/master/boards.txt
 - https://v2.tauri.app/learn/window-menu/
 
-USB serialは取得した文字列を保持するが、一意性を仮定しない。実機COM3/8/9のdescriptorは未採取。同一descriptorの同型機への差し替えや、応答を偽装する機器の認証は対象外。過去個体の恒久記憶・左右割当は未実装。現在は一台監視のまま、列挙では他ポートを開かない。
+USB serialは取得した文字列を保持するが、一意性を仮定しない。実機COM3/8/9のdescriptorは未採取。同一descriptorの同型機への差し替えや、応答を偽装する機器の認証は対象外。保存するのは最後の候補descriptorだけで、過去個体の認証・左右割当ではない。現在は一台監視のまま、列挙では他ポートを開かない。
+
+## 一時停止と明示再接続
+
+モニターと品質付きlive serviceに「一時停止（接続を解放）」「再開・再接続」を提供する。native menuの同操作も利用できる。停止・I/O失敗でもfull PortKey候補を残す。再接続は再列挙し、descriptor変更・同名/USB serialの重複を拒否する。既知のstable IDは新handshakeで一致するまで現在値を利用できない。ID不明なら同じ実物の再接続確認を要求し、USB serialやCOM一致から個体同一性を認定しない。
+
+現在値・ready・今回の中立値・中断wizardは失効する。immutableなログ/profileは削除しない。表示履歴は停止ラベルを残し、再接続では新sessionへ分ける。missing候補は未接続／再接続待ちとして再検索できる。backendのoperation epochと非待機mutation lockで、更新の後へ古い書込みを予約しない。
+
+未知・旧版モニターの通常接続と再開はreceive-onlyです。COMや保存済み候補だけで現在のFirmware対応を認定しません。既知IDの再照合、明示Info、setup/updateの照会は安全な?2 / ?3のみで、infoへのfallbackはありません。既知IDの不一致・無応答は停止し、既知IDを落として未知へ継続しません。

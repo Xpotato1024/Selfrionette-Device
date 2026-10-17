@@ -1,4 +1,5 @@
 import {appendFirmwareNotices,firmwareNoticePayload,productInputs} from './artifact-inputs.mjs';
+import {legacyManifest,legacySource,packageCatalog,digest,sourceTreeHash} from './firmware-packages.mjs';
 // Maintainer-only packaging. Users run the resulting binary, never this script.
 import {readFileSync,writeFileSync,mkdirSync,readdirSync,cpSync,copyFileSync,existsSync,rmSync,statSync} from 'node:fs';
 import {resolve,join,sep,isAbsolute,basename} from 'node:path';
@@ -6,7 +7,7 @@ import {fileURLToPath} from 'node:url';
 import {execFileSync,spawnSync} from 'node:child_process';
 import {embeddedFrontendDist,validateGpl2Notice,prependWindowsSearchPath,sha256,inspectPE,inspectConsolePE,mergePackageMetadata,collectNotices,zipDirectory,extractZip,executableMetadata} from './distribution-lib.mjs';
 
-const APP_VERSION='0.2.0-preview.1';
+const APP_VERSION='0.2.0-preview.2';
 const FIRMWARE_APPLICATION='selfrionette-loadcell-7ch';
 const FIRMWARE_BOARD='sparkfun_promicro16';
 const FIRMWARE_MCU='atmega32u4';
@@ -49,6 +50,8 @@ let buildEnv={
  TMP:absoluteTempRoot,
  SELFRIONETTE_EXPECTED_FIRMWARE_MANIFEST_SHA256:'',
  SELFRIONETTE_EXPECTED_FIRMWARE_IMAGE_SHA256:'',
+ SELFRIONETTE_EXPECTED_LEGACY_MANIFEST_SHA256:'',
+ SELFRIONETTE_EXPECTED_LEGACY_IMAGE_SHA256:'',
  SELFRIONETTE_EXPECTED_AVRDUDE_EXE_SHA256:'',
  SELFRIONETTE_EXPECTED_AVRDUDE_CONF_SHA256:'',
  SELFRIONETTE_SOURCE_SHA:'',
@@ -123,7 +126,7 @@ async function build(){
  if(firmwareHex.length===0||firmwareHex.length>512*1024)throw Error('The PlatformIO firmware image has an invalid size.');
  const firmwareHash=sha256(firmwareHex);
  const firmwareManifest={
-  schema:1,
+  schema:2,family:'modern',source_path:'firmware/loadcell_7ch',source_tree_sha256:sourceTreeHash(firmwareProject),capabilities:['info3','device_settings','personal_calibration','safe_metadata_probe'],
   release_version:config.version,
   application:FIRMWARE_APPLICATION,
   board:FIRMWARE_BOARD,
@@ -147,6 +150,22 @@ async function build(){
  mkdirSync(firmwarePackage,{recursive:true});mkdirSync(firmwareTools,{recursive:true});
  writeFileSync(join(firmwarePackage,'manifest.json'),firmwareManifestBytes,{flag:'wx'});
  copyFileSync(firmwareHexPath,join(firmwarePackage,'firmware.hex'));
+ const legacyProject=resolve(repo,'firmware/legacy_7ch_package');
+ buildEnv.PLATFORMIO_BUILD_DIR=join(packageWork,'legacy-build');
+ buildEnv.PLATFORMIO_WORKSPACE_DIR=join(packageWork,'legacy-workspace');
+ run(pythonExe,[join(repo,'tools/check_firmware_size.py'),'--project-dir',legacyProject,'--environment','legacy_7ch','--max-static-ram','1024','--max-flash','24576'],{cwd:repo});
+ const legacyHex=readFileSync(join(buildEnv.PLATFORMIO_BUILD_DIR,'legacy_7ch','firmware.hex'));
+ const legacyManifestBytes=Buffer.from(JSON.stringify(legacyManifest({version:config.version,commit,repo,image:legacyHex}),null,2)+'\n');
+ const legacyPackage=join(firmwarePackage,'legacy-7ch');mkdirSync(legacyPackage);
+ writeFileSync(join(legacyPackage,'manifest.json'),legacyManifestBytes,{flag:'wx'});
+ writeFileSync(join(legacyPackage,'firmware.hex'),legacyHex,{flag:'wx'});
+ writeFileSync(join(firmwarePackage,'catalog.json'),JSON.stringify(packageCatalog(firmwareManifestBytes,legacyManifestBytes),null,2)+'\n',{flag:'wx'});
+ const sources=join(firmwarePackage,'sources');mkdirSync(sources);
+ cpSync(join(repo,legacySource),join(sources,legacySource.slice('firmware/'.length)),{recursive:true});
+ cpSync(join(repo,'firmware/loadcell_7ch'),join(sources,'loadcell_7ch'),{recursive:true});
+ cpSync(join(repo,'firmware/shared'),join(sources,'shared'),{recursive:true});
+ cpSync(legacyProject,join(sources,'legacy_7ch_package'),{recursive:true});
+ writeFileSync(join(firmwarePackage,'SOURCE-INFO.json'),JSON.stringify({schema:1,source_commit:commit,modern:{path:'sources/loadcell_7ch',source_tree_sha256:sourceTreeHash(firmwareProject),shared_tree_sha256:sourceTreeHash(join(repo,'firmware/shared')),platform_config:'sources/loadcell_7ch/platformio.ini'},legacy:{path:'sources/'+legacySource.slice('firmware/'.length),source_tree_sha256:sourceTreeHash(join(repo,legacySource)),platform_config:'sources/legacy_7ch_package/platformio.ini',installed_senior_firmware:'unknown',identity_version:'unavailable',eeprom:'no persistent settings support'}},null,2)+'\n',{flag:'wx'});
  const firmwareNoticeBytes=firmwareNoticePayload(repo);
  writeFileSync(join(firmwarePackage,'THIRD-PARTY-NOTICES.txt'),firmwareNoticeBytes,{flag:'wx'});
  const firmwarePackageFile=stem+'-firmware.zip';
@@ -210,6 +229,9 @@ async function build(){
   bundle_binary_patching:false,mode:'serial-monitor-and-firmware-updater',hardware_verified:false,
   runtime:'Microsoft Edge WebView2 Evergreen',installer_runtime_mode:'offlineInstaller',code_signing:'unsigned',
   firmware:{manifest_file:'distribution/firmware/manifest.json',manifest_sha256:firmwareManifestHash,
+   catalog_file:'distribution/firmware/catalog.json',catalog_sha256:hashFile(join(firmwarePackage,'catalog.json')),
+   source_info_file:'distribution/firmware/SOURCE-INFO.json',source_info_sha256:hashFile(join(firmwarePackage,'SOURCE-INFO.json')),
+   legacy_manifest_sha256:digest(legacyManifestBytes),legacy_image_sha256:digest(legacyHex),legacy_source:legacySource,
    image_sha256:firmwareHash,source_sha:commit,platformio_platform:platform,platformio_core:pioVersion,
    platformio_config_sha256:sha256(Buffer.from(pioIni)),image_size:firmwareHex.length,flash_range:'0x0000..0x6fff',
    image_file:'distribution/firmware/firmware.hex',notice_file:'distribution/firmware/THIRD-PARTY-NOTICES.txt',
@@ -236,6 +258,8 @@ async function build(){
  }
  buildEnv.SELFRIONETTE_EXPECTED_FIRMWARE_MANIFEST_SHA256=firmwareManifestHash;
  buildEnv.SELFRIONETTE_EXPECTED_FIRMWARE_IMAGE_SHA256=firmwareHash;
+ buildEnv.SELFRIONETTE_EXPECTED_LEGACY_MANIFEST_SHA256=digest(legacyManifestBytes);
+ buildEnv.SELFRIONETTE_EXPECTED_LEGACY_IMAGE_SHA256=digest(legacyHex);
  buildEnv.SELFRIONETTE_EXPECTED_AVRDUDE_EXE_SHA256=avrdudeExeHash;
  buildEnv.SELFRIONETTE_EXPECTED_AVRDUDE_CONF_SHA256=avrdudeConfHash;
  const cli=join(root,'node_modules/@tauri-apps/cli/tauri.js');

@@ -1,7 +1,9 @@
 mod application;
 mod discovery;
+mod firmware_family;
 mod fixtures;
 mod hardware;
+mod preferences;
 mod scripted;
 mod session;
 mod updater;
@@ -12,16 +14,76 @@ use tauri::{Emitter, Manager};
 type Shared = Arc<Mutex<Runtime>>;
 
 #[tauri::command]
+async fn connection_candidate(
+    app: tauri::AppHandle,
+    target: Option<discovery::PortKey>,
+    state: tauri::State<'_, UpdateShared>,
+) -> Result<Option<discovery::PortKey>, String> {
+    let root = match std::env::var_os("SELFRIONETTE_GUI_FIXTURE_DIR") {
+        Some(p) => std::path::PathBuf::from(p),
+        None => app.path().app_config_dir().map_err(|e| e.to_string())?,
+    };
+    let state = state.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        if let Some(target) = target {
+            if let Some(s) = state
+                .try_lock()
+                .map_err(|_| "更新処理中です。操作は予約されません。")?
+                .as_mut()
+            {
+                s.invalidate()?;
+            }
+            preferences::save(&root, target)?;
+        }
+        preferences::load(&root)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+async fn updater_invalidate(state: tauri::State<'_, UpdateShared>) -> Result<(), String> {
+    let state = state.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let mut s = state
+            .try_lock()
+            .map_err(|_| "更新処理中です。操作は予約されません。")?;
+        if let Some(s) = s.as_mut() {
+            s.invalidate()?;
+        }
+        Ok(())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
 async fn application_command(
     app: tauri::AppHandle,
     command: serde_json::Value,
     state: tauri::State<'_, Shared>,
+    updater: tauri::State<'_, UpdateShared>,
 ) -> Result<serde_json::Value, String> {
     let menu_changed = matches!(
         command.get("action").and_then(serde_json::Value::as_str),
-        Some("connect" | "disconnect")
+        Some("connect" | "disconnect" | "pause" | "reconnect")
     );
     let state = state.inner().clone();
+    let updater = updater.inner().clone();
+    let passive = matches!(
+        command.get("action").and_then(serde_json::Value::as_str),
+        Some("snapshot" | "ports" | "stream_tick" | "capture_tick" | "tick")
+    );
+    let expected_epoch = if passive {
+        None
+    } else {
+        Some(
+            state
+                .try_lock()
+                .map_err(|_| "別の処理中です。操作は予約されません。")?
+                .operation_epoch,
+        )
+    };
     let root = match std::env::var_os("SELFRIONETTE_GUI_FIXTURE_DIR") {
         Some(root) => std::path::PathBuf::from(root).join("personal-profiles"),
         None => app
@@ -31,12 +93,36 @@ async fn application_command(
             .join("personal-profiles"),
     };
     let (reply, mode, connected) = tauri::async_runtime::spawn_blocking(move || {
-        let mut runtime = state.lock().map_err(|_| "アプリ状態を取得できません。")?;
+        let passive = matches!(
+            command.get("action").and_then(serde_json::Value::as_str),
+            Some("snapshot" | "ports" | "stream_tick" | "capture_tick" | "tick")
+        );
+        let mut runtime = if passive {
+            state.lock().map_err(|_| "アプリ状態を取得できません。")?
+        } else {
+            state
+                .try_lock()
+                .map_err(|_| "別の処理中です。操作は予約されません。")?
+        };
+        if let Some(epoch) = expected_epoch {
+            runtime.advance_operation(epoch)?;
+        }
+        if !passive
+            && let Some(s) = updater
+                .lock()
+                .map_err(|_| "更新状態を取得できません。")?
+                .as_mut()
+        {
+            s.invalidate()?;
+        }
         if runtime.mode.source != Source::Hardware {
             return Err("実機設定は実機画面で実行してください。".into());
         }
         if runtime.monitor.connected()
-            && command.get("action").and_then(serde_json::Value::as_str) == Some("connect")
+            && matches!(
+                command.get("action").and_then(serde_json::Value::as_str),
+                Some("connect" | "reconnect")
+            )
         {
             return Err("入力確認の接続を先に切断してください。".into());
         }
@@ -90,11 +176,16 @@ async fn updater_prepare(
 ) -> Result<updater::PrepareReply, String> {
     let state = state.inner().clone();
     let runtime = runtime.inner().clone();
+    let expected_epoch = runtime
+        .try_lock()
+        .map_err(|_| "別の処理中です。操作は予約されません。")?
+        .operation_epoch;
     tauri::async_runtime::spawn_blocking(move || {
-        let r = runtime.lock().map_err(|_| "接続状態を取得できません。")?;
-        if r.monitor.connected() || r.application.connected() {
-            return Err("先に装置の接続を解放してください。".into());
-        }
+        let mut r = runtime
+            .try_lock()
+            .map_err(|_| "別の処理中です。完了後に操作してください。操作は予約されません。")?;
+        r.require_unowned()?;
+        r.advance_operation(expected_epoch)?;
         let mut s = state.lock().map_err(|_| "更新状態を取得できません。")?;
         updater_service(&app, &mut s)?.prepare(request)
     })
@@ -110,11 +201,16 @@ async fn updater_apply(
 ) -> Result<updater::ApplyReply, String> {
     let runtime = runtime.inner().clone();
     let state = state.inner().clone();
+    let expected_epoch = runtime
+        .try_lock()
+        .map_err(|_| "別の処理中です。操作は予約されません。")?
+        .operation_epoch;
     tauri::async_runtime::spawn_blocking(move || {
-        let r = runtime.lock().map_err(|_| "接続状態を取得できません。")?;
-        if r.monitor.connected() || r.application.connected() {
-            return Err("装置は別の接続で使用中です。".into());
-        }
+        let mut r = runtime
+            .try_lock()
+            .map_err(|_| "別の処理中です。完了後に操作してください。操作は予約されません。")?;
+        r.require_unowned()?;
+        r.advance_operation(expected_epoch)?;
         let mut s = state.lock().map_err(|_| "更新状態を取得できません。")?;
         updater_service(&app, &mut s)?.apply(request)
     })
@@ -124,18 +220,24 @@ async fn updater_apply(
 #[tauri::command]
 async fn updater_recover(
     app: tauri::AppHandle,
+    metadata_supported: Option<bool>,
     state: tauri::State<'_, UpdateShared>,
     runtime: tauri::State<'_, Shared>,
 ) -> Result<updater::RecoveryReply, String> {
     let runtime = runtime.inner().clone();
     let state = state.inner().clone();
+    let expected_epoch = runtime
+        .try_lock()
+        .map_err(|_| "別の処理中です。操作は予約されません。")?
+        .operation_epoch;
     tauri::async_runtime::spawn_blocking(move || {
-        let r = runtime.lock().map_err(|_| "接続状態を取得できません。")?;
-        if r.monitor.connected() || r.application.connected() {
-            return Err("先に装置の接続を解放してください。".into());
-        }
+        let mut r = runtime
+            .try_lock()
+            .map_err(|_| "別の処理中です。完了後に操作してください。操作は予約されません。")?;
+        r.require_unowned()?;
+        r.advance_operation(expected_epoch)?;
         let mut s = state.lock().map_err(|_| "更新状態を取得できません。")?;
-        updater_service(&app, &mut s)?.recover()
+        updater_service(&app, &mut s)?.recover(metadata_supported.unwrap_or(false))
     })
     .await
     .map_err(|e| e.to_string())?
@@ -192,13 +294,50 @@ async fn hardware_command(
     app: tauri::AppHandle,
     request: hardware::Request,
     state: tauri::State<'_, Shared>,
+    updater: tauri::State<'_, UpdateShared>,
 ) -> Result<hardware::Reply, String> {
     let state = state.inner().clone();
+    let updater = updater.inner().clone();
+    let passive = matches!(
+        request.command,
+        hardware::Command::Snapshot {} | hardware::Command::Read {} | hardware::Command::Scan {}
+    );
+    let expected_epoch = if passive {
+        None
+    } else {
+        Some(
+            state
+                .try_lock()
+                .map_err(|_| "別の処理中です。操作は予約されません。")?
+                .operation_epoch,
+        )
+    };
     let (reply, mode, changed, connected) = tauri::async_runtime::spawn_blocking(move || {
-        let mut runtime = state
-            .lock()
-            .map_err(|_| "接続状態を取得できません。".to_string())?;
+        let passive = matches!(
+            request.command,
+            hardware::Command::Snapshot {}
+                | hardware::Command::Read {}
+                | hardware::Command::Scan {}
+        );
+        let mut runtime = if passive {
+            state.lock().map_err(|_| "接続状態を取得できません。")?
+        } else {
+            state
+                .try_lock()
+                .map_err(|_| "別の処理中です。操作は予約されません。")?
+        };
+        if let Some(epoch) = expected_epoch {
+            runtime.advance_operation(epoch)?;
+        }
         let before = runtime.monitor.connected() || runtime.application.connected();
+        if !passive
+            && let Some(s) = updater
+                .lock()
+                .map_err(|_| "更新状態を取得できません。")?
+                .as_mut()
+        {
+            s.invalidate()?;
+        }
         let reply = runtime.hardware(request)?;
         let connected = runtime.monitor.connected() || runtime.application.connected();
         Ok::<_, String>((reply, runtime.mode.clone(), before != connected, connected))
@@ -220,7 +359,7 @@ async fn mode_command(
     let state = state.inner().clone();
     let (mode, connected) = tauri::async_runtime::spawn_blocking(move || {
         let mut runtime = state
-            .lock()
+            .try_lock()
             .map_err(|_| "アプリ状態を取得できません。".to_string())?;
         let mode = runtime.set_mode(request)?;
         Ok::<_, String>((
@@ -255,6 +394,8 @@ fn install_menu(app: &tauri::AppHandle, mode: &Mode, connected: bool) -> tauri::
             connected,
             None::<&str>,
         )?)
+        .text("pause", "一時停止（接続を解放）")
+        .text("reconnect", "再開・再接続…")
         .separator()
         .text("quit", "終了")
         .build()?;
@@ -334,6 +475,8 @@ pub fn run() {
             updater_prepare,
             updater_apply,
             updater_recover,
+            updater_invalidate,
+            connection_candidate,
             mode_command
         ])
         .run(tauri::generate_context!())

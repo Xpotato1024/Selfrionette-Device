@@ -1,7 +1,7 @@
 ---
 status: canonical
 owner: apps/device-manager
-last_verified: 2026-10-16
+last_verified: 2026-10-17
 canonical_for:
   - Windows binary usage and distribution
 related:
@@ -29,7 +29,7 @@ Windows ARM64/x86、Windows 10、未導入WebView2環境への実インストー
 ## 取得と起動
 **[GitHub Releases（Windows用バイナリのダウンロード）](https://github.com/Xpotato1024/Selfrionette-Device/releases)**
 
-`0.1.0-preview.5`は[source `3435764`の公開済みプレビュー版](https://github.com/Xpotato1024/Selfrionette-Device/releases/tag/device-manager-v0.1.0-preview.5)です。既存の検証済み8 assetsを公開しており、旧artifactは変更していません。`0.2.0-preview.1`はこの更新機能を含む未公開の候補です。公開済み版は[GitHub Releases](https://github.com/Xpotato1024/Selfrionette-Device/releases)の「Assets」から`-setup.exe`（通常はこちら）または`-portable.zip`を選びます。GitHubが自動で付ける`Source code.zip`は実行バイナリではありません。
+公開済みの最新版は[0.2.0-preview.1（source `9dbc372b`）](https://github.com/Xpotato1024/Selfrionette-Device/releases/tag/device-manager-v0.2.0-preview.1)です。`0.2.0-preview.2`は接続・再接続と2系統Firmware選択を含む未公開候補です。公開済みのpreview.1／0.1.0-preview.5 assetsとtagsは変更しません。公開済み版はReleaseの「Assets」から取得します。`Source code.zip`は実行バイナリではありません。
 
 プレビュー版のため、GitHub上でもPre-releaseとして表示します。`/releases/latest`ではプレビュー版が表示されない場合があるため、上記のRelease一覧を入口にしてください。
 
@@ -42,6 +42,12 @@ WebView2同梱インストーラーは初回のRuntime導入にネット接続�
 「診断・記録」の個体情報取得はProtocol v2のinfoだけを送信します。旧Firmwareの7ch入力も受信できますが、個体IDは応答しない場合があります。
 GUI操作の合成試験は「ヘルプ → 開発者向け機能を有効にする」で確認した後、「開発 → 合成試験」で開きます。有効化だけでは入力を切り替えません。実機接続中は先に切断してください。開発者モードは再起動後に引き継ぎません。
 合成モードの成功は実機の使用可能性を意味しません。
+
+## 一時停止と再接続
+
+「一時停止（接続を解放）」でポートを他ツールへ渡せます。「再開・再接続」は前回の候補を再列挙し、USB情報と既知の個体IDを照合します。ID不明なら同じ実物の再接続確認が必要です。COM番号やUSB serialの一致だけでは個体を認定しません。最後の明示候補は`connection-preferences.json`に保存しますが、アプリ起動時には自動接続しません。missing候補も再接続待ちとして残します。
+
+今回の中立値・ready・中断したwizardは再接続で復元しません。保存profileとログは残します。旧版の観測・debugは校正不要で、新版の補正入力だけが装置設定と個人校正を必要とします。
 
 ## 認識しない場合
 この版より前の0.1.0-preview.1は合成専用で、USBを接続しても一覧は変わりません。
@@ -62,6 +68,11 @@ GUI操作の合成試験は「ヘルプ → 開発者向け機能を有効にす
 通常操作にJSON編集やCLIは不要です。Managerを使わないconsumerは同梱CLIまたは共通Rust serviceを利用できます。[正規化入力consumer手順](normalized-input-consumer.md)を参照してください。Xpotato-Simへのadapter・robot制御は同梱しません。
 
 ## Firmwareの更新
+
+preview.2候補では入力確認の選択を更新画面へ引き継ぎます。「受信を停止して更新へ」でsole ownerを解放してから検査します。再検索で有効なfull descriptor選択は保持します。「書き込むFirmware」は新版／旧版（初期保管ソース）、「入手元」は同梱版／ローカルを選びます。系統・基板・protocol/schema・画像が一致し、検査と明示確認が完了するまで書込みできません。
+
+保管版は個体設定・個人校正なし。先輩の実機と同じ画像とは不明です。全application flash比較と有限7ch確認の後もID・版情報は取得不可、設定保持は未確認と表示します。既知の退避記録を保持し、新版へ戻してID・設定を照合します。初期保管の`loadcell_7ch_legacy`（isLeader=true、7ch）を同梱し、整理候補`loadcell_7ch_pro_micro`は参照専用です。詳細は[更新契約](../contracts/firmware-update.md)を正とします。
+
 `0.2.0-preview.1`以降の対応版は、同梱された検証済みIntel HEX packageを使って`SparkFun Pro Micro 16 MHz / ATmega32U4`だけを更新します。対象とpackageの確認、Applyの明示操作、再接続後のidentity/settings/version read-backを別々に行います。Applyの前に表示された候補やCOM番号だけでは書き込みを開始しません。USB location pathやserial descriptorでbootloaderを結び付けられない場合は、一候補でも追加のbootloader確認が必要です。重複・曖昧な候補、途中失敗、read-back不一致は`needs_recovery`として停止し、自動で再書き込みしません。
 
 更新時は設定とidentityのpre-update backupを保存します。同梱packageはmanifest、image、source revisionの各hashでこのアプリ版に結び付きます。ユーザーが選んだpackageは内部checksumが一致しても未検証packageとして表示します。初回install等で更新前のidentity/settingsを読めない場合、firmware version/sourceと更新後の状態を確認し、更新前との保持比較ができなかったことを明示します。詳しいpackage・対象・recovery contractは[firmware update contract](../contracts/firmware-update.md)を参照してください。

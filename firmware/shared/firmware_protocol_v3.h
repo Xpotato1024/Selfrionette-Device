@@ -87,14 +87,15 @@ inline bool equals(const char* value, const char* expected) {
 }
 
 inline bool is_command_name(const char* value) {
-  return equals(value, "info3") || equals(value, "stream3") ||
+  return equals(value, "?3") || equals(value, "info3") || equals(value, "stream3") ||
          equals(value, "settings3") || equals(value, "tare3");
 }
 
 inline bool is_v3_payload(const char* payload) {
   const char* end = strchr(payload, ',');
   const size_t length = end == NULL ? strlen(payload) : static_cast<size_t>(end - payload);
-  return (length == 5 && memcmp(payload, "info3", 5) == 0) ||
+  return (length == 2 && memcmp(payload, "?3", 2) == 0) ||
+         (length == 5 && memcmp(payload, "info3", 5) == 0) ||
          (length == 7 && memcmp(payload, "stream3", 7) == 0) ||
          (length == 9 && memcmp(payload, "settings3", 9) == 0) ||
          (length == 5 && memcmp(payload, "tare3", 5) == 0);
@@ -151,7 +152,7 @@ inline ParseStatus parse_command(char* payload, Command& output) {
   }
   output.has_request = true;
 
-  if (equals(fields[0], "info3")) {
+  if (equals(fields[0], "info3") || equals(fields[0], "?3")) {
     if (field_count != 2) return ParseStatus::Malformed;
     output.kind = CommandKind::Info;
     return ParseStatus::Valid;

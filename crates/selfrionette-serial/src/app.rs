@@ -752,6 +752,7 @@ struct PendingArchive {
 
 pub struct LiveService {
     transport: Box<dyn LineTransport + Send>,
+    safe_metadata_probe: bool,
     info: Option<DeviceInfo>,
     setup: Option<DeviceSetup>,
     pending_setup: Option<SetupDto>,
@@ -797,9 +798,17 @@ pub struct LiveService {
 }
 
 impl LiveService {
+    /// GUI probing uses aliases ignored by both archived firmware sources.
+    /// The explicit CLI constructor retains its existing wire contract.
+    pub fn with_safe_metadata_probe(transport: Box<dyn LineTransport + Send>) -> Self {
+        let mut service = Self::new(transport);
+        service.safe_metadata_probe = true;
+        service
+    }
     pub fn new(transport: Box<dyn LineTransport + Send>) -> Self {
         Self {
             transport,
+            safe_metadata_probe: false,
             info: None,
             setup: None,
             pending_setup: None,
@@ -1145,7 +1154,11 @@ impl LiveService {
 
     fn query_info(&mut self) -> Result<DeviceInfo, ServiceError> {
         let request = self.next_request();
-        let command = protocol_v3::info_command(request)?;
+        let command = if self.safe_metadata_probe {
+            format!("?3,{request}\n")
+        } else {
+            protocol_v3::info_command(request)?
+        };
         self.transport.write_line(&command)?;
         let started = Instant::now();
         for _ in 0..READ_BUDGET {
@@ -3912,6 +3925,26 @@ mod tests {
 
     fn queue(reads: &SharedReads, line: impl Into<String>) {
         reads.lock().unwrap().push_back(line.into());
+    }
+
+    #[test]
+    fn safe_gui_probe_of_legacy_or_no_reply_never_falls_back_to_i() {
+        for line in [
+            None,
+            Some("vector,100,1,2,3,4,5,6,7"),
+            Some("warn,unknown_command"),
+        ] {
+            let (transport, reads) = QueueTransport::new();
+            let writes = transport.writes.clone();
+            if let Some(line) = line {
+                queue(&reads, line);
+            }
+            let mut service = LiveService::with_safe_metadata_probe(Box::new(transport));
+            assert!(service.query_info().is_err());
+            let writes = writes.lock().unwrap();
+            assert_eq!(*writes, ["?3,1\n"]);
+            assert!(!writes.iter().any(|line| line.contains('i')));
+        }
     }
 
     fn queue_capture_barrier(service: &LiveService, reads: &SharedReads) {
