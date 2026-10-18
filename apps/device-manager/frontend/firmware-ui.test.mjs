@@ -19,7 +19,7 @@ test('distribution, reported firmware and wire protocol versions are separate',(
  const rows=Object.fromEntries(packageIdentityRows({family:'legacy_7ch',distribution_version:'1.0.0',firmware_version:'',release_version:'2.0.0',protocol_schema:0}));
  assert.equal(rows['Firmware配布版'],'1.0.0'); assert.equal(rows['同梱するアプリ版'],'2.0.0');
  assert.match(rows['本体Firmware版'],/取得機能なし/);
- assert.match(Object.fromEntries(observedIdentityRows({kind:'unidentified'}))['現在確認した通信'],/未識別/);
+ assert.match(Object.fromEntries(observedIdentityRows({kind:'unidentified'}))['更新前に確認した通信'],/未識別/);
  const modern=Object.fromEntries(packageIdentityRows({family:'modern',firmware_version:'1.2.0',supported_protocols:[2,3]}));
  assert.equal(modern['本体Firmware版'],'1.2.0');assert.equal(modern['対応通信プロトコル'],'Protocol 2 / Protocol 3');
 });

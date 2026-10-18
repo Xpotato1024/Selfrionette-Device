@@ -182,6 +182,7 @@ export function createApplicationUI({invoke,hardware,onOwner=()=>{}}) {
  for(const b of root.querySelectorAll('[data-live-page]'))b.onclick=()=>showPage(b.dataset.livePage);
  function controls(){
   hardware.setExternalOwner?.(updateRunning||!!(view?.owns_handle||view?.connected));
+  if(updateRunning)for(const id of ['hardware-choose','hardware-disconnect','hardware-reconnect'])document.getElementById(id).disabled=true;
   for(const button of root.querySelectorAll('button:not([data-live-page])'))button.disabled=busy;
   for(const button of root.querySelectorAll('[data-live-page]'))button.disabled=updateRunning;
   for(const input of root.querySelectorAll('input,select'))input.disabled=busy||!!view?.capture?.active;

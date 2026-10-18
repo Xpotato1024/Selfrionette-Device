@@ -89,6 +89,7 @@ try {
  await updatePage.waitForFunction(()=>typeof window.fixtureFinishUpdate==='function');
  await updatePage.waitForFunction(()=>document.getElementById('update-progress-title').textContent.includes('切替'));
  assert.equal(await updatePage.locator('#update-progress-bar').getAttribute('value'),null);
+ for(const id of ['hardware-choose','hardware-disconnect','hardware-reconnect'])assert(await updatePage.locator('#'+id).isDisabled(),'update must lock '+id);
  assert(await updatePage.locator('#update-apply').isDisabled());assert(await updatePage.locator('#update-family').isDisabled());
  await updatePage.evaluate(()=>{Object.assign(window.testUpdateProgress,{sequence:2,stage:'programming',percent:100});});
  await updatePage.waitForFunction(()=>document.getElementById('update-progress-percent').textContent==='100%');

@@ -1,6 +1,7 @@
 // Real native IPC + shared Rust service using an explicit scripted transport.
 // This never selects, opens, resets, or programs an OS serial device.
 import {chromium} from 'playwright-core';
+import {setScriptedInput} from './scripted-input.mjs';
 import {spawn} from 'node:child_process';
 import {mkdirSync,mkdtempSync,writeFileSync,readFileSync} from 'node:fs';
 import {createHash} from 'node:crypto';
@@ -53,7 +54,7 @@ try{
  report.cases.push('pause releases the scripted owner; GUI resume performs a new handshake, checks known ID and never restores ready');
  const setRaw=async(raw,flags=Array(7).fill(1))=>{
   const prior=await page.locator('#application-workflow').getAttribute('data-sample-sequence');
-  await ipc({action:'fixture_input',raw,flags});
+  await setScriptedInput(ipc,raw,flags);
   await page.waitForFunction(({raw,flags,prior})=>{
    if(document.getElementById('application-workflow').dataset.sampleSequence===prior)return false;
    return [...document.getElementById('live-sample-rows').children].every((row,ch)=>Number(row.children[1].textContent.replaceAll(',',''))===raw[ch]&&(flags[ch]===1?row.children[3].textContent==='fresh':row.children[3].textContent!=='fresh'));

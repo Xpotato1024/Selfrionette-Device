@@ -1,3 +1,4 @@
+import {setScriptedInput} from './scripted-input.mjs';
 import {packageCatalog,legacyManifest,legacySource,sourceTreeHash} from './firmware-packages.mjs';
 import {appendFirmwareNotices,firmwareNoticePayload,isProductInput,verifyProductInputs} from './artifact-inputs.mjs';
 import {waitForAppPage} from './native-session.mjs';
@@ -247,4 +248,11 @@ test('embedded frontend rejects ambiguous or incomplete file lists',()=>{
  const root=join(tmpdir(),'frontend');
  for(const names of [[],['app.mjs'],['index.html','index.html'],['index.html','../escape'],['index.html','sub/file'],['index.html','sub\\file'],['index.html','d:external'],['index.html',null],['index.html','..']])assert.throws(()=>embeddedFrontendDist(root,names));
  assert.throws(()=>embeddedFrontendDist('relative',['index.html']));
+});
+
+test('scripted input retries only an unexecuted busy fixture, never a physical command',async()=>{
+ let calls=0;const commands=[];const reply=await setScriptedInput(async command=>{commands.push(command);if(++calls<3)throw Error('別の処理中です。操作は予約されません。');return {scripted:true};},[1,2],[1,1],{wait:async()=>{}});
+ assert.equal(calls,3);assert.equal(reply.scripted,true);assert(commands.every(c=>c.action==='fixture_input'));
+ calls=0;await assert.rejects(()=>setScriptedInput(async()=>{calls++;throw Error('unrelated failure');},[],[],{wait:async()=>{}}),/unrelated/);assert.equal(calls,1);
+ calls=0;await assert.rejects(()=>setScriptedInput(async()=>{calls++;throw Error('別の処理中です。操作は予約されません。');},[],[],{attempts:2,wait:async()=>{}}),/別の処理中/);assert.equal(calls,2);
 });

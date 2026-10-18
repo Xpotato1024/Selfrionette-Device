@@ -20,5 +20,5 @@ export function packageIdentityRows(manifest){
 }
 export function observedIdentityRows(observation){
  const o=observation??{},info=o.info;
- return [['現在のFirmware版',info?.firmware_version||'未取得・不明'],['現在確認した通信',o.kind==='protocol3'?'Protocol 3（情報応答を照合）':o.kind==='legacy'?'Protocol 2（情報応答を照合）':'未識別（vectorだけでは版を判別できません）']];
+ return [['更新前に確認したFirmware版',info?.firmware_version||'未取得・不明'],['更新前に確認した通信',o.kind==='protocol3'?'Protocol 3（情報応答を照合）':o.kind==='legacy'?'Protocol 2（情報応答を照合）':'未識別（vectorだけでは版を判別できません）']];
 }
