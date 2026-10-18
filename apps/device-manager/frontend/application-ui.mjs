@@ -129,6 +129,7 @@ export function createApplicationUI({invoke,hardware,onOwner=()=>{}}) {
  function renderUpdateProgress(value){
   $('update-progress-panel').hidden=false;$('update-progress-panel').setAttribute('aria-busy',String(value.active));
   $('update-progress-title').textContent=value.title;$('update-progress-detail').textContent=value.detail;
+  $('update-progress-bar').hidden=!value.active&&value.percent===null;
   if(value.percent===null)$('update-progress-bar').removeAttribute('value');else $('update-progress-bar').value=value.percent;
   $('update-progress-percent').textContent=value.percent===null?'':value.percent+'%';
  }

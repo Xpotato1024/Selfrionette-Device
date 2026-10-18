@@ -105,6 +105,7 @@ try {
  await updatePage.waitForTimeout(250);assert.match(await updatePage.locator('#update-progress-title').innerText(),/照合/);
  await updatePage.evaluate(()=>window.fixtureFinishUpdate({status:'needs_recovery',needs_recovery:true,message:'模擬した更新失敗'}));
  await updatePage.waitForFunction(()=>document.getElementById('update-progress-title').textContent.includes('要復旧'));
+ assert(await updatePage.locator('#update-progress-bar').isHidden(),'terminal failure must not keep an animated busy indicator');
  assert.equal(await updatePage.locator('#update-progress-bar').getAttribute('value'),null);
  assert.deepEqual(updateErrors,[]);await updateContext.close();
  report.updateProgress=['three versioned families','indeterminate reset','write 100 not completed','readback progress','stale operation rejected','active navigation locked','failed write not success'];
