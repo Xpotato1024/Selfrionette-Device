@@ -160,3 +160,9 @@ button.primary:disabled {background:#edf0f2;color:#63707a;border-color:#ccd2d7;f
  .readings-pane {border-right:0;}.trace-pane {min-height:280px;}
  .workflow-grid {min-width:0;grid-template-columns:128px minmax(0,1fr);}
 }
+
+/* 書込み状態は工程を移っても隠さず、動きだけで進捗を表現しない。 */
+.update-progress-panel { position:sticky; top:0; z-index:3; background:var(--paper); border:2px solid var(--accent); padding:1rem; margin:0 0 1rem; }
+.update-progress-panel h2 { margin-top: 0; }
+.update-progress-panel progress { width: min(100%, 34rem); height: 1.25rem; vertical-align: middle; }
+#update-progress-percent { margin-left: .75rem; font-variant-numeric: tabular-nums; }

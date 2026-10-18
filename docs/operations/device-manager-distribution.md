@@ -10,7 +10,7 @@ related:
 # Device Managerをビルドせずに使う
 
 ## 対象と配布物
-Windows 11 x64向けの実験用プレビューです。品質付き入力、装置の実配線・取付方向設定、操作者ごとの個人校正とprofile保存、Selfrionette firmwareの明示的な更新操作を提供します。物理デバイスと実操作者による受入は未実施です。
+Windows 11 x64向けのDevice Managerです。正式版1.0.0のソフトウェア配布を対象とします。品質付き入力、装置の実配線・取付方向設定、操作者ごとの個人校正とprofile保存、Selfrionette firmwareの明示的な更新操作を提供します。物理デバイスと実操作者による受入は未実施です。
 Rust、Node.js、Visual Studio、Windows SDK、Git、ソースのcloneは使用者に不要です。
 ソースの開発・ローカルブランチの検証は[開発者向けREADME](https://github.com/Xpotato1024/Selfrionette-Device/blob/main/apps/device-manager/README.md)に従ってください。
 
@@ -18,7 +18,7 @@ Rust、Node.js、Visual Studio、Windows SDK、Git、ソースのcloneは使用�
 |---|---|---|
 | 名前末尾が -setup.exe | 実行して案内に従い、スタートメニューから起動 | WebView2未導入時のオフラインインストーラーを同梱 |
 | 名前末尾が -portable.zip | 全体を展開し、selfrionette-device-manager.exeを実行 | Microsoft Edge WebView2 Runtimeが導入済みであること |
-| 名前末尾が -firmware.zip | manifest・HEX・ライセンスを含む同じ版のFirmware package | 通常の書込みはアプリの更新画面で明示確認する |
+| 名前末尾が -firmware.zip | manifest・HEX・ライセンスを含む同じアプリに束縛された3系統のFirmware package | 通常の書込みはアプリの更新画面で明示確認する |
 
 通常利用者にはsetup.exeを推奨します。ZIP内から直接実行せず、必ず展開してください。
 ZIP版はインストール不要ですが、設定・記録をUSB等の配布フォルダー内だけに保存する意味のportableではありません。
@@ -29,9 +29,9 @@ Windows ARM64/x86、Windows 10、未導入WebView2環境への実インストー
 ## 取得と起動
 **[GitHub Releases（Windows用バイナリのダウンロード）](https://github.com/Xpotato1024/Selfrionette-Device/releases)**
 
-公開済みの最新版は[0.2.0-preview.1（source `9dbc372b`）](https://github.com/Xpotato1024/Selfrionette-Device/releases/tag/device-manager-v0.2.0-preview.1)です。`0.2.0-preview.2`は接続・再接続と2系統Firmware選択を含む未公開候補です。公開済みのpreview.1／0.1.0-preview.5 assetsとtagsは変更しません。公開済み版はReleaseの「Assets」から取得します。`Source code.zip`は実行バイナリではありません。
+本ソースは正式版1.0.0用です。[Release一覧](https://github.com/Xpotato1024/Selfrionette-Device/releases)の公開済み版とAssetsを正としてください。過去のpreview公開物は上書きしません。Source code.zipは実行バイナリではありません。
 
-プレビュー版のため、GitHub上でもPre-releaseとして表示します。`/releases/latest`ではプレビュー版が表示されない場合があるため、上記のRelease一覧を入口にしてください。
+正式タグdevice-manager-v1.0.0は通常Release、ハイフン付きpreviewタグはPre-releaseとして扱います。
 
 setup.exeは現在の利用者向けにインストールします。組織の実行・インストール制限を回避するものではありません。
 WebView2は実行時依存です。ZIP版で起動しない場合は同じ版のsetup.exeかMicrosoft公式のWebView2 Runtimeを利用してください。
@@ -69,9 +69,11 @@ GUI操作の合成試験は「ヘルプ → 開発者向け機能を有効にす
 
 ## Firmwareの更新
 
-preview.2候補では入力確認の選択を更新画面へ引き継ぎます。「受信を停止して更新へ」でsole ownerを解放してから検査します。再検索で有効なfull descriptor選択は保持します。「書き込むFirmware」は新版／旧版（初期保管ソース）、「入手元」は同梱版／ローカルを選びます。系統・基板・protocol/schema・画像が一致し、検査と明示確認が完了するまで書込みできません。
+書込みでは進捗バーと工程を表示します。書込み工程100%の後にも全域照合と再接続確認があり、完了表示までUSBを抜かないでください。通常のアプリ終了は更新中に拒否します。異常時は要復旧の結果と保護記録を残します。
 
-保管版は個体設定・個人校正なし。先輩の実機と同じ画像とは不明です。全application flash比較と有限7ch確認の後もID・版情報は取得不可、設定保持は未確認と表示します。既知の退避記録を保持し、新版へ戻してID・設定を照合します。初期保管の`loadcell_7ch_legacy`（isLeader=true、7ch）を同梱し、整理候補`loadcell_7ch_pro_micro`は参照専用です。詳細は[更新契約](../contracts/firmware-update.md)を正とします。
+入力確認の選択を更新画面へ引き継ぎます。「受信を停止して更新へ」で接続を解放し、Original（初期保管）／Compatible（互換改善）／Managed（管理対応）を選びます。Firmware名・配布版・本体が返す版・通信Protocolは別に表示します。[初回利用・共有ガイド](first-use-and-sharing.md)を参照してください。
+
+OriginalとCompatibleは元ソースを凍結し、別wrapperで配布します。個体ID・本体版の照会・新しい個人校正には対応しません。Managedへの帰還時だけ既知のID・設定保持を照合します。Originalと先輩の実機画像が同一かは未確認です。
 
 `0.2.0-preview.1`以降の対応版は、同梱された検証済みIntel HEX packageを使って`SparkFun Pro Micro 16 MHz / ATmega32U4`だけを更新します。対象とpackageの確認、Applyの明示操作、再接続後のidentity/settings/version read-backを別々に行います。Applyの前に表示された候補やCOM番号だけでは書き込みを開始しません。USB location pathやserial descriptorでbootloaderを結び付けられない場合は、一候補でも追加のbootloader確認が必要です。重複・曖昧な候補、途中失敗、read-back不一致は`needs_recovery`として停止し、自動で再書き込みしません。
 
@@ -113,7 +115,7 @@ Windows x64開発環境で、対象cloneのcleanなcommitをcheckoutしてから
 package scriptはPlatformIO memory-budget gateを通したsource-injected firmware imageを一度ビルドし、manifest/image hashを生成します。AVRDUDE v8.3のWindows x64 upstream archiveは固定SHA-256を照合し、実行ファイル・configurationと上流`COPYING`を同梱します。依存cache、firmware build、Cargo target、staging filesはtask temporary root内で使い終わった後に削除します。
 出力はapps/device-manager/dist/配下です。版・source commit・product input・lockfile hash・firmware package・updater runtimeのprovenanceを保存し、dirtyな作業ツリーから配布候補を作りません。
 通常のDebug build/devは従来どおり未commitの開発作業に使用できます。
-CIはPR・手動実行・`device-manager-v*`タグで候補をbuild-onceし、独立runnerで同じartifactのproduct input fingerprint・checksum・配布試験を検証します。タグ実行では、Windows配布のビルド・別runnerでの検証がすべて成功し、source commit・firmware/runtime SHA-256・第三者ライセンス通知を確認できた場合だけ、日本語Release NotesとともにGitHubの**Pre-release**を公開します。既存の配布物を再利用するだけでなく、タグに対応するソースで一度ビルドし直します。Git tagの作成・pushはこの文書やpackage scriptでは行いません。
+CIはPR・手動実行・`device-manager-v*`タグで候補をbuild-onceし、独立runnerで同じartifactのproduct input fingerprint・checksum・配布試験を検証します。タグ実行では、Windows配布のビルド・別runnerでの検証がすべて成功し、source commit・firmware/runtime SHA-256・第三者ライセンス通知を確認できた場合だけ、日本語Release Notesとともに、タグの版体系に応じてGitHubの正式ReleaseまたはPre-releaseを公開します。既存の配布物を再利用するだけでなく、タグに対応するソースで一度ビルドし直します。Git tagの作成・pushはこの文書やpackage scriptでは行いません。
 
 通常PRからの公開は行わず、公開処理だけに最小限の`contents:write`権限を与えます。署名は未導入であり、クリーンPC・完全オフライン初回導入の確認は引き続き必要です。
 

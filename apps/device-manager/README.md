@@ -2,7 +2,7 @@
 
 Rust coreを共有するTauri v2 GUIです。製品の目的・状態・操作体系は[製品・操作設計](../../docs/architecture/device-manager-workflow.md)を正とします。
 Windows native Debug build・起動・Rust IPC・合成記録の保存/再読込をLLM-01で確認しました。
-0.2.0-preview.2候補は、旧v2受信と、品質付きprotocol 3の装置設定・tare・実ストリームからの個人校正・永久profile保存/再利用・Firmware更新を扱う実験用release候補です。実機boardでの受入、既知荷重N係数、物理精度の認証は未実施です。合成fixtureは明示的な開発者モードに限定します。
+1.0.0は、Original/Compatible/Managedの識別、書込み工程の進捗表示、旧7ch受信と、品質付きprotocol 3の装置設定・tare・実ストリームからの個人校正・永久profile保存/再利用・Firmware更新を扱うWindows用アプリです。実機boardでの受入、既知荷重N係数、物理精度の認証は未実施です。合成fixtureは明示的な開発者モードに限定します。
 
 ## 使用者向け（ビルド不要）
 

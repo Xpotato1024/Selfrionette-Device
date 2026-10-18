@@ -1,4 +1,4 @@
-import {verifyFamilyCatalog} from './firmware-packages.mjs';
+import {sourceTreeHash,verifyFamilyCatalog} from './firmware-packages.mjs';
 import {productInputs,verifyProductInputs} from './artifact-inputs.mjs';
 // Test the Release executable from an extracted ZIP, not from a clone/build folder.
 import {readFileSync,mkdirSync,mkdtempSync,readdirSync,writeFileSync,rmSync} from 'node:fs';
@@ -49,8 +49,9 @@ const firmwarePackageBytes=readFileSync(firmwarePackagePath);
 assert.equal(sha256(firmwarePackageBytes),info.firmware.package_sha256);
 const standaloneFirmware=join(run,'standalone-firmware');mkdirSync(standaloneFirmware);
 extractZip(firmwarePackagePath,standaloneFirmware);
-assert.deepEqual(readdirSync(standaloneFirmware).sort(),['SOURCE-INFO.json','THIRD-PARTY-NOTICES.txt','catalog.json','firmware.hex','legacy-7ch','manifest.json','sources']);
+assert.deepEqual(readdirSync(standaloneFirmware).sort(),['SOURCE-INFO.json','THIRD-PARTY-NOTICES.txt','catalog.json','compatible-7ch','firmware.hex','legacy-7ch','manifest.json','sources']);
 verifyFamilyCatalog(standaloneFirmware);
+assert.equal(sourceTreeHash(standaloneFirmware),sourceTreeHash(join(extracted,'distribution/firmware')),'Standalone firmware source/metadata/images must exactly match all bundled families');
 assert.equal(sha256(readFileSync(join(standaloneFirmware,'manifest.json'))),info.firmware.manifest_sha256);
 assert.equal(sha256(readFileSync(join(standaloneFirmware,'firmware.hex'))),info.firmware.image_sha256);
 assert.equal(sha256(readFileSync(join(standaloneFirmware,'THIRD-PARTY-NOTICES.txt'))),info.firmware.notice_sha256);

@@ -6,6 +6,7 @@ mod hardware;
 mod preferences;
 mod scripted;
 mod session;
+mod update_progress;
 mod updater;
 mod workflow;
 use session::{Mode, ModeCommand, ModeRequest, Runtime, Source};
@@ -146,6 +147,13 @@ async fn application_command(
     Ok(reply)
 }
 
+#[tauri::command]
+fn updater_progress(
+    state: tauri::State<'_, update_progress::Progress>,
+) -> Result<update_progress::Snapshot, String> {
+    state.snapshot()
+}
+
 type UpdateShared = Arc<Mutex<Option<updater::UpdaterService>>>;
 fn updater_service<'a>(
     app: &tauri::AppHandle,
@@ -161,7 +169,9 @@ fn updater_service<'a>(
                 .map_err(|e| e.to_string())?
                 .join("updater"),
         };
-        *state = Some(updater::UpdaterService::new(resources, config));
+        let mut service = updater::UpdaterService::new(resources, config);
+        service.set_progress(app.state::<update_progress::Progress>().inner().clone());
+        *state = Some(service);
     }
     state
         .as_mut()
@@ -268,6 +278,7 @@ async fn device_command(
 }
 #[derive(serde::Serialize)]
 struct ApplicationInfo {
+    firmware_editions: Vec<firmware_family::Edition>,
     product_name: String,
     version: String,
     publisher: Option<String>,
@@ -282,6 +293,7 @@ fn application_info(app: tauri::AppHandle) -> Result<ApplicationInfo, String> {
         .map_err(|error| error.to_string())?;
     let config = app.config();
     Ok(ApplicationInfo {
+        firmware_editions: firmware_family::editions()?,
         product_name: config.product_name.clone().unwrap_or_default(),
         version: app.package_info().version.to_string(),
         publisher: metadata.bundle.publisher,
@@ -453,6 +465,14 @@ pub fn run() {
     tauri::Builder::default()
         .manage(Arc::new(Mutex::new(Runtime::new(mode))))
         .manage(Arc::new(Mutex::new(None::<updater::UpdaterService>)))
+        .manage(update_progress::Progress::default())
+        .on_window_event(|window, event| {
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event
+                && window.state::<update_progress::Progress>().active() {
+                api.prevent_close();
+                let _ = window.emit("manager-update-close-blocked", "Firmware更新中です。USBを抜かず、結果の確認までアプリを開いたままにしてください。");
+            }
+        })
         .setup(move |app| {
             install_menu(app.handle(), &startup, false)?;
             app.on_menu_event(|app, event| {
@@ -473,6 +493,7 @@ pub fn run() {
             hardware_command,
             application_command,
             updater_prepare,
+            updater_progress,
             updater_apply,
             updater_recover,
             updater_invalidate,

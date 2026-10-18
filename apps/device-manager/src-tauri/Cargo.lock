@@ -2621,14 +2621,14 @@ dependencies = [
 
 [[package]]
 name = "selfrionette-core"
-version = "0.2.0-preview.2"
+version = "1.0.0"
 dependencies = [
  "serde",
 ]
 
 [[package]]
 name = "selfrionette-device-manager"
-version = "0.2.0-preview.2"
+version = "1.0.0"
 dependencies = [
  "selfrionette-core",
  "selfrionette-serial",
@@ -2643,7 +2643,7 @@ dependencies = [
 
 [[package]]
 name = "selfrionette-serial"
-version = "0.2.0-preview.2"
+version = "1.0.0"
 dependencies = [
  "getrandom 0.3.4",
  "selfrionette-core",

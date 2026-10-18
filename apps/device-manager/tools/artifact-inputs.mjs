@@ -3,7 +3,7 @@ import {readFileSync} from 'node:fs';
 import {createHash} from 'node:crypto';
 import {join} from 'node:path';
 export function isProductInput(path){
- return path==='THIRD_PARTY_NOTICES.md'
+ return path==='docs/operations/first-use-and-sharing.md' || path==='THIRD_PARTY_NOTICES.md' || path==='firmware/editions.json' || path.startsWith('firmware/compatible_7ch_package/')
  || /^apps\/device-manager\/licenses\/[^/]+\.(txt|md)$/.test(path)
  || /^(crates\/.*\.(rs|toml)|Cargo\.(toml|lock)|rust-toolchain.*|\.cargo\/.*)$/.test(path)
  || /^firmware\/(loadcell_7ch\/.*\.(cpp|h|ini|py)|shared\/.*\.(h|cpp))$/.test(path)

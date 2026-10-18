@@ -1,5 +1,5 @@
 import {appendFirmwareNotices,firmwareNoticePayload,productInputs} from './artifact-inputs.mjs';
-import {legacyManifest,legacySource,packageCatalog,digest,sourceTreeHash} from './firmware-packages.mjs';
+import {legacyManifest,legacySource,compatibleManifest,compatibleSource,editionFields,firmwareEditions,packageCatalog,digest,sourceTreeHash} from './firmware-packages.mjs';
 // Maintainer-only packaging. Users run the resulting binary, never this script.
 import {readFileSync,writeFileSync,mkdirSync,readdirSync,cpSync,copyFileSync,existsSync,rmSync,statSync} from 'node:fs';
 import {resolve,join,sep,isAbsolute,basename} from 'node:path';
@@ -7,7 +7,7 @@ import {fileURLToPath} from 'node:url';
 import {execFileSync,spawnSync} from 'node:child_process';
 import {embeddedFrontendDist,validateGpl2Notice,prependWindowsSearchPath,sha256,inspectPE,inspectConsolePE,mergePackageMetadata,collectNotices,zipDirectory,extractZip,executableMetadata} from './distribution-lib.mjs';
 
-const APP_VERSION='0.2.0-preview.2';
+const APP_VERSION='1.0.0';
 const FIRMWARE_APPLICATION='selfrionette-loadcell-7ch';
 const FIRMWARE_BOARD='sparkfun_promicro16';
 const FIRMWARE_MCU='atmega32u4';
@@ -52,6 +52,8 @@ let buildEnv={
  SELFRIONETTE_EXPECTED_FIRMWARE_IMAGE_SHA256:'',
  SELFRIONETTE_EXPECTED_LEGACY_MANIFEST_SHA256:'',
  SELFRIONETTE_EXPECTED_LEGACY_IMAGE_SHA256:'',
+ SELFRIONETTE_EXPECTED_COMPATIBLE_MANIFEST_SHA256:'',
+ SELFRIONETTE_EXPECTED_COMPATIBLE_IMAGE_SHA256:'',
  SELFRIONETTE_EXPECTED_AVRDUDE_EXE_SHA256:'',
  SELFRIONETTE_EXPECTED_AVRDUDE_CONF_SHA256:'',
  SELFRIONETTE_SOURCE_SHA:'',
@@ -107,7 +109,8 @@ async function build(){
  const platform=/^\s*platform\s*=\s*([^\s#]+)\s*$/m.exec(pioIni)?.[1];
  if(!platform||!/^atmelavr@\d+\.\d+\.\d+$/.test(platform))throw Error('The release firmware build requires an exact atmelavr platform pin in firmware/loadcell_7ch/platformio.ini.');
  const firmwareSource=readFileSync(join(firmwareProject,'src/main.cpp'),'utf8');
- if(!firmwareSource.includes(`#define SELFRIONETTE_FIRMWARE_VERSION "${config.version}"`))throw Error('Firmware version and Device Manager release version differ.');
+ const modernEdition=firmwareEditions(repo).find(e=>e.family==='modern');
+ if(!modernEdition?.firmware_version||!firmwareSource.includes('#ifndef SELFRIONETTE_FIRMWARE_VERSION'))throw Error('Firmware edition registry or version injection is missing.');
 
  const python=process.env.PYTHON??'python';
  const pythonEnv=join(packageWork,'python-env');
@@ -126,7 +129,7 @@ async function build(){
  if(firmwareHex.length===0||firmwareHex.length>512*1024)throw Error('The PlatformIO firmware image has an invalid size.');
  const firmwareHash=sha256(firmwareHex);
  const firmwareManifest={
-  schema:2,family:'modern',source_path:'firmware/loadcell_7ch',source_tree_sha256:sourceTreeHash(firmwareProject),capabilities:['info3','device_settings','personal_calibration','safe_metadata_probe'],
+  ...editionFields(repo,'modern'),family:'modern',source_path:'firmware/loadcell_7ch',source_tree_sha256:sourceTreeHash(firmwareProject),capabilities:['info3','device_settings','personal_calibration','safe_metadata_probe'],
   release_version:config.version,
   application:FIRMWARE_APPLICATION,
   board:FIRMWARE_BOARD,
@@ -134,7 +137,7 @@ async function build(){
   clock_hz:FIRMWARE_CLOCK_HZ,
   protocol_schema:FIRMWARE_PROTOCOL_SCHEMA,
   settings_schema:FIRMWARE_SETTINGS_SCHEMA,
-  firmware_version:config.version,
+  firmware_version:modernEdition.firmware_version,
   source_sha:commit,
   image_file:'firmware.hex',
   image_sha256:firmwareHash,
@@ -155,17 +158,29 @@ async function build(){
  buildEnv.PLATFORMIO_WORKSPACE_DIR=join(packageWork,'legacy-workspace');
  run(pythonExe,[join(repo,'tools/check_firmware_size.py'),'--project-dir',legacyProject,'--environment','legacy_7ch','--max-static-ram','1024','--max-flash','24576'],{cwd:repo});
  const legacyHex=readFileSync(join(buildEnv.PLATFORMIO_BUILD_DIR,'legacy_7ch','firmware.hex'));
- const legacyManifestBytes=Buffer.from(JSON.stringify(legacyManifest({version:config.version,commit,repo,image:legacyHex}),null,2)+'\n');
+ const legacyManifestBytes=Buffer.from(JSON.stringify({...legacyManifest({version:config.version,commit,repo,image:legacyHex}),...editionFields(repo,'legacy_7ch')},null,2)+'\n');
  const legacyPackage=join(firmwarePackage,'legacy-7ch');mkdirSync(legacyPackage);
  writeFileSync(join(legacyPackage,'manifest.json'),legacyManifestBytes,{flag:'wx'});
  writeFileSync(join(legacyPackage,'firmware.hex'),legacyHex,{flag:'wx'});
- writeFileSync(join(firmwarePackage,'catalog.json'),JSON.stringify(packageCatalog(firmwareManifestBytes,legacyManifestBytes),null,2)+'\n',{flag:'wx'});
+ const compatibleProject=resolve(repo,'firmware/compatible_7ch_package');
+ buildEnv.PLATFORMIO_BUILD_DIR=join(packageWork,'compatible-build');
+ buildEnv.PLATFORMIO_WORKSPACE_DIR=join(packageWork,'compatible-workspace');
+ run(pythonExe,[join(repo,'tools/check_firmware_size.py'),'--project-dir',compatibleProject,'--environment','compatible_7ch','--max-static-ram','1024','--max-flash','24576'],{cwd:repo});
+ const compatibleHex=readFileSync(join(buildEnv.PLATFORMIO_BUILD_DIR,'compatible_7ch','firmware.hex'));
+ const compatibleManifestBytes=Buffer.from(JSON.stringify(compatibleManifest({version:config.version,commit,repo,image:compatibleHex}),null,2)+'\n');
+ const compatiblePackage=join(firmwarePackage,'compatible-7ch');mkdirSync(compatiblePackage);
+ writeFileSync(join(compatiblePackage,'manifest.json'),compatibleManifestBytes,{flag:'wx'});
+ writeFileSync(join(compatiblePackage,'firmware.hex'),compatibleHex,{flag:'wx'});
+ writeFileSync(join(firmwarePackage,'catalog.json'),JSON.stringify(packageCatalog(firmwareManifestBytes,legacyManifestBytes,compatibleManifestBytes),null,2)+'\n',{flag:'wx'});
  const sources=join(firmwarePackage,'sources');mkdirSync(sources);
  cpSync(join(repo,legacySource),join(sources,legacySource.slice('firmware/'.length)),{recursive:true});
  cpSync(join(repo,'firmware/loadcell_7ch'),join(sources,'loadcell_7ch'),{recursive:true});
  cpSync(join(repo,'firmware/shared'),join(sources,'shared'),{recursive:true});
  cpSync(legacyProject,join(sources,'legacy_7ch_package'),{recursive:true});
- writeFileSync(join(firmwarePackage,'SOURCE-INFO.json'),JSON.stringify({schema:1,source_commit:commit,modern:{path:'sources/loadcell_7ch',source_tree_sha256:sourceTreeHash(firmwareProject),shared_tree_sha256:sourceTreeHash(join(repo,'firmware/shared')),platform_config:'sources/loadcell_7ch/platformio.ini'},legacy:{path:'sources/'+legacySource.slice('firmware/'.length),source_tree_sha256:sourceTreeHash(join(repo,legacySource)),platform_config:'sources/legacy_7ch_package/platformio.ini',installed_senior_firmware:'unknown',identity_version:'unavailable',eeprom:'no persistent settings support'}},null,2)+'\n',{flag:'wx'});
+ cpSync(join(repo,compatibleSource),join(sources,compatibleSource.slice('firmware/'.length)),{recursive:true});
+ cpSync(compatibleProject,join(sources,'compatible_7ch_package'),{recursive:true});
+ copyFileSync(join(repo,'firmware/editions.json'),join(sources,'editions.json'));
+ writeFileSync(join(firmwarePackage,'SOURCE-INFO.json'),JSON.stringify({schema:2,editions_sha256:hashFile(join(repo,'firmware/editions.json')),source_commit:commit,compatible:{path:'sources/'+compatibleSource.slice('firmware/'.length),source_tree_sha256:sourceTreeHash(join(repo,compatibleSource)),platform_config:'sources/compatible_7ch_package/platformio.ini'},modern:{path:'sources/loadcell_7ch',source_tree_sha256:sourceTreeHash(firmwareProject),shared_tree_sha256:sourceTreeHash(join(repo,'firmware/shared')),platform_config:'sources/loadcell_7ch/platformio.ini'},legacy:{path:'sources/'+legacySource.slice('firmware/'.length),source_tree_sha256:sourceTreeHash(join(repo,legacySource)),platform_config:'sources/legacy_7ch_package/platformio.ini',installed_senior_firmware:'unknown',identity_version:'unavailable',eeprom:'no persistent settings support'}},null,2)+'\n',{flag:'wx'});
  const firmwareNoticeBytes=firmwareNoticePayload(repo);
  writeFileSync(join(firmwarePackage,'THIRD-PARTY-NOTICES.txt'),firmwareNoticeBytes,{flag:'wx'});
  const firmwarePackageFile=stem+'-firmware.zip';
@@ -220,7 +235,7 @@ async function build(){
   'License: GNU General Public License version 2; full upstream COPYING and corresponding source are included as AVRDUDE-COPYING.txt and AVRDUDE-SOURCE.zip.\n';
  writeFileSync(join(resourceRoot,'THIRD-PARTY-NOTICES.txt'),notices.text,{flag:'wx'});
  writeFileSync(join(resourceRoot,'DEPENDENCIES.json'),JSON.stringify(notices.inventory,null,2)+'\n',{flag:'wx'});
- copyFileSync(join(repo,'docs/operations/device-manager-distribution.md'),join(resourceRoot,'README.md'));
+ writeFileSync(join(resourceRoot,'README.md'),readFileSync(join(repo,'docs/operations/first-use-and-sharing.md'),'utf8').replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n/,''),{flag:'wx'});
  const info={
   schema:3,product_inputs:productInputs(repo),application_version:config.version,publisher:config.bundle.publisher,homepage:config.bundle.homepage,
   application_identifier:config.identifier,source_commit:commit,source_tree:git('rev-parse','HEAD^{tree}'),source_dirty:false,
@@ -231,6 +246,7 @@ async function build(){
   firmware:{manifest_file:'distribution/firmware/manifest.json',manifest_sha256:firmwareManifestHash,
    catalog_file:'distribution/firmware/catalog.json',catalog_sha256:hashFile(join(firmwarePackage,'catalog.json')),
    source_info_file:'distribution/firmware/SOURCE-INFO.json',source_info_sha256:hashFile(join(firmwarePackage,'SOURCE-INFO.json')),
+   firmware_version:modernEdition.firmware_version,compatible_manifest_sha256:digest(compatibleManifestBytes),compatible_image_sha256:digest(compatibleHex),
    legacy_manifest_sha256:digest(legacyManifestBytes),legacy_image_sha256:digest(legacyHex),legacy_source:legacySource,
    image_sha256:firmwareHash,source_sha:commit,platformio_platform:platform,platformio_core:pioVersion,
    platformio_config_sha256:sha256(Buffer.from(pioIni)),image_size:firmwareHex.length,flash_range:'0x0000..0x6fff',
@@ -252,7 +268,7 @@ async function build(){
 
  // Explicit frontend file allowlist: tests and maintainer tools are not embedded.
  const frontend=join(packageWork,'frontend');mkdirSync(frontend,{recursive:true});
- const frontendFiles=embeddedFrontendDist(frontend,['index.html','style.css','app.mjs','controller.mjs','design-preview.mjs','navigation.mjs','hardware-ui.mjs','hardware-controller.mjs','readout.mjs','trace.mjs','port-selection.mjs','application-controller.mjs','application-ui.mjs']);
+ const frontendFiles=embeddedFrontendDist(frontend,['index.html','style.css','app.mjs','controller.mjs','design-preview.mjs','navigation.mjs','hardware-ui.mjs','hardware-controller.mjs','readout.mjs','trace.mjs','port-selection.mjs','application-controller.mjs','application-ui.mjs','firmware-ui.mjs']);
  for(const file of frontendFiles){
   copyFileSync(join(root,'frontend',basename(file)),file);
  }
@@ -260,6 +276,8 @@ async function build(){
  buildEnv.SELFRIONETTE_EXPECTED_FIRMWARE_IMAGE_SHA256=firmwareHash;
  buildEnv.SELFRIONETTE_EXPECTED_LEGACY_MANIFEST_SHA256=digest(legacyManifestBytes);
  buildEnv.SELFRIONETTE_EXPECTED_LEGACY_IMAGE_SHA256=digest(legacyHex);
+ buildEnv.SELFRIONETTE_EXPECTED_COMPATIBLE_MANIFEST_SHA256=digest(compatibleManifestBytes);
+ buildEnv.SELFRIONETTE_EXPECTED_COMPATIBLE_IMAGE_SHA256=digest(compatibleHex);
  buildEnv.SELFRIONETTE_EXPECTED_AVRDUDE_EXE_SHA256=avrdudeExeHash;
  buildEnv.SELFRIONETTE_EXPECTED_AVRDUDE_CONF_SHA256=avrdudeConfHash;
  const cli=join(root,'node_modules/@tauri-apps/cli/tauri.js');

@@ -1,8 +1,8 @@
 import test from 'node:test';import assert from 'node:assert/strict';
 import {mkdtempSync,mkdirSync,writeFileSync,rmSync,readFileSync} from 'node:fs';import {tmpdir} from 'node:os';import {join} from 'node:path';import {fileURLToPath} from 'node:url';
-import {sourceTreeHash,legacySource,legacyManifest,packageCatalog,verifyFamilyCatalog,digest} from './firmware-packages.mjs';
+import {sourceTreeHash,legacySource,legacyManifest,packageCatalog,verifyFamilyCatalog,digest,compatibleSource,compatibleManifest,editionFields,firmwareEditions} from './firmware-packages.mjs';
 const repo=fileURLToPath(new URL('../../..',import.meta.url));
-test('old family selects the original leader archive, with cleaned firmware reference-only',()=>{
+test('historical two-family catalog preserves the original archive identity',()=>{
  assert.equal(legacySource,'firmware/legacy/xpotato-sim/arduino/legacy_selfrionette/loadcell_7ch_legacy');
  assert.match(readFileSync(join(repo,'firmware/legacy_7ch_package/platformio.ini'),'utf8'),/src_dir = \.\.\/legacy\/xpotato-sim\/arduino\/legacy_selfrionette\/loadcell_7ch_legacy\/src/);
  assert.match(readFileSync(join(repo,legacySource,'src/main.cpp'),'utf8'),/bool\s+isLeader\s*=\s*true/);
@@ -28,3 +28,27 @@ test('family catalog binds both images and rejects changed data, family, count a
  for(const changed of [{...catalog,families:[]},{...catalog,families:[catalog.families[0],{...catalog.families[1],manifest:'../manifest.json'}]},{...catalog,families:[catalog.families[0],{...catalog.families[1],family:'modern'}]}]){put(changed);assert.throws(()=>verifyFamilyCatalog(root));}
  put(catalog);const bad=Buffer.from(JSON.stringify({...legacy,capabilities:['info3']}));writeFileSync(join(root,'legacy-7ch/manifest.json'),bad);catalog.families[1].manifest_sha256=digest(bad);put(catalog);assert.throws(()=>verifyFamilyCatalog(root),/metadata/);
 }));
+
+test('release catalog contains three named independently versioned firmware editions',()=>temporary(root=>{
+ const image=Buffer.from('firmware'),args={version:'2.4.0',commit:'a'.repeat(40),repo,image};
+ const legacy={...legacyManifest(args),...editionFields(repo,'legacy_7ch')};
+ const compatible=compatibleManifest(args);
+ const modern={...legacy,...editionFields(repo,'modern'),family:'modern',source_path:'firmware/loadcell_7ch',protocol_schema:3,settings_schema:1,capabilities:['info3','device_settings','personal_calibration','safe_metadata_probe']};
+ const entries=[['',modern],['legacy-7ch',legacy],['compatible-7ch',compatible]];
+ const bytes=entries.map(([folder,m])=>{mkdirSync(join(root,folder),{recursive:true});const b=Buffer.from(JSON.stringify(m));writeFileSync(join(root,folder,'manifest.json'),b);writeFileSync(join(root,folder,'firmware.hex'),image);return b;});
+ const catalog=packageCatalog(...bytes);writeFileSync(join(root,'catalog.json'),JSON.stringify(catalog));
+ assert.equal(verifyFamilyCatalog(root).families.length,3);
+ assert.equal(modern.release_version,'2.4.0'); assert.equal(modern.firmware_version,'1.0.0');
+ assert.equal(legacy.firmware_version,''); assert.equal(compatible.firmware_version,'');
+ assert.equal(compatible.source_path,compatibleSource);assert.equal(firmwareEditions(repo).length,3);
+ const bad=Buffer.from(JSON.stringify({...compatible,firmware_version:'invented-original-version'}));
+ writeFileSync(join(root,'compatible-7ch/manifest.json'),bad);catalog.families[2].manifest_sha256=digest(bad);writeFileSync(join(root,'catalog.json'),JSON.stringify(catalog));
+ assert.throws(()=>verifyFamilyCatalog(root),/metadata/);
+}));
+test('Managed firmware version is injected from the registry, not the GUI version',()=>{
+ const source=readFileSync(join(repo,'firmware/loadcell_7ch/src/main.cpp'),'utf8');
+ const injection=readFileSync(join(repo,'firmware/loadcell_7ch/inject_source_sha.py'),'utf8');
+ assert(!source.includes('#define SELFRIONETTE_FIRMWARE_VERSION'));
+ assert(injection.includes('editions.json'));assert(injection.includes('SELFRIONETTE_FIRMWARE_VERSION'));
+ assert.match(readFileSync(join(repo,'firmware/compatible_7ch_package/platformio.ini'),'utf8'),/loadcell_7ch_pro_micro\/src/);
+});

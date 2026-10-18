@@ -25,6 +25,10 @@ on:
       - 'crates/**'
       - 'firmware/loadcell_7ch/**'
       - 'firmware/shared/**'
+      - 'firmware/editions.json'
+      - 'firmware/legacy/**'
+      - 'firmware/legacy_7ch_package/**'
+      - 'firmware/compatible_7ch_package/**'
       - 'tools/check_firmware_size.py'
       - 'docs/contracts/firmware-protocol-v3.md'
       - 'docs/contracts/firmware-update.md'
@@ -318,7 +322,7 @@ jobs:
           if (Test-Path -LiteralPath $actual) { Remove-Item -LiteralPath $actual -Recurse -Force }
 
   publish:
-    name: Publish verified GitHub prerelease
+    name: Publish verified GitHub release
     if: startsWith(github.ref, 'refs/tags/device-manager-v')
     needs: verify
     runs-on: ubuntu-latest
@@ -358,14 +362,17 @@ jobs:
         run: |
           set -euo pipefail
           tag="$GITHUB_REF_NAME"
+          prerelease=false
+          [[ "${tag#device-manager-v}" == *-* ]] && prerelease=true
+          flags=("--prerelease=$prerelease")
           mapfile -d '' assets < <(find dist/release-upload -maxdepth 1 -type f -print0 | sort -z)
           test "${#assets[@]}" -eq 9
           if gh release view "$tag" --json isDraft >/dev/null 2>&1; then
             test "$(gh release view "$tag" --json isDraft --jq '.isDraft')" = "true"
             gh release upload "$tag" "${assets[@]}" --clobber
-            gh release edit "$tag" --notes-file dist/release-notes.md --title "Selfrionette Device Manager ${tag#device-manager-v}" --prerelease
+            gh release edit "$tag" --notes-file dist/release-notes.md --title "Selfrionette Device Manager ${tag#device-manager-v}" "${flags[@]}"
           else
-            gh release create "$tag" "${assets[@]}" --verify-tag --draft --prerelease \
+            gh release create "$tag" "${assets[@]}" --verify-tag --draft "${flags[@]}" \
               --title "Selfrionette Device Manager ${tag#device-manager-v}" \
               --notes-file dist/release-notes.md
           fi
@@ -374,7 +381,7 @@ jobs:
           [[ "$release_id" =~ ^[1-9][0-9]*$ ]]
           gh api "repos/$GITHUB_REPOSITORY/releases/$release_id" > dist/release-response.json
           node apps/device-manager/tools/verify-release-assets.mjs
-          gh release edit "$tag" --draft=false --prerelease
+          gh release edit "$tag" --draft=false "${flags[@]}"
           test "$(gh release view "$tag" --json isDraft --jq '.isDraft')" = "false"
-          test "$(gh release view "$tag" --json isPrerelease --jq '.isPrerelease')" = "true"
+          test "$(gh release view "$tag" --json isPrerelease --jq '.isPrerelease')" = "$prerelease"
           echo "Release published: https://github.com/$GITHUB_REPOSITORY/releases/tag/$tag"
