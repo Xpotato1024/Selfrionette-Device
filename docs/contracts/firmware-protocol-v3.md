@@ -42,8 +42,14 @@ hostはboundedなtare pause/resumeで同じchallengeを使い、再接続時は�
 reset後はv3送信offとなり再handshakeが必要。hostはconnection epochとsequence逆行/停止も監視する。
 v3送信中はvector送信を停止し、停止でv2へ戻る。sessionは永続identityではない。
 
-v3 frame送信は最大20 Hz（50 ms以上の間隔）。出力backpressure中のframeはskipされ、
-sequenceは出力queueへ入ったsampleだけで進む。センサfresh期限は50 msで、期限超過後の
+Managed Firmware 1.0.1以降のv3 frame送信上限は **40 Hz（25 ms以上の間隔）**。
+正式配布済みのManaged Firmware 1.0.0は20 Hz（50 ms）なので、同じProtocol 3でも
+本体のinfo3で取得したFirmware版により最大送信レートが異なる。
+これは送信試行周期の上限であり、7chすべての新規ADC変換、ホストの受信頻度、
+個人校正に使用可能なfreshサンプルが40 Hzになる保証ではない。
+ADCのRATE端子・実際のconversion rate（HX711なら通常10/80 SPS）を実装基板で確認する。
+出力backpressure中のframeはskipされ、
+sequenceは出力queueへ入ったsampleだけで進む。センサfresh期限は従来通り50 msで、期限超過後の
 既存rawには`held|timeout`を付け、新raw未取得ならraw/orientedは`?`とする。
 
 ## Sample

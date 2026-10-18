@@ -69,7 +69,7 @@ related:
 | validation categories | [validation.md](operations/validation.md) |
 | hardware / serial / flashing safety | [hardware-safety.md](operations/hardware-safety.md) |
 
-本ソースは正式版1.0.0用です。公開済みの版・Assetsは[Release一覧](https://github.com/Xpotato1024/Selfrionette-Device/releases)を正とします。[配布手順](operations/device-manager-distribution.md)と[1.0.0 Release Notes](releases/device-manager-v1.0.0.md)に従って検証します。
+Windowsアプリの現行版は1.0.0です。Managed Firmwareのsource registryは1.0.1（品質付き上限40 Hz、実機未確認）へ更新するPRを含み得ます。公開済みのバイナリ版・Assetsは[Release一覧](https://github.com/Xpotato1024/Selfrionette-Device/releases)を正とします。[配布手順](operations/device-manager-distribution.md)と[1.0.0 Release Notes](releases/device-manager-v1.0.0.md)に従って検証します。
 
 ## 必須setupと必須個人校正
 

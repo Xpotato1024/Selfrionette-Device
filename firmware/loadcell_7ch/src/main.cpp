@@ -7,6 +7,7 @@
 #include "../../shared/buffered_line_queue.h"
 #include "../../shared/device_settings.h"
 #include "../../shared/firmware_protocol_v3.h"
+#include "../../shared/stream_cadence.h"
 
 namespace {
 #ifndef SELFRIONETTE_FIRMWARE_VERSION
@@ -25,7 +26,8 @@ constexpr uint8_t kAllChannelBits = (1U << kChannelCount) - 1U;
 constexpr unsigned long kSerialBaudRate = 115200UL;
 constexpr unsigned long kSampleRateHz = 80UL;
 constexpr unsigned long kSamplePeriodMicros = 1000000UL / kSampleRateHz;
-constexpr unsigned long kV3SamplePeriodMicros = 50000UL;
+static_assert(kSamplePeriodMicros == 12500UL, "v2 compatibility must stay at 80 Hz");
+constexpr uint32_t kV3SamplePeriodMicros = selfrionette::firmware::kQualityStreamPeriodMicros;
 constexpr unsigned long kReadyTimeoutMs = 25UL;
 constexpr unsigned long kReadyPollDelayMs = 1UL;
 constexpr uint8_t kSensorActivationReads = 10;
@@ -1045,9 +1047,9 @@ void loop() {
 
   const uint32_t now_us = micros();
   if (g_v3_stream.active()) {
-    if (static_cast<int32_t>(now_us - g_v3_next_frame_us) >= 0) {
+    if (selfrionette::firmware::deadline_reached(now_us, g_v3_next_frame_us)) {
       emitSample3(millis());
-      g_v3_next_frame_us = now_us + kV3SamplePeriodMicros;
+      g_v3_next_frame_us = selfrionette::firmware::next_deadline(now_us);
     }
   } else if (static_cast<int32_t>(now_us - g_v2_next_frame_us) >= 0) {
     printVectorLine(millis(), g_current_values);

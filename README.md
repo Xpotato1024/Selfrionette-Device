@@ -6,7 +6,7 @@ Selfrionette入力装置のFirmwareと、PC側の設定・個人校正・診断�
 
 **[公式リリースとWindows用ダウンロード](https://github.com/Xpotato1024/Selfrionette-Device/releases)**
 
-Windows 11 x64向けのsetup.exe、portable ZIP、3系統のFirmwareパッケージを配布します。本ソースは正式版1.0.0用で、公開済みの版とAssetsはRelease一覧を正とします。利用にRust、Node.js、Pythonやソースのcloneは不要です。
+Windows 11 x64向けのsetup.exe、portable ZIP、3系統のFirmwareパッケージを配布します。Windowsアプリは1.0.0です。main上のManaged Firmwareには送信周期改良版1.0.1の変更が含まれる場合があり、実際に公開されたバイナリの版とAssetsはRelease一覧を正とします。利用にRust、Node.js、Pythonやソースのcloneは不要です。
 
 最初に **[初回利用・研究室内共有ガイド](docs/operations/first-use-and-sharing.md)** を確認してください。[保存先・更新・配布物の説明](docs/operations/device-manager-distribution.md)も用意しています。
 
@@ -16,7 +16,7 @@ Windows 11 x64向けのsetup.exe、portable ZIP、3系統のFirmwareパッケー
 |---|---|---|
 | Selfrionette Original 1.0.0 | 先輩由来の最初の取込みソースを変更せず保管・再ビルド | Legacy 7ch。本体版の照会なし |
 | Selfrionette Compatible 1.0.0 | 7ch通信を維持して整理した互換改善版 | Legacy 7ch。本体版の照会なし |
-| Selfrionette Managed 1.0.0 | 装置管理・品質付き入力・PC上の個人補正に使う新版 | Protocol 2互換 / Protocol 3 |
+| Selfrionette Managed 1.0.1（候補） | 装置管理・品質付き入力・PC上の個人補正に使う新版 | Protocol 2互換 / Protocol 3（送信上限40 Hz、実機未確認） |
 
 Original/Compatibleの1.0.0は今回付けた配布識別版であり、原作者の版番号や実機が返す版ではありません。アプリ版・Firmware配布版・本体Firmware版・通信Protocolは[識別契約](docs/contracts/firmware-identification.md)の別項目です。
 
