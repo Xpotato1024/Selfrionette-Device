@@ -52,6 +52,8 @@ related:
 | serial transport | [serial-transport.md](contracts/serial-transport.md) |
 | Managerなしの正規化入力consumer | [normalized-input-consumer.md](operations/normalized-input-consumer.md) |
 | identity-checked sample monitor | [sample-monitor.md](contracts/sample-monitor.md) |
+| Firmwareの三系統・配布版・本体版・Protocol | [firmware-identification.md](contracts/firmware-identification.md) |
+| 初回利用と研究室内共有 | [first-use-and-sharing.md](operations/first-use-and-sharing.md) |
 | Device Manager firmware update and recovery | [firmware-update.md](contracts/firmware-update.md) |
 
 ## Operations
@@ -59,7 +61,7 @@ related:
 | Topic | Canonical document |
 |---|---|
 | Device Managerの検証層・再利用 | [device-manager-testing.md](operations/device-manager-testing.md) |
-| GitHub配布・最新プレビューの案内 | [device-manager-distribution.md](operations/device-manager-distribution.md) |
+| GitHub配布・版選択の案内 | [device-manager-distribution.md](operations/device-manager-distribution.md) |
 | Windowsバイナリの利用・生成 | [device-manager-distribution.md](operations/device-manager-distribution.md) |
 | Git / PR workflow | [git-pr-workflow.md](operations/git-pr-workflow.md) |
 | 旧Sim firmwareの管理・build・採用順 | [legacy-sim-firmware.md](operations/legacy-sim-firmware.md) |
@@ -67,7 +69,7 @@ related:
 | validation categories | [validation.md](operations/validation.md) |
 | hardware / serial / flashing safety | [hardware-safety.md](operations/hardware-safety.md) |
 
-公開済み版は[0.2.0-preview.1](https://github.com/Xpotato1024/Selfrionette-Device/releases/tag/device-manager-v0.2.0-preview.1)。`0.2.0-preview.2`は未公開の次版候補であり、[配布手順](operations/device-manager-distribution.md)と[Release本文](releases/device-manager-v0.2.0-preview.2.md)に従って検証する。
+本ソースは正式版1.0.0用です。公開済みの版・Assetsは[Release一覧](https://github.com/Xpotato1024/Selfrionette-Device/releases)を正とします。[配布手順](operations/device-manager-distribution.md)と[1.0.0 Release Notes](releases/device-manager-v1.0.0.md)に従って検証します。
 
 ## 必須setupと必須個人校正
 

@@ -35,7 +35,7 @@ test('Cargo version comparison accepts LF and CRLF without accepting another pac
   assert.equal(matchesAppLockVersion(lock.replace('selfrionette-device-manager','another-package'),version),false);
  }
 });
-test('application, Cargo, and npm package versions remain identical',()=>{const c=JSON.parse(readFileSync(new URL('../src-tauri/tauri.conf.json',import.meta.url)));const cargo=readFileSync(new URL('../src-tauri/Cargo.toml',import.meta.url),'utf8');const app=JSON.parse(readFileSync(new URL('../package.json',import.meta.url)));const npmLock=JSON.parse(readFileSync(new URL('../package-lock.json',import.meta.url)));const cargoLock=readFileSync(new URL('../src-tauri/Cargo.lock',import.meta.url),'utf8');assert.equal(c.version,'0.2.0-preview.2');assert(cargo.includes('version = "'+c.version+'"'));assert.equal(app.version,c.version);assert.equal(npmLock.version,c.version);assert.equal(npmLock.packages[''].version,c.version);assert(matchesAppLockVersion(cargoLock,c.version));});
+test('application, Cargo, and npm package versions remain identical',()=>{const c=JSON.parse(readFileSync(new URL('../src-tauri/tauri.conf.json',import.meta.url)));const cargo=readFileSync(new URL('../src-tauri/Cargo.toml',import.meta.url),'utf8');const app=JSON.parse(readFileSync(new URL('../package.json',import.meta.url)));const npmLock=JSON.parse(readFileSync(new URL('../package-lock.json',import.meta.url)));const cargoLock=readFileSync(new URL('../src-tauri/Cargo.lock',import.meta.url),'utf8');assert.equal(c.version,'1.0.0');assert(cargo.includes('version = "'+c.version+'"'));assert.equal(app.version,c.version);assert.equal(npmLock.version,c.version);assert.equal(npmLock.packages[''].version,c.version);assert(matchesAppLockVersion(cargoLock,c.version));});
 test('release packaging locks firmware, updater runtime, CLI and merged license provenance',()=>{const packaging=readFileSync(new URL('./package-windows.mjs',import.meta.url),'utf8');const pins=readFileSync(new URL('./platformio-requirements.txt',import.meta.url),'utf8');const license=readFileSync(new URL('../licenses/avrdude-UPSTREAM.md',import.meta.url),'utf8');const ini=readFileSync(new URL('../../../firmware/loadcell_7ch/platformio.ini',import.meta.url),'utf8');assert.match(pins,/^platformio==6\.1\.19\s*$/m);assert.match(ini,/^\s*platform\s*=\s*atmelavr@\d+\.\d+\.\d+\s*$/m);assert(packaging.includes('SELFRIONETTE_SOURCE_SHA=commit'));assert(packaging.includes('AVRDUDE_ARCHIVE_SHA256'));assert(packaging.includes('AVRDUDE_COPYING_URL'));assert(packaging.includes("'target-feature=+crt-static'"));assert(packaging.includes('inspectConsolePE(cliBytes)'));assert(packaging.includes('mergePackageMetadata(guiMetadata,cliPackageMetadata)'));assert(packaging.includes("'distribution/'+CLI_EXECUTABLE"));assert(packaging.includes('firmwareNoticePayload(repo)'));assert(packaging.includes('firmwarePackageFile'));assert(packaging.includes('package_sha256'));assert(packaging.includes('appendFirmwareNotices'));assert(license.includes('8630c7d8bb9682a1685aaa9ad42550ae1131c9d13528f0d20975368ba615e9b0'));});
 test('checksums are SHA-256 over actual bytes',()=>assert.equal(sha256(Buffer.from('abc')),'ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad'));
 test('installed payload follows the NSIS destination and no-port runtime smoke requires success',()=>{
@@ -185,9 +185,9 @@ test('vendored installer template follows the locked Tauri CLI',()=>{
 test('artifact reuse separates production inputs from test-only scripts',()=>{assert(isProductInput('apps/device-manager/frontend/style.css'));assert(isProductInput('apps/device-manager/frontend/readout.mjs'));assert(!isProductInput('apps/device-manager/tools/ui-qa.mjs'));assert(!isProductInput('apps/device-manager/frontend/readout.test.mjs'));assert(isProductInput('apps/device-manager/src-tauri/windows/installer.nsi'));assert(isProductInput('firmware/loadcell_7ch/src/main.cpp'));assert(isProductInput('firmware/loadcell_7ch/platformio.ini'));assert(isProductInput('firmware/shared/firmware_protocol_v3.h'));assert(isProductInput('tools/check_firmware_size.py'));assert(isProductInput('docs/contracts/firmware-update.md'));assert(isProductInput('apps/device-manager/licenses/avrdude-UPSTREAM.md'));assert(isProductInput('THIRD_PARTY_NOTICES.md'));assert(!isProductInput('apps/device-manager/tools/native-smoke.mjs'));});
 test('missing, changed, added and removed product inputs reject reuse',()=>{verifyProductInputs({a:'same'},{a:'same'});for(const record of [null,{}, {a:'other'},{a:'same',b:'added'}])assert.throws(()=>verifyProductInputs(record,{a:'same'}),/rebuild/);});
 
-test('release staging accepts only matching verified bytes and license-complete manifests',()=>{
+for(const version of ['0.2.0-preview.2','1.0.0']) test('release staging validates exact bytes and release channel: '+version,()=>{
  const run=mkdtempSync(join(tmpdir(),'srn-release-stage-'));
- const tag='device-manager-v0.2.0-preview.2',sha='a'.repeat(40),version='0.2.0-preview.2';
+ const tag='device-manager-v'+version,sha='a'.repeat(40);
  const stem='Selfrionette-Device-Manager_'+version+'_'+sha.slice(0,8)+'_windows-x64';
  const dist=join(run,'dist','release-assets',stem),qa=join(run,'dist','release-qa','test');
  const notesDir=join(run,'docs','releases');mkdirSync(dist,{recursive:true});mkdirSync(qa,{recursive:true});mkdirSync(notesDir,{recursive:true});
@@ -211,10 +211,10 @@ test('release staging accepts only matching verified bytes and license-complete 
  try {
   let result=script('stage-release.mjs');assert.equal(result.status,0,result.stderr);
   const manifest=JSON.parse(readFileSync(join(run,'dist','release-manifest.json'),'utf8'));
-  assert.equal(manifest.assets.length,9);
+  assert.equal(manifest.assets.length,9);assert.equal(manifest.prerelease,version.includes('-'));
   const body=readFileSync(join(run,'dist','release-notes.md'),'utf8');
   assert(body.includes(setup)&&body.includes(firmware)&&body.includes(sha)&&!body.includes('{{'));
-  const release={tag_name:tag,draft:true,prerelease:true,assets:manifest.assets.map(a=>({name:a.name,size:a.size,digest:'sha256:'+a.sha256}))};
+  const release={tag_name:tag,draft:true,prerelease:version.includes('-'),assets:manifest.assets.map(a=>({name:a.name,size:a.size,digest:'sha256:'+a.sha256}))};
   const resultFile=join(run,'dist','release-response.json');
   writeFileSync(resultFile,JSON.stringify(release));
   assert.equal(script('verify-release-assets.mjs').status,0);

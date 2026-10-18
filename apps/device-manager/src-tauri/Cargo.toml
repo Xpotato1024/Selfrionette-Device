@@ -1,6 +1,6 @@
 [package]
 name = "selfrionette-device-manager"
-version = "0.2.0-preview.2"
+version = "1.0.0"
 edition = "2024"
 [lib]
 name = "device_manager"

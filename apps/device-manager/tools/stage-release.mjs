@@ -7,7 +7,7 @@ import {createHash} from 'node:crypto';
 const repo=process.env.GITHUB_REPOSITORY,sha=process.env.GITHUB_SHA,tag=process.env.GITHUB_REF_NAME;
 assert(repo&&/^[\w.-]+\/[\w.-]+$/.test(repo),'GitHub repository required');
 assert(sha&&/^[0-9a-f]{40}$/.test(sha),'Tagged source SHA required');
-assert(tag&&/^device-manager-v[0-9]+\.[0-9]+\.[0-9]+-[a-z0-9.]+$/.test(tag),'Preview release tag required');
+assert(tag&&/^device-manager-v[0-9]+\.[0-9]+\.[0-9]+(?:-[a-z0-9.]+)?$/.test(tag),'Versioned release tag required');
 const version=tag.slice('device-manager-v'.length);
 const root=resolve('dist/release-assets'),qa=resolve('dist/release-qa');
 const dirs=readdirSync(root,{withFileTypes:true}).filter(x=>x.isDirectory()&&x.name.startsWith('Selfrionette-Device-Manager_'));
@@ -86,6 +86,6 @@ for(const [marker,value] of Object.entries(replacements)){
 }
 assert(!/\{\{[^{}]+\}\}/.test(body),'Unexpanded notes markers');
 writeFileSync('dist/release-notes.md',body);
-const manifest={tag,source_commit:sha,version,assets:assetNames.concat(screenshot).map(name=>({name,size:statSync(join(stage,name)).size,sha256:hash(join(stage,name))}))};
+const manifest={tag,source_commit:sha,version,prerelease:version.includes('-'),assets:assetNames.concat(screenshot).map(name=>({name,size:statSync(join(stage,name)).size,sha256:hash(join(stage,name))}))};
 writeFileSync('dist/release-manifest.json',JSON.stringify(manifest,null,2)+'\n');
 console.log('Release staged and validated: '+JSON.stringify({tag,sha,files:manifest.assets.map(a=>a.name)}));

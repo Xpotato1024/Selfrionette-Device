@@ -9,7 +9,9 @@
 #include "../../shared/firmware_protocol_v3.h"
 
 namespace {
-#define SELFRIONETTE_FIRMWARE_VERSION "0.2.0-preview.2"
+#ifndef SELFRIONETTE_FIRMWARE_VERSION
+#error "PlatformIO must inject the independently versioned Managed firmware release"
+#endif
 
 #ifndef SELFRIONETTE_SOURCE_SHA
 #error "PlatformIO must inject SELFRIONETTE_SOURCE_SHA"

@@ -5,7 +5,7 @@ const expected=JSON.parse(readFileSync('dist/release-manifest.json','utf8'));
 const actual=JSON.parse(readFileSync('dist/release-response.json','utf8'));
 assert.equal(actual.tag_name,expected.tag);
 assert.equal(actual.draft,true,'Existing published releases must not be overwritten');
-assert.equal(actual.prerelease,true);
+assert.equal(actual.prerelease,expected.prerelease);
 assert.equal(actual.assets.length,expected.assets.length,'Unexpected asset count');
 for(const asset of expected.assets){
  const remote=actual.assets.find(item=>item.name===asset.name);

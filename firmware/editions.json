@@ -1,0 +1,35 @@
+{
+  "schema": 1,
+  "editions": [
+    {
+      "family": "modern",
+      "name": "Selfrionette Managed",
+      "distribution_version": "1.0.0",
+      "firmware_version": "1.0.0",
+      "protocols": [
+        2,
+        3
+      ],
+      "description": "管理対応版：装置設定・品質付き入力・PCでの個人校正に対応",
+      "source_path": "firmware/loadcell_7ch"
+    },
+    {
+      "family": "legacy_7ch",
+      "name": "Selfrionette Original",
+      "distribution_version": "1.0.0",
+      "firmware_version": null,
+      "protocols": [],
+      "description": "初期保管版：先輩由来の取込ソースを変更せず配布。本体の版番号は取得不可",
+      "source_path": "firmware/legacy/xpotato-sim/arduino/legacy_selfrionette/loadcell_7ch_legacy"
+    },
+    {
+      "family": "compatible_7ch",
+      "name": "Selfrionette Compatible",
+      "distribution_version": "1.0.0",
+      "firmware_version": null,
+      "protocols": [],
+      "description": "互換改善版：7ch通信を維持して整理したユーザー改良ソース。本体の版番号は取得不可",
+      "source_path": "firmware/legacy/xpotato-sim/arduino/legacy_selfrionette/loadcell_7ch_pro_micro"
+    }
+  ]
+}

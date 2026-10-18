@@ -14,7 +14,9 @@ export function installDesktopFixture(options={}) {
   window.fixtureRequests.push({name,request:structuredClone(request),command:structuredClone(command)});
   if(name==='connection_candidate'){if(target){candidate=target;localStorage.setItem('fixture-candidate',JSON.stringify(target));}return candidate;}
   if(name==='updater_invalidate'){updatePlan=null;return null;}
-  if(name==='updater_prepare'){if(window.testFeed.connected)throw Error('接続を解放してください');updatePlan={status:'ready',plan_id:'fixture-plan',apply_enabled:true,target:request.target,manifest:{release_version:'display fixture'},source_trust:'test_only'};return updatePlan;}
+  if(name==='updater_prepare'){if(window.testFeed.connected)throw Error('接続を解放してください');updatePlan={status:'ready',plan_id:'fixture-plan',apply_enabled:true,target:request.target,manifest:{release_version:'1.0.0',family:request.family,firmware_name:({modern:'Selfrionette Managed',legacy_7ch:'Selfrionette Original',compatible_7ch:'Selfrionette Compatible'})[request.family],distribution_version:'1.0.0',firmware_version:request.family==='modern'?'1.0.0':'',supported_protocols:request.family==='modern'?[2,3]:[],protocol_schema:request.family==='modern'?3:0},source_trust:'test_only'};return updatePlan;}
+  if(name==='updater_progress')return structuredClone(window.testUpdateProgress??{operation_id:'',sequence:0,stage:'idle',active:false,percent:null});
+  if(name==='updater_apply'&&options.holdUpdater){window.testUpdateProgress={operation_id:request.plan_id,sequence:1,stage:'resetting',target:request.target?.name??'COM9',active:true,percent:null};return await new Promise(resolve=>{window.fixtureFinishUpdate=resolve;});}
   if(name==='updater_apply'){if(!updatePlan||request.plan_id!==updatePlan.plan_id||!request.operator_confirmed)throw Error('unapproved');return {status:'verified',needs_recovery:false};}
   if(name==='mode_command'){
    const c=request.command,m=window.testMode;
@@ -27,7 +29,7 @@ export function installDesktopFixture(options={}) {
    }
    return structuredClone(m);
   }
-  if(name==='application_info')return {product_name:'Selfrionette Device Manager',version:options.version??'表示試験',publisher:'Xpotato.net',homepage:'https://xpotato.net'};
+  if(name==='application_info')return {product_name:'Selfrionette Device Manager',version:options.version??'表示試験',firmware_editions:options.editions,publisher:'Xpotato.net',homepage:'https://xpotato.net'};
   if(name==='application_command'){
    if(command.action==='ports')return {ports:structuredClone(window.testFeed.ports)};
    const m=window.testModern;

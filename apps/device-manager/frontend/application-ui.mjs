@@ -1,3 +1,4 @@
+import {progressView,createProgressTracker,packageIdentityRows,observedIdentityRows} from './firmware-ui.mjs';
 import {createApplicationController} from './application-controller.mjs';
 import {portTarget,sameTarget} from './port-selection.mjs';
 
@@ -56,6 +57,7 @@ export function createApplicationUI({invoke,hardware,onOwner=()=>{}}) {
  <div class="live-content">
  <p id="live-error" class="field-error" role="alert" hidden></p>
  <details id="live-error-details" hidden><summary>技術情報</summary><pre id="live-error-detail"></pre></details>
+ <section id="update-progress-panel" class="update-progress-panel" aria-labelledby="update-progress-title" hidden><h2 id="update-progress-title" role="status" aria-live="polite"></h2><progress id="update-progress-bar" max="100" aria-label="Firmware更新の現在工程の進捗"></progress><span id="update-progress-percent"></span><p id="update-progress-detail"></p></section>
  <p id="live-state" role="status">品質付きFirmwareに接続してください。</p>
  <p id="live-command-status" role="status" aria-live="polite"></p>
  <section data-live-panel="setup">
@@ -110,7 +112,7 @@ export function createApplicationUI({invoke,hardware,onOwner=()=>{}}) {
   <h2>Firmware更新</h2><p>接続先とFirmwareを確認してから書き込みます。アプリのインストールだけでは、機器のFirmwareは変わりません。</p>
   <div class="live-form-line"><label>接続先<select id="update-port"><option value="">接続先を選択</option></select></label><button id="update-scan">再検索</button></div>
   <label class="check-line"><input id="update-source-supported" type="checkbox" checked>機器情報を確認する（対応Firmwareのみ）</label><p class="caption-note">情報を取得できない機器では、実物の基板を確認してください。</p>
-  <label>書き込むFirmware<select id="update-family"><option value="modern">新版（個体設定・個人校正対応）</option><option value="legacy_7ch">旧版（初期保管ソース）</option></select></label>
+  <label>書き込むFirmware<select id="update-family"><option value="modern">Selfrionette Managed — 管理対応版</option><option value="legacy_7ch">Selfrionette Original — 初期保管版</option><option value="compatible_7ch">Selfrionette Compatible — 互換改善版</option></select></label>
   <label>入手元<select id="update-package"><option value="bundled">このアプリの同梱版</option><option value="local">ローカルのmanifestとHEX</option></select></label>
   <div id="update-local" hidden><label>manifest JSON<input id="update-manifest" type="file" accept=".json"></label><label>Firmware IntelHEX<input id="update-hex" type="file" accept=".hex"></label><p>hashは破損検出です。配布元を別に確認してください。</p></div>
   <label class="check-line"><input id="update-board-confirm" type="checkbox">基板がPro Micro（ATmega32U4・5V／16MHz）であることを確認しました</label>
@@ -123,6 +125,35 @@ export function createApplicationUI({invoke,hardware,onOwner=()=>{}}) {
   <p class="caption-note">曖昧なbootloader候補は自動選択しません。失敗・中断は再接続してversion・ID・設定を確認するまで「要復旧」です。個体IDの新規登録は更新と別操作です。</p>
  </section>
  </div></div>`;
+ let updateRunning=false,progressGeneration=0;
+ function renderUpdateProgress(value){
+  $('update-progress-panel').hidden=false;$('update-progress-panel').setAttribute('aria-busy',String(value.active));
+  $('update-progress-title').textContent=value.title;$('update-progress-detail').textContent=value.detail;
+  if(value.percent===null)$('update-progress-bar').removeAttribute('value');else $('update-progress-bar').value=value.percent;
+  $('update-progress-percent').textContent=value.percent===null?'':value.percent+'%';
+ }
+ async function runUpdater(command,args,operationId,target){
+  const generation=++progressGeneration;updateRunning=true;
+  renderUpdateProgress(progressView({stage:'checking',active:true,target}));$('update-result').textContent='更新処理を開始しました。完了までUSBを抜かないでください。';controls();
+  let stopped=false,pollTimer=null;
+  const baseline=await window.__TAURI__.core.invoke('updater_progress').catch(()=>({sequence:-1}));
+  const accept=createProgressTracker(operationId,baseline?.sequence??-1);
+  async function poll(){
+   if(stopped||generation!==progressGeneration)return;
+   try{const value=accept(await window.__TAURI__.core.invoke('updater_progress'));if(!stopped&&generation===progressGeneration&&value)renderUpdateProgress(value);}
+   catch{if(!stopped)$('update-progress-detail').textContent='進捗の取得に失敗しました。更新処理の結果を確認するまでUSBを抜かないでください。';}
+   if(!stopped)pollTimer=setTimeout(poll,120);
+  }
+  try{
+   const promise=window.__TAURI__.core.invoke(command,args);void poll();
+   const reply=await promise;
+   const stage=reply.needs_recovery?'needs_recovery':reply.status==='awaiting_bootloader_confirmation'?'awaiting_confirmation':['verified','image_verified_legacy_identity_unavailable'].includes(reply.status)?'complete':'failed';
+   stopped=true;renderUpdateProgress(progressView({stage,target,active:false,percent:stage==='complete'?100:null}));
+   return reply;
+  }catch(error){stopped=true;renderUpdateProgress(progressView({stage:'failed',target,active:false}));throw error;}
+  finally{stopped=true;clearTimeout(pollTimer);updateRunning=false;controls();}
+ }
+ if(window.__TAURI__?.event?.listen)void window.__TAURI__.event.listen('manager-update-close-blocked',e=>{$('update-progress-detail').textContent=e.payload;}).catch(()=>{});
  let owned=false;
  let page='setup',active=false,timer=null,view=null,ports=[],busy=false,plan=[],position=0,furthest=0,missing=new Set(),lastCapture=null,rest=null,updaterPlan=null,setupSignature='',operatorSignature='',contextSignature='';
  const observations=new Map();
@@ -147,12 +178,14 @@ export function createApplicationUI({invoke,hardware,onOwner=()=>{}}) {
   $('live-command-status').textContent=status==='pending'?'操作を実行中…':'';
  }});
  function setup(){return {assembly_revision:Number($('live-assembly').value),config_revision:Number($('live-config').value),channels:Array.from({length:7},(_,wire)=>({wire,logical_axis:$('live-axis-'+wire).value===''?null:Number($('live-axis-'+wire).value),location:$('live-location-'+wire).value.trim(),direction:$('live-direction-'+wire).value.trim(),polarity:$('live-polarity-'+wire).value===''?null:Number($('live-polarity-'+wire).value),confirmed:$('live-confirm-'+wire).checked,evidence:observations.get(wire)??null}))};}
- function showPage(name){page=name;$('live-state').hidden=name==='update';if(name==='update')void scan(hardware.connected?hardware.candidate:view?.candidate).catch(e=>report(String(e)));for(const panel of root.querySelectorAll('[data-live-panel]'))panel.hidden=panel.dataset.livePanel!==page;for(const b of root.querySelectorAll('[data-live-page]')){if(b.dataset.livePage===page)b.setAttribute('aria-current','step');else b.removeAttribute('aria-current');}}
+ function showPage(name){if(updateRunning)return;page=name;$('live-state').hidden=name==='update';if(name==='update')void scan(hardware.connected?hardware.candidate:view?.candidate).catch(e=>report(String(e)));for(const panel of root.querySelectorAll('[data-live-panel]'))panel.hidden=panel.dataset.livePanel!==page;for(const b of root.querySelectorAll('[data-live-page]')){if(b.dataset.livePage===page)b.setAttribute('aria-current','step');else b.removeAttribute('aria-current');}}
  for(const b of root.querySelectorAll('[data-live-page]'))b.onclick=()=>showPage(b.dataset.livePage);
  function controls(){
+  hardware.setExternalOwner?.(updateRunning||!!(view?.owns_handle||view?.connected));
   for(const button of root.querySelectorAll('button:not([data-live-page])'))button.disabled=busy;
+  for(const button of root.querySelectorAll('[data-live-page]'))button.disabled=updateRunning;
   for(const input of root.querySelectorAll('input,select'))input.disabled=busy||!!view?.capture?.active;
-  for(const id of ['update-port','update-family','update-package','update-manifest','update-hex','update-board-confirm','update-write-confirm','update-bootloader-confirm','update-bootloader-target'])$(id).disabled=busy;
+  for(const id of ['update-port','update-family','update-package','update-manifest','update-hex','update-board-confirm','update-source-supported','update-write-confirm','update-bootloader-confirm','update-bootloader-target'])$(id).disabled=busy;
   $('live-connect').disabled=busy||!!view?.owns_handle||!!view?.connected||!$('live-port').value;
   $('live-disconnect').disabled=busy||!(view?.owns_handle||view?.connected);$('live-reconnect').disabled=busy||!view?.candidate||hardware.connected;
   for(const id of ['live-provision','live-tare','live-setup-save','live-context-save','live-capture-start','live-capture-retry','live-capture-skip','live-capture-abort','live-fit','live-heldout-start','live-heldout-verify','live-neutral-start','live-profile-save','live-profile-apply','live-profile-list','live-profile-load'])$(id).disabled=busy||!view?.connected;
@@ -174,14 +207,14 @@ export function createApplicationUI({invoke,hardware,onOwner=()=>{}}) {
  function infoRows(target,rows){$(target).replaceChildren();for(const[key,value]of rows){$(target).append(element('dt',key),element('dd',value??'—'));}}
  function render(next){if(next?.connected&&!owned)onOwner();owned=!!next?.connected;view=next;
   root.dataset.connected=String(!!view?.connected);root.dataset.ready=String(!!view?.ready);root.dataset.sampleSequence=String(view?.sample?.sequence??'');
-  hardware.setExternalOwner?.(!!(view?.owns_handle||view?.connected));
+  hardware.setExternalOwner?.(updateRunning||!!(view?.owns_handle||view?.connected));
   if(view?.owns_handle||view?.connected){$('environment').textContent=view.scripted?'模擬transport · 実機未接続':view.connected?(view.ready?'入力設定を適用中':'品質付き接続'):'接続失効 · 切断が必要';$('device-summary').textContent=(view.info?.device_id&&view.info.device_id!=='unprovisioned'?'個体 …'+view.info.device_id.slice(-8):'個体ID未登録')+' · '+(view.port??'');$('device-summary').title=view.info?.device_id??'';}
   const contextKey=JSON.stringify([view?.connected,view?.owns_handle,view?.port,view?.info?.device_id,view?.info?.generation,view?.info?.source_sha,view?.info?.tare_epoch]);if(contextKey!==contextSignature){contextSignature=contextKey;observations.clear();rest=null;setupSignature='';operatorSignature='';for(let wire=0;wire<7;wire++)$('live-confirm-'+wire).checked=false;lastCapture=null;plan=[];position=0;furthest=0;missing.clear();heldoutStep=0;updaterPlan=null;updateInstruction();heldoutInstruction();}
   const setupKey=JSON.stringify(view?.setup??null);if(view?.setup&&setupKey!==setupSignature){setupSignature=setupKey;const s=view.setup;$('live-assembly').value=s.assembly_revision;$('live-config').value=s.config_revision;for(const c of s.channels){$('live-axis-'+c.wire).value=c.logical_axis??'';$('live-location-'+c.wire).value=c.location??'';$('live-direction-'+c.wire).value=c.direction??'';$('live-polarity-'+c.wire).value=c.polarity??'';$('live-confirm-'+c.wire).checked=c.confirmed;if(c.evidence)observations.set(c.wire,c.evidence);}}
   const operatorKey=JSON.stringify(view?.operator??null);if(view?.operator&&operatorKey!==operatorSignature){operatorSignature=operatorKey;$('live-operator').value=view.operator.operator??'';$('live-posture').value=view.operator.posture??'';$('live-grip').value=view.operator.grip??'';}
   $('live-state').textContent=page==='update'?'接続先とFirmwareを検査してから書き込みます。':!view?.connected?(hardware.connected?'受信可能・設定未確認':view?.paused?'一時停止（接続を解放）':'新版の装置設定は接続先を選んで開始します。'):view.ready?'入力設定を適用中':'接続中 · 装置設定、ゼロ点調整、使用条件と今回の中立値を確認してください';
   const info=view?.info;
-  infoRows('live-info',[['個体ID',info?.device_id??info?.identity],['Firmware',info?.firmware_version??info?.version],['ソース版',info?.source_sha??info?.source_commit],['設定の保存世代',info?.generation],['ゼロ点調整',info?`${info.tare_epoch} / ${info.tare_valid?'有効':'未完了・失効'}`:null]]);
+  infoRows('live-info',[['個体ID',info?.device_id??info?.identity],['Firmware版（本体の応答）',info?.firmware_version],['通信プロトコル',info?'Protocol 3（品質付き接続）':'未確認'],['ソース版',info?.source_sha??info?.source_commit],['設定の保存世代',info?.generation],['ゼロ点調整',info?`${info.tare_epoch} / ${info.tare_valid?'有効':'未完了・失効'}`:null]]);
   const sample=view?.sample;
   for(let ch=0;ch<7;ch++){
    const cells=$('live-sample-rows').children[ch].children;cells[1].textContent=num(sample?.raw?.[ch]);cells[2].textContent=num(sample?.oriented?.[ch]);cells[3].textContent=quality(sample?.flags?.[ch]);
@@ -205,7 +238,7 @@ export function createApplicationUI({invoke,hardware,onOwner=()=>{}}) {
  function updateInstruction(){$('live-instruction-title').textContent=position<plan.length?`手順 ${position+1} / ${plan.length}`:'測定記録を比較する';$('live-instruction').textContent=plan[position]?.instruction??'測定終了。候補A/Bを計算し、別試行で検証してください。';$('live-missing').hidden=missing.size===0;$('live-measure-step').replaceChildren();for(const[index,step]of plan.entries()){const option=element('option',`${index+1} ${step.instruction}`,{value:index});option.disabled=index>furthest;$('live-measure-step').append(option);}$('live-measure-step').value=String(position);controls();}
  async function send(command){return controller.send(command);}
  function selectedPort(id,list=ports){const v=$(id).value;return v!==''&&/^(0|[1-9][0-9]*)$/.test(v)?list[Number(v)]??null:null;}
- function invalidateUpdate(){invalidation=invalidation.then(()=>window.__TAURI__.core.invoke('updater_invalidate')).catch(e=>report(String(e)));updateGeneration++;updaterPlan=null;$('update-write-confirm').checked=false;$('update-bootloader-confirm').checked=false;$('update-bootloader-confirmation').hidden=true;bootloaderCandidates=[];}
+ function invalidateUpdate(preserveProgress=false){if(!preserveProgress){progressGeneration++;$('update-progress-panel').hidden=true;$('update-result').textContent='';$('update-detail').textContent='';}invalidation=invalidation.then(()=>window.__TAURI__.core.invoke('updater_invalidate')).catch(e=>report(String(e)));updateGeneration++;updaterPlan=null;$('update-write-confirm').checked=false;$('update-bootloader-confirm').checked=false;$('update-bootloader-confirmation').hidden=true;bootloaderCandidates=[];}
  let invalidation=Promise.resolve(),scanGeneration=0;
  async function scan(preferred=null){
   const prior=Object.fromEntries(['live-port','update-port'].map(id=>[id,selectedPort(id)]));
@@ -260,7 +293,7 @@ export function createApplicationUI({invoke,hardware,onOwner=()=>{}}) {
  $('live-profile-list').onclick=()=>send({action:'list_calibrations'});
  $('live-profile-load').onclick=()=>send({action:'load_calibration',record_path:$('live-profiles').value});
  $('live-neutral-start').onclick=()=>start({phase:'session_neutral',axis:null,direction:1,repeat:0,level:0,instruction:'今回の自然な使用姿勢で意図的な入力をせず保持してください。'},'neutral');
- $('update-family').onchange=$('update-package').onchange=()=>{$('update-family-note').textContent=$('update-family').value==='legacy_7ch'?'保管7ch版：個体設定・個人校正には非対応。ID・版情報は取得できません。設定保持は新版に戻して確認します。先輩の実機と同じFirmwareとは未確認です。':'';invalidateUpdate();$('update-local').hidden=$('update-package').value!=='local';controls();};
+ $('update-family').onchange=$('update-package').onchange=()=>{$('update-family-note').textContent=$('update-family').value!=='modern'?'保管7ch版：個体設定・個人校正には非対応。ID・版情報は取得できません。設定保持は新版に戻して確認します。先輩の実機と同じFirmwareとは未確認です。':'';invalidateUpdate();$('update-local').hidden=$('update-package').value!=='local';controls();};
  $('update-port').onchange=()=>{const p=selectedPort('update-port');if(p)hardware.remember(p);invalidateUpdate();controls();};
  $('update-source-supported').onchange=$('update-board-confirm').onchange=$('update-manifest').onchange=$('update-hex').onchange=()=>{invalidateUpdate();controls();};
  $('update-handoff').onclick=async()=>{if(hardware.connected)await hardware.disconnect();if(view?.connected||view?.owns_handle)await pause();await scan();controls();};
@@ -270,12 +303,12 @@ export function createApplicationUI({invoke,hardware,onOwner=()=>{}}) {
   if(hardware.connected||view?.owns_handle){$('update-result').textContent='先に受信を停止してください。';return;}
   await invalidation;try{busy=true;controls();let selected=null;if($('update-package').value==='local'){const m=$('update-manifest').files[0],h=$('update-hex').files[0];if(!m||!h||m.size>32768||h.size>262144)throw Error('manifestとHEXを選択してください（上限32KiB / 256KiB）。');selected={manifest_json:await m.text(),firmware_hex:await h.text()};}
    const p=await window.__TAURI__.core.invoke('updater_prepare',{request:{target:portTarget(target),package:selected,family:$('update-family').value,metadata_supported:$('update-source-supported').checked,manual_board_confirmation:$('update-board-confirm').checked}});if(generation!==updateGeneration)throw Error('更新条件が変更されました。対象とパッケージを再検査してください。');updaterPlan=p;$('update-write-confirm').checked=false;
-   infoRows('update-plan',[['状態',p.status],['対象',p.target?.name],['現在のID',p.observation?.info?.device_id??'未識別（初回導入）'],['現在のFirmware',p.observation?.info?.firmware_version??'未識別'],['更新先',p.manifest?.release_version],['source',p.manifest?.source_sha],['image SHA256',p.firmware_sha256],['配布元',p.source_trust],['保護記録',p.backup_id??p.backup_status]]);$('update-result').textContent='検査結果を確認してください。書込みはまだ行っていません。';
+   infoRows('update-plan',[['状態',p.status],['対象',p.target?.name],['現在のID',p.observation?.info?.device_id??'未識別（初回導入）'],...observedIdentityRows(p.observation),...packageIdentityRows(p.manifest),['source',p.manifest?.source_sha],['image SHA256',p.firmware_sha256],['配布元',p.source_trust],['保護記録',p.backup_id??p.backup_status]]);$('update-result').textContent='検査結果を確認してください。書込みはまだ行っていません。';
   }catch(e){updaterPlan=null;$('update-detail').textContent=String(e);$('update-result').textContent='検査できませんでした。接続先・基板・Firmwareを確認してください。';}finally{busy=false;controls();}
  };
- $('update-apply').onclick=async()=>{if(!updaterPlan||!$('update-write-confirm').checked)return;try{busy=true;controls();const awaiting=!$('update-bootloader-confirmation').hidden,bootloader_target=awaiting?bootloaderCandidates[Number($('update-bootloader-target').value)]:null;const r=await window.__TAURI__.core.invoke('updater_apply',{request:{plan_id:updaterPlan.plan_id,operator_confirmed:true,bootloader_target,manual_bootloader_confirmation:awaiting&&$('update-bootloader-confirm').checked}});if(r.status==='awaiting_bootloader_confirmation'){bootloaderCandidates=r.bootloader_candidates??[];$('update-bootloader-target').replaceChildren(element('option','実物を確認して選択',{value:''}));for(const[pindex,p]of bootloaderCandidates.entries())$('update-bootloader-target').append(element('option',`${p.name} · ${p.product??'書込み待機用'}`,{value:pindex}));$('update-bootloader-confirm').checked=false;$('update-bootloader-confirmation').hidden=false;$('update-result').textContent='書込み前の対象確認が必要です。同じ実物の書込み待機portを確認してください。';}else{$('update-detail').textContent=r.message??r.status;$('update-result').textContent=r.needs_recovery?'要復旧：接続先を変えず、更新を確認してください。':r.status==='image_verified_legacy_identity_unavailable'?'画像確認済み。旧版のID・版情報は取得不可、設定保持は未確認です。':'Firmware・個体ID・設定を確認しました。';invalidateUpdate();}}catch(e){$('update-detail').textContent=String(e);$('update-result').textContent='確認が必要です。接続先を変えず、中断した更新を確認してください。';invalidateUpdate();}finally{busy=false;controls();}};
+ $('update-apply').onclick=async()=>{if(!updaterPlan||!$('update-write-confirm').checked)return;try{busy=true;controls();const awaiting=!$('update-bootloader-confirmation').hidden,bootloader_target=awaiting?bootloaderCandidates[Number($('update-bootloader-target').value)]:null;const r=await runUpdater('updater_apply',{request:{plan_id:updaterPlan.plan_id,operator_confirmed:true,bootloader_target,manual_bootloader_confirmation:awaiting&&$('update-bootloader-confirm').checked}},updaterPlan.plan_id,updaterPlan.target?.name??'');if(r.status==='awaiting_bootloader_confirmation'){bootloaderCandidates=r.bootloader_candidates??[];$('update-bootloader-target').replaceChildren(element('option','実物を確認して選択',{value:''}));for(const[pindex,p]of bootloaderCandidates.entries())$('update-bootloader-target').append(element('option',`${p.name} · ${p.product??'書込み待機用'}`,{value:pindex}));$('update-bootloader-confirm').checked=false;$('update-bootloader-confirmation').hidden=false;$('update-result').textContent='書込み前の対象確認が必要です。同じ実物の書込み待機portを確認してください。';}else{$('update-detail').textContent=r.message??r.status;$('update-result').textContent=r.needs_recovery?'要復旧：接続先を変えず、更新を確認してください。':r.status==='image_verified_legacy_identity_unavailable'?'画像確認済み。旧版のID・版情報は取得不可、設定保持は未確認です。':r.status==='verified'?(r.settings_preserved===true?'Firmware・個体ID・設定の保持を照合しました。':'Firmware応答を照合しました。更新前後の設定保持は比較できません。'):'更新結果が未確認です。技術情報を確認してください。';invalidateUpdate(true);}}catch(e){$('update-detail').textContent=String(e);$('update-result').textContent='確認が必要です。接続先を変えず、中断した更新を確認してください。';invalidateUpdate(true);}finally{busy=false;controls();}};
  $('update-recover').onclick=async()=>{if(hardware.connected||view?.owns_handle)return;try{busy=true;controls();const r=await window.__TAURI__.core.invoke('updater_recover',{metadataSupported:$('update-source-supported').checked});$('update-detail').textContent=r.message??r.status;$('update-result').textContent=r.needs_recovery?'要復旧：接続先と技術情報を確認してください。':r.status==='image_verified_legacy_identity_unavailable'?'画像確認済み。旧版のID・版情報は取得不可、設定保持は未確認です。':r.status==='none'?'中断した更新はありません。':'更新状態を確認しました。';}catch(e){$('update-detail').textContent=String(e);$('update-result').textContent='確認が必要です。接続先を変えず、中断した更新を確認してください。';}finally{busy=false;controls();}};
  async function tick(){if(!active)return;if(view?.connected&&!controller.busy)await send({action:view?.capture?.active?'capture_tick':'stream_tick'});timer=setTimeout(tick,50);}
  controls();
- return {get ownsHandle(){return !!view?.owns_handle;},get candidate(){return view?.candidate??null;},get connected(){return !!view?.connected;},get busy(){return busy||controller.busy;},pause,reconnect,async activate(value){active=value;clearTimeout(timer);if(value){await scan().catch(e=>report(String(e)));await send({action:'snapshot'});timer=setTimeout(tick,100);}},disconnect:()=>send({action:'disconnect'})};
+ return {get updating(){return updateRunning;},setEditions(editions){if(!Array.isArray(editions)||editions.length!==3||updateRunning)return;const previous=$('update-family').value;$('update-family').replaceChildren();for(const edition of editions)$('update-family').append(element('option',edition.name+' '+edition.distribution_version+' — '+edition.description,{value:edition.family}));$('update-family').value=previous;},get ownsHandle(){return !!view?.owns_handle;},get candidate(){return view?.candidate??null;},get connected(){return !!view?.connected;},get busy(){return busy||controller.busy;},pause,reconnect,async activate(value){active=value;clearTimeout(timer);if(value){await scan().catch(e=>report(String(e)));await send({action:'snapshot'});timer=setTimeout(tick,100);}},disconnect:()=>send({action:'disconnect'})};
 }

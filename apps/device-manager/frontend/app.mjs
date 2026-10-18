@@ -12,6 +12,7 @@ let lastOwner='monitor';
 let sourceMode = 'hardware', sessionMode = null, modeQueue = Promise.resolve();
 const hardware = createHardwareUI(request => window.__TAURI__.core.invoke('hardware_command', {request}),{onOwner:()=>{lastOwner='monitor';}});
 const application = createApplicationUI({onOwner:()=>{lastOwner='modern';},hardware,invoke:command=>window.__TAURI__.core.invoke('application_command',{command})});
+if(native)void window.__TAURI__.core.invoke('application_info').then(info=>application.setEditions(info.firmware_editions)).catch(()=>{});
 $('hardware-reconnect').onclick=()=>{if(lastOwner==='modern')void application.reconnect();else void hardware.reconnect();};
 $('hardware-disconnect').onclick=()=>{if(application.ownsHandle)void application.pause();else void hardware.disconnect();};
 const phaseNames = { not_started: '未開始', baseline: '基準の確認待ち', assessment: '応答の確認待ち', preview: '入力の比較待ち', confirmation: '結果の確認待ち', record: '合成結果を確認済み' };
@@ -95,6 +96,7 @@ function visitStep(key) {
   document.querySelector('[data-step="'+key+'"] h2')?.focus({preventScroll:true});
 }
 function showPage(page, focus = true) {
+  if(application.updating)return;
   if (!['device','adjust','diagnostics'].includes(page)) return;
   currentPage = page;
   hardware.showPage(page);
