@@ -21,9 +21,11 @@ Selfrionette入力装置はロードセルとマイコンを備えるハード�
 |---|---|---|---|
 | Selfrionette Original 1.0.0 | 先輩由来の最初の取込みソースをそのまま保管・再ビルドする版 | なし | Legacy 7ch。版番号なし、プロジェクト上はv1相当 |
 | Selfrionette Compatible 1.0.0 | 7ch通信を維持して整理・改善したユーザー側の互換版 | なし | Legacy 7ch。単文字の校正命令等はOriginalと同一ではない |
-| Selfrionette Managed 1.0.0 | 装置管理・取得品質を備える新版 | あり。Firmware 1.0.0 | Protocol 2互換と明示開始のProtocol 3。個人補正はPC側 |
+| Selfrionette Managed 1.0.1 | 装置管理・取得品質を備える新版（品質付きframe上限40 Hz） | あり。Firmware 1.0.1 | Protocol 2互換と明示開始のProtocol 3。個人補正はPC側 |
 
 Original/Compatibleの1.0.0は今回付けた**配布識別版**であり、原作者が当時付けた版番号や実機が返した版ではない。凍結ソースには版照会を追加しない。先輩の実物に書き込まれている画像と同一かは、ソースの由来だけでは証明できない。
+
+Managed Firmware 1.0.0はProtocol 3の送信上限20 Hzの正式リリースである。1.0.1は40 Hz候補への変更であり、ファームウェア書込みと実機での有効fresh頻度の検証は別である。新旧のソフトウェア入力record／個人プロファイルの適合をsource SHAと版で再判定する。
 
 ManagedのFirmware版はPlatformIOがeditions.jsonからコンパイル定数へ注入する。GUI版との一致を要求せず、配布manifestの版と更新後に本体が返した版を照合する。Protocol番号はFirmware版から推測しない。
 

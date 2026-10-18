@@ -2,6 +2,7 @@
 #include "../shared/device_settings.h"
 #include "../shared/buffered_line_queue.h"
 #include "../shared/firmware_protocol_v3.h"
+#include "../shared/stream_cadence.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -312,10 +313,58 @@ void orientation_contract() {
   CHECK(!orient_count(loaded, 0, 123, 23, oriented) && oriented == 99);
 }
 
+void quality_stream_cadence_contract() {
+  using namespace selfrionette::firmware;
+  CHECK(kQualityStreamRateHz == 40UL);
+  CHECK(kQualityStreamPeriodMicros == 25000UL);
+  // Worst-case sample3 line: 219 bytes, 10 serial bits/byte if bridged by
+  // a physical UART. Native ATmega32U4 USB CDC is not UART baud-limited.
+  CHECK(kMaxSample3LineBytes == 219U);
+  CHECK(kMaxSample3LineBytes * kQualityStreamRateHz * 10U <= 115200UL * 80U / 100U);
+  CHECK(kQualityStreamPeriodMicros / 1000U < kFreshTimeoutMs);
+  CHECK(!deadline_reached(24999U, 25000U));
+  CHECK(deadline_reached(25000U, 25000U));
+  CHECK(deadline_reached(25001U, 25000U));
+  CHECK(next_deadline(0U) == 25000U);
+  // 32-bit micros rollover cannot emit early or miss the first due frame.
+  const uint32_t deadline = next_deadline(UINT32_MAX - 10000U);
+  CHECK(deadline == 14999U);
+  CHECK(!deadline_reached(14998U, deadline));
+  CHECK(deadline_reached(14999U, deadline));
+  CHECK(deadline_reached(15000U, deadline));
+
+  StreamSession stream;
+  CHECK(stream.start(31) == SessionStart::NewSession);
+  uint32_t next = next_deadline(0);
+  unsigned attempts = 0, queued = 0;
+  for (uint32_t now = 1000; now <= 1000000; now += 1000) {
+    if (!deadline_reached(now, next)) continue;
+    ++attempts;
+    // Deterministically emulate bounded-queue backpressure, not real USB.
+    if (attempts % 4 != 0) {
+      uint32_t sequence = 0;
+      CHECK(stream.advanceSequence(sequence));
+      CHECK(sequence == ++queued);
+    }
+    next = next_deadline(now);
+  }
+  CHECK(attempts == 40U);
+  CHECK(queued == 30U);
+  CHECK(stream.sequence() == queued);
+  // Sending a frame before the next raw ADC conversion must never make
+  // the old count fresh (nor permit it to qualify for calibration).
+  CHECK(flags_for(true, false, false, 200, false) == kHeld);
+  CHECK(!eligible_fresh(flags_for(true, false, false, 200, false)));
+  CHECK(flags_for(true, false, true, 200, false) == (kHeld | kTimeout));
+  CHECK(flags_for(true, true, false, 200, true) == (kFresh | kRejected));
+  CHECK(!eligible_fresh(flags_for(true, true, false, 200, true)));
+}
+
 int main() {
   parser_contract();
   quality_contract();
   sample_line_capacity_contract();
+  quality_stream_cadence_contract();
   tare_contract();
   tare_deadline_contract();
   buffered_output_queue_contract();
