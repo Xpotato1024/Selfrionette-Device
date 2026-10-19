@@ -1,7 +1,15 @@
 import {readFileSync} from 'node:fs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {wizardPlan,explainFailure,calibrationRecovery} from './application-ui.mjs';
+import {wizardPlan,explainFailure,calibrationRecovery,qualityObservationRows} from './application-ui.mjs';
+
+test('quality diagnostics keep unknown transport latency separate from measured frame rates',()=>{
+ assert(qualityObservationRows({}).every(([,value])=>value==='未測定'));
+ const rows=new Map(qualityObservationRows({sample_age_ms:12,diagnostics:{receive_frame_hz:80,observed_source_frame_hz:80,fresh_frame_hz:[80,80,40,80,80,80,80],usable_ratio:0.5,normalized_frames:99,transport_latency_ms:null,relative_backlog_ms:0}}));
+ assert.equal(rows.get('受信frame/s'),'80');assert.equal(rows.get('全ch usable率'),'50 %');
+ assert.equal(rows.get('絶対的な輸送遅延'),'未測定');assert.equal(rows.get('相対的なホスト滞留'),'0 ms');
+ assert.match(rows.get('各ch fresh frame/s'),/80 \/ 80 \/ 40/);
+});
 
 test('recovery requires current verified evidence, fresh neutral and explicit apply',()=>{
  const verified={connected:true,fit:{},heldout:{passed:true,trials:10,method:'diagonal'},session_neutral_valid:false,ready:false};

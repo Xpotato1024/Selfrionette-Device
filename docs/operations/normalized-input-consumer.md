@@ -35,9 +35,16 @@ countはNではなく、正規化入力は無次元。出力はrobot commandの�
 
 `selfrionette_serial::app::LiveService`に一つの`LineTransport`を渡し、
 GUIと同じ`Command`でconnect/stream/tare/operator/load/session-neutral/applyを行う。
-`execute`が返す`Reply.view.output`を利用する。取得窓・fitter・filter・保存の別実装を作らない。
+`execute`が返す`Reply.sample_events`を順番に利用すると、1回のpollに含まれる最大16件の補正出力を取得できる。
+`Reply.view.output`はGUI向けの最新値であり、その間のframeを全件配信した証拠にはしない。
+無受信pollとSnapshotはsampleを再発行しない。取得窓・fitter・filter・保存の別実装を作らない。
 consumerはuser-readyの取得開始、排他的port所有、poll継続と切断時の破棄を担当する。
 callbackやframeの品質・世代不一致を握り潰さず、出力が失効したら利用を停止する。
+
+受信frame/s・各ch fresh frame/s・品質・欠落・相対滞留は
+[受信・可観測性契約](../contracts/quality-input-observability.md)を参照する。
+CLIも同じbatchを順番にJSON Linesへ渡し、host受信/出力時刻とageを付ける。
+process単調時計の原点を他processと同じとみなさない。
 
 Xpotato-Simには、このserviceを呼ぶInput Source adapter、profile選択と明示context確認、
 取得品質/欠測の伝搬、serial所有権の引渡しを別変更で追加する必要がある。

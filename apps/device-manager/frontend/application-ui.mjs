@@ -5,6 +5,10 @@ import {portTarget,sameTarget} from './port-selection.mjs';
 const $=id=>document.getElementById(id);
 const num=v=>v===null||v===undefined?'—':Number(v).toLocaleString('ja-JP',{maximumFractionDigits:4});
 const quality=f=>f===1?'fresh':f===undefined?'品質不明':[f&2?'timeout':'',f&4?'saturated':'',f&8?'held':'',f&16?'rejected':''].filter(Boolean).join(' / ')||'欠測';
+export function qualityObservationRows(view){
+ const d=view?.diagnostics,measured=(value,unit='')=>typeof value==='number'&&Number.isFinite(value)&&value>=0?num(value)+unit:'未測定';
+ return [['受信frame/s',measured(d?.receive_frame_hz)],['送信側frame/s（序列・時刻から観測）',measured(d?.observed_source_frame_hz)],['各ch fresh frame/s',Array.isArray(d?.fresh_frame_hz)&&d.fresh_frame_hz.length===7?d.fresh_frame_hz.map(v=>measured(v)).join(' / '):'未測定'],['全ch usable率',measured(typeof d?.usable_ratio==='number'?d.usable_ratio*100:null,' %')],['補正出力frame/s',measured(d?.normalized_frame_hz)],['入力age',measured(view?.sample_age_ms,' ms')],['相対的なホスト滞留',measured(d?.relative_backlog_ms,' ms')],['絶対的な輸送遅延',measured(d?.transport_latency_ms,' ms')],['受信件数',measured(d?.received_frames)],['補正出力件数',measured(d?.normalized_frames)],['序列の欠落件数',measured(d?.sequence_gaps)],['品質不良件数',measured(d?.bad_quality_frames)],['受信処理の上限到達回数',measured(d?.drain_budget_exhaustions)]];
+}
 function element(tag,text,attributes={}){const node=document.createElement(tag);if(text!==undefined)node.textContent=text;for(const[k,v]of Object.entries(attributes))node.setAttribute(k,String(v));return node;}
 export function explainFailure(reason){const text=String(reason);for(const[pattern,message]of [
  [/quality|non-fresh|usable|flags|timeout|stream stopped/i,'取得品質を確認できません。荷重を抜き、接続・全7chの状態を確認して再測定してください。'],
@@ -57,6 +61,7 @@ export function createApplicationUI({invoke,hardware,onOwner=()=>{}}) {
  <div class="live-content">
  <p id="live-error" class="field-error" role="alert" hidden></p>
  <details id="live-error-details" hidden><summary>技術情報</summary><pre id="live-error-detail"></pre></details>
+ <details><summary>入力の速度・品質を確認</summary><p class="caption-note">直近2秒以内の有界な受信記録から計算します。画面の更新回数、通信frame/s、センサの新規変換回数は異なります。freshは装置の品質flagで、ADCの実変換数は別途実機で測定します。最初の観測から一様に存在する通信遅延は未測定です。</p><dl id="live-quality-observations" class="about-values"></dl></details>
  <section id="update-progress-panel" class="update-progress-panel" aria-labelledby="update-progress-title" hidden><h2 id="update-progress-title" role="status" aria-live="polite"></h2><progress id="update-progress-bar" max="100" aria-label="Firmware更新の現在工程の進捗"></progress><span id="update-progress-percent"></span><p id="update-progress-detail"></p></section>
  <p id="live-state" role="status">品質付きFirmwareに接続してください。</p>
  <p id="live-command-status" role="status" aria-live="polite"></p>
@@ -216,6 +221,7 @@ export function createApplicationUI({invoke,hardware,onOwner=()=>{}}) {
   const operatorKey=JSON.stringify(view?.operator??null);if(view?.operator&&operatorKey!==operatorSignature){operatorSignature=operatorKey;$('live-operator').value=view.operator.operator??'';$('live-posture').value=view.operator.posture??'';$('live-grip').value=view.operator.grip??'';}
   $('live-state').textContent=page==='update'?'接続先とFirmwareを検査してから書き込みます。':!view?.connected?(hardware.connected?'受信可能・設定未確認':view?.paused?'一時停止（接続を解放）':'新版の装置設定は接続先を選んで開始します。'):view.ready?'入力設定を適用中':'接続中 · 装置設定、ゼロ点調整、使用条件と今回の中立値を確認してください';
   const info=view?.info;
+  infoRows('live-quality-observations',qualityObservationRows(view));
   infoRows('live-info',[['個体ID',info?.device_id??info?.identity],['Firmware版（本体の応答）',info?.firmware_version],['通信プロトコル',info?'Protocol 3（品質付き接続）':'未確認'],['ソース版',info?.source_sha??info?.source_commit],['設定の保存世代',info?.generation],['ゼロ点調整',info?`${info.tare_epoch} / ${info.tare_valid?'有効':'未完了・失効'}`:null]]);
   const sample=view?.sample;
   for(let ch=0;ch<7;ch++){

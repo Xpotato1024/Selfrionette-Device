@@ -11,6 +11,8 @@ use serialport::{ClearBuffer, SerialPort};
 pub mod app;
 pub mod legacy;
 mod monitor;
+mod serial_rx;
+use serial_rx::{LineBuffer, READ_CHUNK_BYTES};
 
 pub use monitor::MonitorError;
 
@@ -31,7 +33,7 @@ pub struct SerialPortTransport {
     port: Box<dyn SerialPort>,
     /// Bytes already received for a line that crossed a polling timeout.
     /// Kept bounded by `MAX_LINE_BYTES` and drained only after LF.
-    rx_buffer: Vec<u8>,
+    rx_buffer: LineBuffer,
 }
 
 impl SerialPortTransport {
@@ -47,7 +49,7 @@ impl SerialPortTransport {
         Ok(Self {
             port_name: port_name.to_owned(),
             port,
-            rx_buffer: Vec::with_capacity(128),
+            rx_buffer: LineBuffer::new(),
         })
     }
 
@@ -100,19 +102,8 @@ impl LineTransport for SerialPortTransport {
     fn read_line(&mut self, timeout: Duration) -> Result<String, TransportError> {
         let started = Instant::now();
         loop {
-            if let Some(newline) = self.rx_buffer.iter().position(|byte| *byte == b'\n') {
-                let mut bytes = self.rx_buffer.drain(..=newline).collect::<Vec<_>>();
-                bytes.pop();
-                if bytes.last() == Some(&b'\r') {
-                    bytes.pop();
-                }
-                return String::from_utf8(bytes).map_err(|_| TransportError::InvalidUtf8);
-            }
-            if self.rx_buffer.len() >= MAX_LINE_BYTES {
-                self.rx_buffer.clear();
-                return Err(TransportError::LineTooLong {
-                    max_bytes: MAX_LINE_BYTES,
-                });
+            if let Some(line) = self.rx_buffer.take_line()? {
+                return Ok(line);
             }
             let remaining = timeout
                 .checked_sub(started.elapsed())
@@ -125,13 +116,11 @@ impl LineTransport for SerialPortTransport {
                 .set_timeout(remaining.min(READ_SLICE_TIMEOUT))
                 .map_err(|error| TransportError::Serial(error.to_string()))?;
 
-            let mut byte = [0_u8; 1];
-            match self.port.read(&mut byte) {
+            let mut chunk = [0_u8; READ_CHUNK_BYTES];
+            let capacity = chunk.len().min(self.rx_buffer.remaining());
+            match self.port.read(&mut chunk[..capacity]) {
                 Ok(0) => continue,
-                Ok(_) => match byte[0] {
-                    b'\r' => continue,
-                    value => self.rx_buffer.push(value),
-                },
+                Ok(count) => self.rx_buffer.append(&chunk[..count])?,
                 Err(error) if error.kind() == std::io::ErrorKind::TimedOut => continue,
                 Err(error) => return Err(TransportError::Io(error.to_string())),
             }

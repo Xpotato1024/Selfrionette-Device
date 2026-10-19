@@ -1,7 +1,7 @@
 ---
 status: canonical
 owner: architecture
-last_verified: 2026-10-10
+last_verified: 2026-10-19
 canonical_for:
   - host serial transport behavior
   - initial live selfrionettectl commands
@@ -16,7 +16,7 @@ related:
 
 ## Scope
 
-`selfrionette-serial`はOS serial portとProtocol v2 host coreのbridgeを所有する。
+`selfrionette-serial`はOS serial portとProtocol v2/v3 host coreのbridgeを所有する。
 
 stable device identityそのもの、robot mapping、GUIは所有しない。
 
@@ -56,7 +56,8 @@ serial write、`info`、`tare`、provision、EEPROM、flashは行わない。
 
 ## Line acquisition
 
-- maximum line payload: 1024 bytes
+- maximum buffered line: LFを含め1024 bytes
+- OS readは最大256 bytes単位。部分行と後続行を同じ有界bufferに保持する
 - CRは除去
 - LFでline確定
 - invalid UTF-8はfail
@@ -65,6 +66,8 @@ serial write、`info`、`tare`、provision、EEPROM、flashは行わない。
 - management line budgetは64
 
 past sample、fake zero、last-known device infoでtimeoutを埋めない。
+品質付きv3のdrain・各sampleの配信・遅延指標は
+[品質付き入力の受信契約](quality-input-observability.md)を正とする。
 
 ## Info query
 
