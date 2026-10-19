@@ -1,5 +1,6 @@
 // Compile-only ATmega32U4 coverage; no device or EEPROM access.
 #include "../shared/firmware_protocol_v3.h"
+#include "../shared/stream_cadence.h"
 
 using selfrionette::protocol3::Command;
 using selfrionette::protocol3::ParseStatus;
@@ -23,6 +24,8 @@ bool compile_firmware_protocol_v3(char* payload, Command& command,
   const SessionStart resumed = session.start(1);
   (void)zero;
   return parsed == ParseStatus::Valid && sample_accepted &&
+         selfrionette::firmware::quality_frame_due(
+             selfrionette::firmware::kQualityStreamPeriodMicros, 0) &&
          started == SessionStart::NewSession && sequence_advanced && sequence == 1 &&
          paused && resumed == SessionStart::Resumed && session.sequence() == 1 &&
          flags == (selfrionette::protocol3::kFresh |

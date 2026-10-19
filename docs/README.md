@@ -68,8 +68,9 @@ related:
 | 旧Sim monitor / measure操作 | [legacy-sim-host-tools.md](operations/legacy-sim-host-tools.md) |
 | validation categories | [validation.md](operations/validation.md) |
 | hardware / serial / flashing safety | [hardware-safety.md](operations/hardware-safety.md) |
+| 品質付き20/40/80 Hzの比較・実機受入・退避 | [quality-stream-rate-acceptance.md](operations/quality-stream-rate-acceptance.md) |
 
-本ソースは正式版1.0.0用です。公開済みの版・Assetsは[Release一覧](https://github.com/Xpotato1024/Selfrionette-Device/releases)を正とします。[配布手順](operations/device-manager-distribution.md)と[1.0.0 Release Notes](releases/device-manager-v1.0.0.md)に従って検証します。
+公開済みの正式アプリは1.0.0です。本ソースにはManaged Firmware 1.1.0-preview.1の80 Hz候補を含み、物理的なfresh取得頻度は未確認です。公開済みの版・Assetsは[Release一覧](https://github.com/Xpotato1024/Selfrionette-Device/releases)を正とします。[配布手順](operations/device-manager-distribution.md)、[1.0.0 Release Notes](releases/device-manager-v1.0.0.md)、[Firmware候補の変更記録](releases/managed-firmware-v1.1.0-preview.1.md)に従って検証します。
 
 ## 必須setupと必須個人校正
 

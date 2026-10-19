@@ -1,7 +1,7 @@
 ---
 status: canonical
 owner: firmware
-last_verified: 2026-10-16
+last_verified: 2026-10-19
 ---
 # 品質付き opt-in protocol 3
 
@@ -42,9 +42,30 @@ hostはboundedなtare pause/resumeで同じchallengeを使い、再接続時は�
 reset後はv3送信offとなり再handshakeが必要。hostはconnection epochとsequence逆行/停止も監視する。
 v3送信中はvector送信を停止し、停止でv2へ戻る。sessionは永続identityではない。
 
-v3 frame送信は最大20 Hz（50 ms以上の間隔）。出力backpressure中のframeはskipされ、
-sequenceは出力queueへ入ったsampleだけで進む。センサfresh期限は50 msで、期限超過後の
-既存rawには`held|timeout`を付け、新raw未取得ならraw/orientedは`?`とする。
+### 送信周期と比較用build
+
+Managed Firmware 1.1.0-preview.1候補の既定は最大80 Hz（12,500 μs）の送信試行で、
+同じsourceから40 Hz（25,000 μs）と20 Hz（50,000 μs）の比較・退避用buildも作れる。
+具体的な環境名・本体版は[Firmware README](../../firmware/loadcell_7ch/README.md)を参照する。
+公開済みManaged 1.0.0は20 Hz、別のDraft PR #23は40 Hzの前段候補であり、
+この変更が前段PRのmergeや公開を意味するわけではない。
+
+選択はbuild時だけで行い、既存`stream3`にfieldやruntime切替commandを追加しない。
+20/40 Hz buildは本体版にもsuffixを付け、同じsource SHAの80 Hz候補と区別する。
+hostは版からADC変換速度や受信頻度を推測せず、実際のframeと品質を数える。
+**80 frames/sは、7chの新しいADC変換80回/sや、全ch同時usable入力80回/sの保証ではない。**
+ADC型番とRATE配線、実効fresh頻度・USB/CPU負荷は[実機受入](../operations/quality-stream-rate-acceptance.md)で確認する。
+
+最後の試行からのunsigned経過時間で判定し、`micros()` rolloverをまたいでも早期送信しない。
+長い処理の後はその時点の最新sampleを一度だけ試行し、過去の送信予定を一斉再生しない。
+一度も計時を観測しないまま`micros()`が丸一周する時間は、この32-bit時計では識別できない。
+出力backpressure中の試行はskipし、sequenceとfresh消費は完全なlineのenqueue成功時だけ進む。
+256-byte queue内の既存lineは元のdevice時刻と値を保持し、drain時に新しい値・時刻で上書きしない。
+queueが空いた次の周期にはその時点の最新rawを使い、中間sampleの履歴を蓄積しない。
+
+センサfresh期限は従来通り50 ms。期限超過後の既存rawには`held|timeout`を付け、
+新raw未取得ならraw/orientedは`?`とする。変換を取得せず前回rawを再送する場合はfreshにしない。
+別の新規ADC変換で同じ数値を得た場合はfreshになり得るため、raw値の差分回数をADC変換回数と同一視しない。
 
 ## Sample
 

@@ -8,7 +8,7 @@ Selfrionetteのcurrent Pro Micro / ATmega32U4 firmware。
 - Load-cell frontend: existing 7-channel HX717/HX711-compatible acquisition path
 - USB serial: 115200 baud
 - Protocol v2 compatibility sample rate: 80 Hz
-- opt-in Protocol v3 maximum sample rate: 20 Hz (at least 50 ms between frames)
+- opt-in Protocol v3: 80 Hzの送信試行を既定とする開発候補（実機freshレートは未確認）
 
 pin assignmentと実機wiringのcurrent specificationは、hardware inventoryを移行・検証した後に`hardware/`へ正本化する。
 
@@ -20,6 +20,18 @@ SELFRIONETTE_SOURCE_SHA="$(git rev-parse HEAD)" pio run -e pro_micro_7ch
 ```
 
 build requires `SELFRIONETTE_SOURCE_SHA`, a nonzero 40-character lowercase Git SHA, which is embedded in Protocol v3 `info3` output. CI supplies the exact checked-out source revision. Compileはhardware validationではない。upload / serial open / EEPROM mutationは[hardware safety](../../docs/operations/hardware-safety.md)に従う。
+
+### 20/40/80 Hzの候補を比較する
+
+| PlatformIO environment | sample3送信試行上限 | 現候補が返すFirmware版 |
+|---|---:|---|
+| `pro_micro_7ch`（既定） | 80 Hz / 12,500 μs | `1.1.0-preview.1` |
+| `pro_micro_7ch_40hz` | 40 Hz / 25,000 μs | `1.1.0-preview.1.40hz` |
+| `pro_micro_7ch_20hz` | 20 Hz / 50,000 μs | `1.1.0-preview.1.20hz` |
+
+上のbuild commandの`-e`を対象environmentへ変更する。複数environmentの選択や指定なしのbuildでも、自動uploadは行わない。rateは`custom_quality_stream_rate_hz`から本体版と一緒に注入し、20/40/80以外は拒否する。既定版は`firmware/editions.json`を正とする。runtimeのrate変更commandは追加しない。
+
+これらは同じ実装の比較buildであり、旧正式20 Hz版や別PRの40 Hz版とbit-for-bitで同一ではない。通常の配布packageは既定80 Hz候補だけを対象とする。比較buildの環境・source SHA・本体版・HEX SHA-256を別に記録する。[実機比較・退避手順](../../docs/operations/quality-stream-rate-acceptance.md)が揃うまで書き込まない。
 
 ## Protocol v2
 
@@ -73,7 +85,7 @@ v3は`info3`の後にhostが明示的にsessionを開始した場合だけ送信
 - sample / diagnostic historyをfirmware内へ蓄積しない
 - EEPROMへsample loopからwriteしない
 
-2026-10-16 pinned PlatformIO build: static SRAM 1013 / 2560 bytes (39.6%), application Flash 20370 / 28672 bytes (71.1%). The SRAM result is 11 bytes below the 1024-byte CI gate; stack peak remains unmeasured. See the [memory budget contract](../../docs/contracts/firmware-memory-budget.md). This software-only compile is not hardware validation.
+2026-10-19 pinned PlatformIO buildでは、全3環境のstatic SRAMは1019 / 2560 bytes、Flashは80 Hzで20564 bytes、40/20 Hzで20574 bytesだった。SRAMは1024-byte gateまで5 bytesで、runtime stack peakは未測定。[memory budget contract](../../docs/contracts/firmware-memory-budget.md)と[software-only検証記録](../../docs/reports/2026-10-19-quality-stream-80hz.md)を参照する。取得品質の判定・診断・buffer上限を削減してgateを通したものではない。
 
 ## Provenance
 
