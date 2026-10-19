@@ -839,6 +839,15 @@ impl LiveService {
         service.safe_metadata_probe = true;
         service
     }
+    pub fn with_safe_metadata_probe_and_clock(
+        transport: Box<dyn LineTransport + Send>,
+        clock: Arc<dyn MonotonicClock>,
+        origin: Instant,
+    ) -> Self {
+        let mut service = Self::with_clock(transport, clock, origin);
+        service.safe_metadata_probe = true;
+        service
+    }
     pub fn new(transport: Box<dyn LineTransport + Send>) -> Self {
         Self::with_clock(transport, observability::system_clock(), Instant::now())
     }
@@ -1051,7 +1060,7 @@ impl LiveService {
                 revision: binding.profile_revision,
                 assembly_revision: binding.setup.assembly_revision,
                 config_revision: binding.setup.config_revision,
-                method: match self.fit_method {
+                method: match self.heldout_method.unwrap_or(self.fit_method) {
                     InputMethod::Diagonal => MethodDto::Diagonal,
                     InputMethod::Coupled => MethodDto::Coupled,
                 },
@@ -4052,7 +4061,7 @@ impl ProfileRecord {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use std::{
         collections::VecDeque,
@@ -5080,6 +5089,56 @@ mod tests {
             )
             .unwrap();
         (service, reads, store, sequence, device_ms)
+    }
+
+    pub(crate) fn saved_profile_fixture() -> PathBuf {
+        let (mut service, _, store, _, _) = verified_live_service();
+        let save = service
+            .execute(
+                Command::SaveCalibration {
+                    profile_revision: 1,
+                    method: MethodDto::Diagonal,
+                    confirmed: true,
+                },
+                &store,
+            )
+            .unwrap();
+        store
+            .join("srn-0123456789abcdef0123456789abcdef")
+            .join(save.view.saved_path.unwrap())
+    }
+
+    #[test]
+    fn loaded_profile_metadata_reports_the_verified_method() {
+        let (mut service, _, store, _, _) = verified_live_service();
+        service
+            .execute(
+                Command::VerifyHeldOut {
+                    method: MethodDto::Coupled,
+                },
+                &store,
+            )
+            .unwrap();
+        let save = service
+            .execute(
+                Command::SaveCalibration {
+                    profile_revision: 1,
+                    method: MethodDto::Coupled,
+                    confirmed: true,
+                },
+                &store,
+            )
+            .unwrap();
+        let loaded = service
+            .execute(
+                Command::LoadCalibration {
+                    record_path: save.view.saved_path.unwrap(),
+                },
+                &store,
+            )
+            .unwrap();
+        assert_eq!(loaded.view.profile.unwrap().method, MethodDto::Coupled);
+        std::fs::remove_dir_all(store).unwrap();
     }
 
     #[test]

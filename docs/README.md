@@ -51,6 +51,7 @@ related:
 | host device core | [host-device-core.md](contracts/host-device-core.md) |
 | serial transport | [serial-transport.md](contracts/serial-transport.md) |
 | 品質付き入力の受信・速度・遅延・有界配信 | [quality-input-observability.md](contracts/quality-input-observability.md) |
+| 正規化入力のローカルprocess bridge | [host-input-bridge.md](contracts/host-input-bridge.md) |
 | Managerなしの正規化入力consumer | [normalized-input-consumer.md](operations/normalized-input-consumer.md) |
 | identity-checked sample monitor | [sample-monitor.md](contracts/sample-monitor.md) |
 | Firmwareの三系統・配布版・本体版・Protocol | [firmware-identification.md](contracts/firmware-identification.md) |

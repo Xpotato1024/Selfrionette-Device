@@ -1,6 +1,7 @@
 use std::env;
 use std::process::ExitCode;
 
+mod bridge;
 mod calibration_replay;
 mod field_test;
 mod input;
@@ -18,6 +19,7 @@ fn usage() -> &'static str {
   selfrionettectl calibrate-replay <recording.json>
   selfrionettectl setup-inspect <context.srnc> [profile-binding.srnb]
   selfrionettectl input --port <port> --profile <absolute.srncal> --operator <name> --posture <text> --grip <text> --method diagonal|coupled --frames <1..1000000> --neutral-ready [--tare-confirmed]
+  selfrionettectl bridge
   selfrionettectl field-test template|preview|capture [arguments]
   selfrionettectl list
   selfrionettectl info --port <port>
@@ -56,6 +58,7 @@ fn run(args: Vec<String>) -> Result<(), CliError> {
         "calibrate-replay" => calibration_replay::run(&args[1..]),
         "setup-inspect" => setup_binding::run(&args[1..]),
         "input" => input::run(&args[1..]),
+        "bridge" => bridge::run(&args[1..]),
         "field-test" => field_test::run(&args[1..]),
         "list" => run_list(&args[1..]),
         "info" => run_info(&args[1..]),

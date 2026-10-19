@@ -1,0 +1,14 @@
+{
+  "schema": "selfrionette-bridge-command/v1",
+  "request_id": 1,
+  "action": "configure",
+  "config": {
+    "port": "COM9",
+    "expected_device_id": "srn-0123456789abcdef0123456789abcdef",
+    "profile_path": "/var/selfrionette/srn-0123456789abcdef0123456789abcdef/calibration-1.srncal",
+    "operator": "fixture-operator",
+    "posture": "seated",
+    "grip": "supported",
+    "method": "diagonal"
+  }
+}

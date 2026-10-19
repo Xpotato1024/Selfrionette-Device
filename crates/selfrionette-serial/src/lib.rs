@@ -9,6 +9,7 @@ use selfrionette_core::{
 use serialport::{ClearBuffer, SerialPort};
 
 pub mod app;
+pub mod bridge;
 pub mod legacy;
 mod monitor;
 mod serial_rx;
