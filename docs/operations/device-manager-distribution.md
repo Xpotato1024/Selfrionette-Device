@@ -29,7 +29,7 @@ Windows ARM64/x86、Windows 10、未導入WebView2環境への実インストー
 ## 取得と起動
 **[GitHub Releases（Windows用バイナリのダウンロード）](https://github.com/Xpotato1024/Selfrionette-Device/releases)**
 
-本ソースは正式版1.0.0用です。[Release一覧](https://github.com/Xpotato1024/Selfrionette-Device/releases)の公開済み版とAssetsを正としてください。過去のpreview公開物は上書きしません。Source code.zipは実行バイナリではありません。
+公開済みの正式アプリは1.0.0です。本ソースには次期Managed Firmwareの開発候補も含みます。[Release一覧](https://github.com/Xpotato1024/Selfrionette-Device/releases)の公開済み版とAssetsを正としてください。正式1.0.0と過去のpreview公開物は上書きしません。Source code.zipは実行バイナリではありません。
 
 正式タグdevice-manager-v1.0.0は通常Release、ハイフン付きpreviewタグはPre-releaseとして扱います。
 

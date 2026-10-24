@@ -1,7 +1,7 @@
 ---
 status: canonical
 owner: architecture
-last_verified: 2026-10-16
+last_verified: 2026-10-19
 canonical_for:
   - ATmega32U4 firmware memory budget
   - firmware build resource gate
@@ -42,6 +42,18 @@ bootloader / board configurationのため、CI budgetは32 KB physical Flashで�
 - injected source revision: `9994bbbc927bcd87ff33a312df6167c72da07a6b`; working tree was dirty
 
 この値は固定されたPlatformIO toolchainによるsoftware-only compile evidenceであり、runtime stack high-water markまたはhardware stabilityの証拠ではない。
+
+### 80 Hz候補の比較build（2026-10-19）
+
+同じpinned toolchainのManaged 1.1.0-preview.1候補について、既定80 Hzと40/20 Hzの全環境をcompileする。
+
+| Environment | static SRAM | application Flash |
+|---|---:|---:|
+| `pro_micro_7ch` | 1019 B | 20564 B |
+| `pro_micro_7ch_40hz` | 1019 B | 20574 B |
+| `pro_micro_7ch_20hz` | 1019 B | 20574 B |
+
+同じtoolchainで最新main `ba37a3f`も独立にbuildし、1019 B / 20548 Bを確認した。候補のstatic SRAM増加は0 B、Flash増加は既定で16 B、fallbackで26 Bである。fallbackの本体版suffixにより既定候補よりFlashが10 B多い。cadenceのstateは従来のdeadlineと同じ4 Bで、heap・buffer・channel履歴を増やさない。現行のstatic gateまでの余白は5 Bであり、stackの未測定を解消したとは扱わない。検証条件は[software-only記録](../reports/2026-10-19-quality-stream-80hz.md)を参照する。
 
 ## Hard gates
 

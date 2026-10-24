@@ -38,7 +38,7 @@ test('release catalog contains three named independently versioned firmware edit
  const bytes=entries.map(([folder,m])=>{mkdirSync(join(root,folder),{recursive:true});const b=Buffer.from(JSON.stringify(m));writeFileSync(join(root,folder,'manifest.json'),b);writeFileSync(join(root,folder,'firmware.hex'),image);return b;});
  const catalog=packageCatalog(...bytes);writeFileSync(join(root,'catalog.json'),JSON.stringify(catalog));
  assert.equal(verifyFamilyCatalog(root).families.length,3);
- assert.equal(modern.release_version,'2.4.0'); assert.equal(modern.firmware_version,'1.0.0');
+ assert.equal(modern.release_version,'2.4.0'); assert.equal(modern.firmware_version,firmwareEditions(repo).find(e=>e.family==='modern').firmware_version);
  assert.equal(legacy.firmware_version,''); assert.equal(compatible.firmware_version,'');
  assert.equal(compatible.source_path,compatibleSource);assert.equal(firmwareEditions(repo).length,3);
  const bad=Buffer.from(JSON.stringify({...compatible,firmware_version:'invented-original-version'}));

@@ -7,11 +7,14 @@
 #include "../../shared/buffered_line_queue.h"
 #include "../../shared/device_settings.h"
 #include "../../shared/firmware_protocol_v3.h"
+#include "../../shared/stream_cadence.h"
 
 namespace {
 #ifndef SELFRIONETTE_FIRMWARE_VERSION
 #error "PlatformIO must inject the independently versioned Managed firmware release"
 #endif
+static_assert(sizeof(SELFRIONETTE_FIRMWARE_VERSION) <= 21,
+              "firmware version must fit the 200-byte info3 reply reserve");
 
 #ifndef SELFRIONETTE_SOURCE_SHA
 #error "PlatformIO must inject SELFRIONETTE_SOURCE_SHA"
@@ -25,7 +28,7 @@ constexpr uint8_t kAllChannelBits = (1U << kChannelCount) - 1U;
 constexpr unsigned long kSerialBaudRate = 115200UL;
 constexpr unsigned long kSampleRateHz = 80UL;
 constexpr unsigned long kSamplePeriodMicros = 1000000UL / kSampleRateHz;
-constexpr unsigned long kV3SamplePeriodMicros = 50000UL;
+static_assert(kSamplePeriodMicros == 12500UL, "v2 compatibility must stay at 80 Hz");
 constexpr unsigned long kReadyTimeoutMs = 25UL;
 constexpr unsigned long kReadyPollDelayMs = 1UL;
 constexpr uint8_t kSensorActivationReads = 10;
@@ -125,7 +128,7 @@ struct EepromStore {
 Loaded g_settings = {};
 StreamSession g_v3_stream;
 uint32_t g_v2_next_frame_us = 0;
-uint32_t g_v3_next_frame_us = 0;
+uint32_t g_v3_last_attempt_us = 0;
 int32_t g_v3_raw[kChannelCount] = {0, 0, 0, 0, 0, 0, 0};
 uint32_t g_v3_last_read_ms[kChannelCount] = {0, 0, 0, 0, 0, 0, 0};
 uint8_t g_v3_has_raw = 0;
@@ -567,12 +570,8 @@ bool emitSample3(uint32_t now_ms) {
     return false;
   }
   if (!g_output.canQueue(kSampleQueueReserveBytes)) return false;
-  uint32_t sequence = 0;
-  if (!g_v3_stream.advanceSequence(sequence)) {
-    g_v3_stream.deactivate();
-    return false;
-  }
   if (!g_output.beginLine()) return false;
+  uint32_t sequence = g_v3_stream.sequence() + 1U;
 
   g_output.print(F("sample3,"));
   g_output.print(static_cast<unsigned long>(g_v3_stream.challenge()));
@@ -616,9 +615,12 @@ bool emitSample3(uint32_t now_ms) {
     g_output.print(',');
     g_output.print(flags[channel]);
   }
+  if (!g_output.endLine()) return false;
+  // A skipped or rejected line cannot consume a sequence or fresh ADC evidence.
+  g_v3_stream.advanceSequence(sequence);
   g_v3_fresh_this_frame = 0;
   g_v3_sample_rejected = 0;
-  return g_output.endLine();
+  return true;
 }
 
 bool waitForReady(uint8_t channel) {
@@ -839,7 +841,7 @@ void handleStream3(const Command& command) {
     }
     g_v3_fresh_this_frame = 0;
     g_v3_sample_rejected = 0;
-    g_v3_next_frame_us = micros() + kV3SamplePeriodMicros;
+    g_v3_last_attempt_us = micros();
     g_v2_next_frame_us = micros() + kSamplePeriodMicros;
     emitOk3(command.request, F("stream"), g_v3_stream.challenge());
     return;
@@ -849,7 +851,7 @@ void handleStream3(const Command& command) {
     emitError3(command.request, F("stale_session"));
     return;
   }
-  g_v3_next_frame_us = micros() + kV3SamplePeriodMicros;
+  g_v3_last_attempt_us = micros();
   g_v2_next_frame_us = micros() + kSamplePeriodMicros;
   emitOk3(command.request, F("stream"), g_v3_stream.challenge());
 }
@@ -1033,7 +1035,7 @@ void setup() {
 
   const uint32_t now_us = micros();
   g_v2_next_frame_us = now_us + kSamplePeriodMicros;
-  g_v3_next_frame_us = now_us + kV3SamplePeriodMicros;
+  g_v3_last_attempt_us = now_us;
 
   emitStatus(F("setup_end"));
 }
@@ -1045,9 +1047,9 @@ void loop() {
 
   const uint32_t now_us = micros();
   if (g_v3_stream.active()) {
-    if (static_cast<int32_t>(now_us - g_v3_next_frame_us) >= 0) {
+    if (selfrionette::firmware::quality_frame_due(now_us, g_v3_last_attempt_us)) {
       emitSample3(millis());
-      g_v3_next_frame_us = now_us + kV3SamplePeriodMicros;
+      g_v3_last_attempt_us = now_us;
     }
   } else if (static_cast<int32_t>(now_us - g_v2_next_frame_us) >= 0) {
     printVectorLine(millis(), g_current_values);

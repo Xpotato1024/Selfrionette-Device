@@ -14,7 +14,9 @@ on:
       - "docs/contracts/firmware-memory-budget.md"
       - "tools/check_firmware_size.py"
       - "tools/test-firmware-command-safety.mjs"
+      - "tools/test-firmware-quality-stream.mjs"
       - "tests/test_check_firmware_size.py"
+      - "tests/test_inject_firmware_build.py"
       - ".github/workflows/firmware.yml"
   pull_request:
     paths:
@@ -27,7 +29,9 @@ on:
       - "docs/contracts/firmware-memory-budget.md"
       - "tools/check_firmware_size.py"
       - "tools/test-firmware-command-safety.mjs"
+      - "tools/test-firmware-quality-stream.mjs"
       - "tests/test_check_firmware_size.py"
+      - "tests/test_inject_firmware_build.py"
       - ".github/workflows/firmware.yml"
   workflow_dispatch:
 
@@ -61,8 +65,18 @@ jobs:
           g++ -std=c++11 -Wall -Wextra "$RUNNER_TEMP/command-safety.cpp" -o "$RUNNER_TEMP/command-safety"
           "$RUNNER_TEMP/command-safety"
 
-      - name: Test memory budget parser
-        run: python -m unittest tests/test_check_firmware_size.py
+      - name: Execute Managed acquisition and stream loop at 20/40/80 Hz without hardware
+        run: |
+          node tools/test-firmware-quality-stream.mjs --emit-cpp "$RUNNER_TEMP/quality-stream-under-test.inc"
+          for rate in 20 40 80; do
+            g++ -std=c++11 -Wall -Wextra -Werror -Wno-unused-function -I"$RUNNER_TEMP" \
+              -DSELFRIONETTE_QUALITY_STREAM_RATE_HZ="$rate" \
+              firmware/tests/quality_stream.cpp -o "$RUNNER_TEMP/quality-stream-$rate"
+            "$RUNNER_TEMP/quality-stream-$rate"
+          done
+
+      - name: Test memory budget parser and distinct build identities
+        run: python -m unittest tests/test_check_firmware_size.py tests/test_inject_firmware_build.py
 
       - name: Install PlatformIO
         run: python -m pip install "platformio==6.1.19"
@@ -70,12 +84,13 @@ jobs:
       - name: Build firmware and enforce memory budget
         env:
           SELFRIONETTE_SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
-        run: >-
-          python tools/check_firmware_size.py
-          --project-dir firmware/loadcell_7ch
-          --environment pro_micro_7ch
-          --max-static-ram 1024
-          --max-flash 24576
+        run: |
+          for environment in pro_micro_7ch pro_micro_7ch_40hz pro_micro_7ch_20hz; do
+            python tools/check_firmware_size.py \
+              --project-dir firmware/loadcell_7ch \
+              --environment "$environment" \
+              --max-static-ram 1024 --max-flash 24576
+          done
 
       - name: Compile settings contract for ATmega32U4 without linking or uploading
         run: >-
