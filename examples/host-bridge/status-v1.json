@@ -1,0 +1,15 @@
+{
+  "event": "status",
+  "schema": "selfrionette-bridge-event/v1",
+  "bridge_revision": "0123456789abcdef0123456789abcdef01234567",
+  "host_clock": "bridge_process_elapsed_us",
+  "host_emitted_us": 1000,
+  "request_id": 1,
+  "phase": "configured",
+  "ready": false,
+  "session_neutral_valid": false,
+  "source": null,
+  "profile": null,
+  "operator": null,
+  "diagnostics": null
+}
