@@ -5,6 +5,9 @@
 //! capture, fitting, held-out replay, and immutable profile persistence.
 
 use crate::{LineTransport, TransportError};
+pub mod observability;
+use observability::StreamMonitor;
+pub use observability::{MonotonicClock, StreamDiagnostics, SystemClock};
 use selfrionette_core::{
     DeviceId, DeviceIdentity,
     calibration::Context,
@@ -26,7 +29,10 @@ use std::{
     fs::{self, File, OpenOptions},
     io::{Read, Write},
     path::{Path, PathBuf},
-    sync::atomic::{AtomicU64, Ordering},
+    sync::{
+        Arc,
+        atomic::{AtomicU64, Ordering},
+    },
     time::{Duration, Instant},
 };
 
@@ -245,6 +251,9 @@ pub enum Command {
 #[derive(Clone, Debug, Serialize)]
 pub struct Reply {
     pub view: LiveSnapshot,
+    /// Each accepted frame from this operation, in source order (at most 16).
+    /// An empty vector never republishes the previous sample.
+    pub sample_events: Vec<SampleEvent>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
 }
@@ -256,6 +265,8 @@ pub struct LiveSnapshot {
     pub session_neutral_valid: bool,
     pub sample_fresh: bool,
     pub sample_age_ms: Option<u64>,
+    pub diagnostics: StreamDiagnostics,
+    pub profile: Option<ActiveProfile>,
     pub message: String,
     pub phase: String,
     pub info: Option<LiveInfo>,
@@ -307,6 +318,25 @@ pub struct NormalizedOutput {
     pub span_exceeded: [bool; 7],
     pub unsupported_direction: [bool; 7],
     pub active: [bool; 7],
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct ActiveProfile {
+    pub record: String,
+    pub revision: u32,
+    pub assembly_revision: u32,
+    pub config_revision: u32,
+    pub method: MethodDto,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct SampleEvent {
+    pub sample: LiveSample,
+    /// Microseconds from this service's host monotonic origin.
+    pub host_received_us: u64,
+    pub relative_backlog_ms: u64,
+    pub ready: bool,
+    pub output: Option<NormalizedOutput>,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -753,6 +783,9 @@ struct PendingArchive {
 
 pub struct LiveService {
     transport: Box<dyn LineTransport + Send>,
+    clock: Arc<dyn MonotonicClock>,
+    stream_monitor: StreamMonitor,
+    sample_events: Vec<SampleEvent>,
     safe_metadata_probe: bool,
     info: Option<DeviceInfo>,
     setup: Option<DeviceSetup>,
@@ -807,8 +840,21 @@ impl LiveService {
         service
     }
     pub fn new(transport: Box<dyn LineTransport + Send>) -> Self {
+        Self::with_clock(transport, observability::system_clock(), Instant::now())
+    }
+
+    /// The caller supplies one monotonic origin for service and IPC timestamps.
+    /// Production callers use SystemClock; tests can advance a shared fake clock.
+    pub fn with_clock(
+        transport: Box<dyn LineTransport + Send>,
+        clock: Arc<dyn MonotonicClock>,
+        origin: Instant,
+    ) -> Self {
         Self {
             transport,
+            clock,
+            stream_monitor: StreamMonitor::new(origin),
+            sample_events: Vec::with_capacity(STREAM_DRAIN_BUDGET),
             safe_metadata_probe: false,
             info: None,
             setup: None,
@@ -863,6 +909,7 @@ impl LiveService {
     }
 
     pub fn execute(&mut self, command: Command, store_root: &Path) -> Result<Reply, ServiceError> {
+        self.sample_events.clear();
         let snapshot = matches!(&command, Command::Snapshot);
         if self.fatal && !matches!(&command, Command::Snapshot | Command::Disconnect) {
             return Err(ServiceError::Fatal(
@@ -871,6 +918,7 @@ impl LiveService {
         }
         let result = self.execute_inner(command, store_root);
         if let Err(error) = &result {
+            self.sample_events.clear();
             self.last_error = Some(error.to_string());
             if error.fatal() {
                 let _ = self.persist_active_capture(store_root, "protocol or transport failure");
@@ -973,14 +1021,22 @@ impl LiveService {
     fn reply(&self, error: Option<String>) -> Reply {
         Reply {
             view: self.snapshot_view(),
+            sample_events: self.sample_events.clone(),
             error,
         }
     }
 
     fn snapshot_view(&self) -> LiveSnapshot {
-        let sample_age_ms = self
-            .latest_received
-            .map(|received| received.elapsed().as_millis().min(u128::from(u64::MAX)) as u64);
+        let diagnostics = self.stream_monitor.snapshot(self.clock.now());
+        let sample_age_ms = self.latest_received.map(|received| {
+            (self
+                .clock
+                .now()
+                .saturating_duration_since(received)
+                .as_millis()
+                .min(u128::from(u64::MAX)) as u64)
+                .saturating_add(diagnostics.relative_backlog_ms.unwrap_or(0))
+        });
         let sample_fresh = self.latest_sample_usable
             && sample_age_ms.is_some_and(|age| age <= MAX_SAMPLE_AGE.as_millis() as u64);
         LiveSnapshot {
@@ -989,6 +1045,17 @@ impl LiveService {
             session_neutral_valid: self.session_neutral.is_some() && !self.fatal,
             sample_fresh,
             sample_age_ms,
+            diagnostics,
+            profile: self.loaded_binding.as_ref().map(|binding| ActiveProfile {
+                record: binding.parameter_record.clone(),
+                revision: binding.profile_revision,
+                assembly_revision: binding.setup.assembly_revision,
+                config_revision: binding.setup.config_revision,
+                method: match self.fit_method {
+                    InputMethod::Diagonal => MethodDto::Diagonal,
+                    InputMethod::Coupled => MethodDto::Coupled,
+                },
+            }),
             message: self.last_error.clone().unwrap_or_else(|| {
                 if self.processor.is_some() {
                     "current profile applied".into()
@@ -1105,6 +1172,7 @@ impl LiveService {
     }
 
     fn invalidate_session(&mut self, message: &str) {
+        self.stream_monitor.reset();
         self.streaming = false;
         self.resume_after_tare = false;
         self.last_sequence = None;
@@ -1237,6 +1305,7 @@ impl LiveService {
             ));
         }
         self.streaming = true;
+        self.stream_monitor.reset();
         self.resume_after_tare = false;
         self.last_sequence = None;
         self.timeouts = 0;
@@ -1336,6 +1405,7 @@ impl LiveService {
         }
         self.streaming = true;
         self.timeouts = 0;
+        self.stream_monitor.reset();
         // Keep last_sequence: same-challenge resume never resets sequence.
         Ok(())
     }
@@ -1352,11 +1422,13 @@ impl LiveService {
         {
             self.persist_active_capture(store_root, "capture archive retry")?;
         }
-        let started = Instant::now();
+        let started = self.clock.now();
         let mut lines = 0usize;
         let mut samples = 0usize;
         while lines < STREAM_DRAIN_BUDGET {
-            let Some(remaining) = STREAM_DRAIN_TIME.checked_sub(started.elapsed()) else {
+            let Some(remaining) =
+                STREAM_DRAIN_TIME.checked_sub(self.clock.now().saturating_duration_since(started))
+            else {
                 break;
             };
             if remaining.is_zero() {
@@ -1381,14 +1453,22 @@ impl LiveService {
                 Frame::Info { .. } | Frame::Ok { .. } | Frame::Other => {}
             }
         }
+        self.stream_monitor.tick(
+            lines,
+            samples,
+            lines >= STREAM_DRAIN_BUDGET
+                || self.clock.now().saturating_duration_since(started) >= STREAM_DRAIN_TIME,
+        );
         if samples > 0 {
             self.timeouts = 0;
         } else {
             self.timeouts = self.timeouts.saturating_add(1);
-            if self
-                .latest_received
-                .is_some_and(|received| received.elapsed() > MAX_SAMPLE_AGE)
-            {
+            if self.latest_received.is_some_and(|received| {
+                self.clock.now().saturating_duration_since(received) > MAX_SAMPLE_AGE
+            }) {
+                if self.latest_sample_usable {
+                    self.stream_monitor.stale();
+                }
                 self.processor = None;
                 self.applied_context = None;
                 self.latest_output = None;
@@ -1441,15 +1521,26 @@ impl LiveService {
             ));
         }
         let sample_epoch = self.epoch_token(sample.tare_epoch);
+        let received = self.clock.now();
         self.last_sequence = Some(sample.sequence);
         self.latest_sample = Some(sample.clone());
-        self.latest_received = Some(Instant::now());
+        self.latest_received = Some(received);
         self.latest_output = None;
 
         let usable = sample.tare_valid
             && sample.flags.iter().all(|flag| *flag == FLAG_FRESH)
             && sample.raw.iter().all(Option::is_some)
             && sample.oriented.iter().all(Option::is_some);
+        let backlog_ms = self
+            .stream_monitor
+            .observe(&sample, received, usable)
+            .map_err(|message| ServiceError::Fatal(message.into()))?;
+        if backlog_ms > MAX_SAMPLE_AGE.as_millis() as u64 {
+            self.stream_monitor.stale();
+            return Err(ServiceError::Fatal(
+                "quality stream accumulated more than 250 ms of relative host backlog".into(),
+            ));
+        }
         self.latest_sample_usable = usable;
         if !usable {
             // Runtime validity is volatile. Completed independent calibration
@@ -1466,6 +1557,7 @@ impl LiveService {
                 )?;
             }
             self.push_message("non-fresh sample revoked runtime and session neutral; complete any interrupted evidence, then capture fresh neutral and explicitly apply");
+            self.record_sample_event(&sample, received, backlog_ms)?;
             self.latest_sample = Some(sample);
             return Ok(());
         }
@@ -1530,8 +1622,37 @@ impl LiveService {
                 let _ = setup;
             }
         }
+        if self.latest_output.is_some() {
+            self.stream_monitor.normalized();
+        }
+        self.record_sample_event(&sample, received, backlog_ms)?;
         self.latest_sample = Some(sample);
         Ok(())
+    }
+
+    fn record_sample_event(
+        &mut self,
+        sample: &Sample,
+        received: Instant,
+        relative_backlog_ms: u64,
+    ) -> Result<(), ServiceError> {
+        if self.sample_events.len() >= STREAM_DRAIN_BUDGET {
+            return Err(ServiceError::Fatal(
+                "bounded sample delivery capacity exceeded".into(),
+            ));
+        }
+        self.sample_events.push(SampleEvent {
+            sample: sample_view(sample),
+            host_received_us: self.stream_monitor.elapsed_us(received),
+            relative_backlog_ms,
+            ready: self.processor.is_some() && self.latest_sample_usable && !self.fatal,
+            output: self.latest_output.clone(),
+        });
+        Ok(())
+    }
+
+    pub fn host_elapsed_us(&self) -> u64 {
+        self.stream_monitor.elapsed_us(self.clock.now())
     }
 
     fn finish_capture(&mut self, store_root: &Path) -> Result<(), ServiceError> {
@@ -5091,6 +5212,218 @@ mod tests {
         fields.extend([100; 7].map(|value| value.to_string()));
         fields.extend([if fresh { 1 } else { 2 }; 7].map(|value| value.to_string()));
         fields.join(",")
+    }
+
+    struct ManualClock {
+        origin: Instant,
+        micros: AtomicU64,
+    }
+    impl ManualClock {
+        fn new() -> Self {
+            Self {
+                origin: Instant::now(),
+                micros: AtomicU64::new(0),
+            }
+        }
+        fn advance(&self, us: u64) {
+            self.micros.fetch_add(us, Ordering::SeqCst);
+        }
+    }
+    impl MonotonicClock for ManualClock {
+        fn now(&self) -> Instant {
+            self.origin + Duration::from_micros(self.micros.load(Ordering::SeqCst))
+        }
+    }
+    struct TimedTransport {
+        clock: Arc<ManualClock>,
+        lines: VecDeque<(u64, String)>,
+    }
+    impl LineTransport for TimedTransport {
+        fn discard_input(&mut self) -> Result<(), TransportError> {
+            self.lines.clear();
+            Ok(())
+        }
+        fn write_line(&mut self, _line: &str) -> Result<(), TransportError> {
+            Ok(())
+        }
+        fn read_line(&mut self, timeout: Duration) -> Result<String, TransportError> {
+            let now = self.clock.micros.load(Ordering::SeqCst);
+            let until = now + timeout.as_micros() as u64;
+            if let Some((at, _)) = self.lines.front().filter(|(at, _)| *at <= until) {
+                self.clock.advance(at.saturating_sub(now));
+                return Ok(self.lines.pop_front().unwrap().1);
+            }
+            self.clock.advance(timeout.as_micros() as u64);
+            Err(TransportError::Timeout)
+        }
+    }
+
+    #[test]
+    fn rated_transport_delivers_every_normalized_frame_at_twenty_forty_and_eighty_hz() {
+        for hz in [20_u32, 40, 80] {
+            let (mut service, reads, store, mut sequence, mut device_ms) = verified_live_service();
+            start_recovery_capture(&mut service, &reads, &store, CapturePhase::SessionNeutral);
+            queue_live_window(&reads, &mut sequence, &mut device_ms, [100; 7], 2, 2);
+            service.execute(Command::CaptureTick, &store).unwrap();
+            service
+                .execute(
+                    Command::ApplyCalibration {
+                        confirmed: true,
+                        method: MethodDto::Diagonal,
+                    },
+                    &store,
+                )
+                .unwrap();
+            let context = service.applied_context.clone().unwrap();
+            let mut reference = InputProcessor::new_for_session(
+                service.fit.as_ref().unwrap(),
+                context.clone(),
+                &[100.0; 7],
+                InputMethod::Diagonal,
+                service.signal_settings.unwrap(),
+            )
+            .unwrap();
+            let clock = Arc::new(ManualClock::new());
+            service.clock = clock.clone();
+            service.stream_monitor = StreamMonitor::new(clock.origin);
+            let count = hz * 2 + 1;
+            let mut lines = VecDeque::new();
+            let mut expected = Vec::new();
+            for n in 0..count {
+                let us = u64::from(n) * 1_000_000 / u64::from(hz);
+                let timestamp_ms = device_ms + 1 + (us / 1000) as u32;
+                let mut values = [100_i32; 7];
+                if n > 0 {
+                    values[0] += (n % 20) as i32;
+                }
+                let sample = Sample {
+                    session: 1,
+                    sequence: sequence + n + 1,
+                    device_ms: timestamp_ms,
+                    tare_epoch: 2,
+                    generation: 2,
+                    tare_valid: true,
+                    raw: [Some(1000); 7],
+                    oriented: values.map(Some),
+                    flags: [FLAG_FRESH; 7],
+                };
+                let mut fields = vec![
+                    "sample3".into(),
+                    "1".into(),
+                    sample.sequence.to_string(),
+                    timestamp_ms.to_string(),
+                    "2".into(),
+                    "2".into(),
+                    "1".into(),
+                ];
+                fields.extend([1000; 7].map(|value| value.to_string()));
+                fields.extend(values.map(|value| value.to_string()));
+                fields.extend([1; 7].map(|value| value.to_string()));
+                lines.push_back((us, fields.join(",")));
+                let out = reference
+                    .process(
+                        &context,
+                        &FirmwareVectorSample {
+                            timestamp_ms,
+                            epoch: service.epoch_token(2),
+                            values: values.map(f64::from),
+                            quality: InputQuality::Usable,
+                        },
+                    )
+                    .unwrap();
+                expected.push((sample.sequence, out.command));
+            }
+            service.transport = Box::new(TimedTransport {
+                clock: clock.clone(),
+                lines,
+            });
+            let mut observed = Vec::new();
+            while observed.len() < count as usize {
+                // A GUI-style 50 ms pause still lets the shared service deliver
+                // multiple producer frames, without dropping all but the latest.
+                clock.advance(50_000);
+                let reply = service.execute(Command::StreamTick, &store).unwrap();
+                assert!(reply.sample_events.len() <= STREAM_DRAIN_BUDGET);
+                for event in reply.sample_events {
+                    assert!(event.ready);
+                    observed.push((event.sample.sequence, event.output.unwrap().command));
+                }
+            }
+            assert_eq!(
+                observed, expected,
+                "{hz} Hz changed or lost conditioned input"
+            );
+            let empty = service.execute(Command::Snapshot, &store).unwrap();
+            assert!(
+                empty.sample_events.is_empty(),
+                "snapshot must not replay old frames"
+            );
+            assert_eq!(empty.view.diagnostics.received_frames, u64::from(count));
+            assert_eq!(empty.view.diagnostics.normalized_frames, u64::from(count));
+            assert_eq!(empty.view.diagnostics.sequence_gaps, 0);
+            assert!(empty.view.diagnostics.rate_window_samples <= 256);
+            std::fs::remove_dir_all(store).unwrap();
+        }
+    }
+
+    #[test]
+    fn stream_batch_is_bounded_and_invalid_frames_cannot_leave_partial_success() {
+        let mut service = LiveService::with_test_session(Box::new(FakeTransport::new(&[])), 1);
+        service.info = Some(test_info());
+        service.streaming = true;
+        let (transport, reads) = QueueTransport::new();
+        service.transport = Box::new(transport);
+        for n in 1..=32 {
+            queue(&reads, sample_line(n, 10));
+        }
+        let first = service
+            .execute(Command::StreamTick, Path::new("unused-fixture-store"))
+            .unwrap();
+        assert_eq!(first.sample_events.len(), 16);
+        assert_eq!(first.view.diagnostics.drain_budget_exhaustions, 1);
+        let second = service
+            .execute(Command::StreamTick, Path::new("unused-fixture-store"))
+            .unwrap();
+        assert_eq!(second.sample_events[0].sample.sequence, 17);
+        queue(&reads, sample_line(33, 10));
+        queue(&reads, sample_line(33, 10));
+        assert!(
+            service
+                .execute(Command::StreamTick, Path::new("unused-fixture-store"))
+                .is_err()
+        );
+        let failed = service
+            .execute(Command::Snapshot, Path::new("unused-fixture-store"))
+            .unwrap();
+        assert!(!failed.view.ready && failed.sample_events.is_empty());
+    }
+
+    #[test]
+    fn host_backlog_cannot_refresh_old_samples_by_reading_them_late() {
+        let clock = Arc::new(ManualClock::new());
+        let (transport, reads) = QueueTransport::new();
+        let mut service = LiveService::with_clock(Box::new(transport), clock.clone(), clock.origin);
+        service.session_id = 1;
+        service.info = Some(test_info());
+        service.streaming = true;
+        queue(&reads, sample_line(1, 10));
+        service
+            .execute(Command::StreamTick, Path::new("unused-fixture-store"))
+            .unwrap();
+        clock.advance(300_000);
+        queue(&reads, sample_line(2, 10));
+        assert!(
+            service
+                .execute(Command::StreamTick, Path::new("unused-fixture-store"))
+                .is_err()
+        );
+        let view = service
+            .execute(Command::Snapshot, Path::new("unused-fixture-store"))
+            .unwrap()
+            .view;
+        assert!(!view.ready && view.output.is_none());
+        assert_eq!(view.diagnostics.relative_backlog_ms, Some(290));
+        assert_eq!(view.diagnostics.stale_invalidations, 1);
     }
 
     #[test]

@@ -1,6 +1,9 @@
 //! Explicit developer-only transport. The production service and parsers are reused.
 //! No OS port, device reset, EEPROM, or programmer is touched by this transport.
-use selfrionette_serial::{LineTransport, TransportError};
+use selfrionette_serial::{
+    LineTransport, TransportError,
+    app::{MonotonicClock, SystemClock},
+};
 use std::{
     collections::VecDeque,
     sync::{Arc, Mutex},
@@ -44,17 +47,26 @@ pub struct ScriptedTransport {
     session: u32,
     streaming: bool,
     sequence: u32,
+    clock: Arc<dyn MonotonicClock>,
+    origin: Instant,
     next: Instant,
 }
 impl ScriptedTransport {
     pub fn new(state: Shared) -> Self {
+        Self::with_clock(state, Arc::new(SystemClock))
+    }
+
+    fn with_clock(state: Shared, clock: Arc<dyn MonotonicClock>) -> Self {
+        let origin = clock.now();
         Self {
             state,
             queue: VecDeque::new(),
             session: 0,
             streaming: false,
             sequence: 0,
-            next: Instant::now(),
+            clock,
+            origin,
+            next: origin,
         }
     }
 }
@@ -98,16 +110,20 @@ impl LineTransport for ScriptedTransport {
         if let Some(line) = self.queue.pop_front() {
             return Ok(line);
         }
-        if !self.streaming || self.session == 0 || Instant::now() < self.next {
+        let now = self.clock.now();
+        if !self.streaming || self.session == 0 || now < self.next {
             return Err(TransportError::Timeout);
         }
-        self.next = Instant::now() + Duration::from_millis(50);
+        self.next = now + Duration::from_millis(50);
         self.sequence += 1;
+        // Samples are created here, not queued at an ideal 20 Hz. Include GUI/IPC
+        // waits in producer time; retain the firmware's wrapping millisecond clock.
+        let device_ms = now.saturating_duration_since(self.origin).as_millis() as u32;
         let mut fields = vec![
             "sample3".into(),
             self.session.to_string(),
             self.sequence.to_string(),
-            (self.sequence * 50).to_string(),
+            device_ms.to_string(),
             s.tare.to_string(),
             s.generation.to_string(),
             u8::from(s.valid).to_string(),
@@ -123,5 +139,116 @@ impl LineTransport for ScriptedTransport {
         }));
         fields.extend(s.flags.iter().map(ToString::to_string));
         Ok(fields.join(","))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use selfrionette_core::protocol_v3::{Frame, Sample, parse_line};
+    use selfrionette_serial::app::{Command, LiveService};
+    use std::path::Path;
+
+    struct ManualClock {
+        origin: Instant,
+        elapsed: Mutex<Duration>,
+    }
+    impl ManualClock {
+        fn new() -> Self {
+            Self {
+                origin: Instant::now(),
+                elapsed: Mutex::new(Duration::ZERO),
+            }
+        }
+        fn set_ms(&self, milliseconds: u64) {
+            *self.elapsed.lock().unwrap() = Duration::from_millis(milliseconds);
+        }
+    }
+    impl MonotonicClock for ManualClock {
+        fn now(&self) -> Instant {
+            self.origin + *self.elapsed.lock().unwrap()
+        }
+    }
+
+    #[test]
+    fn delayed_gui_reads_do_not_invent_backlog_in_the_shared_service() {
+        let clock = Arc::new(ManualClock::new());
+        let transport =
+            ScriptedTransport::with_clock(Arc::new(Mutex::new(State::default())), clock.clone());
+        let mut service = LiveService::with_clock(Box::new(transport), clock.clone(), clock.origin);
+        let store = Path::new("unused-scripted-clock-test");
+        service.execute(Command::Connect, store).unwrap();
+        service.execute(Command::StreamStart, store).unwrap();
+
+        // Model rendering/IPC overhead and pauses longer than the real 250 ms
+        // backlog limit. The transport creates one fresh sample after each wait.
+        let times = [0, 85, 170, 255, 600, 685, 1000];
+        let mut observed = Vec::new();
+        for milliseconds in times {
+            clock.set_ms(milliseconds);
+            let reply = service.execute(Command::StreamTick, store).unwrap();
+            assert!(reply.view.connected);
+            assert_eq!(reply.sample_events.len(), 1, "no catch-up or replay frames");
+            let sample = &reply.sample_events[0].sample;
+            observed.push((sample.sequence, sample.timestamp_ms));
+            assert_eq!(reply.view.diagnostics.relative_backlog_ms, Some(0));
+            assert_eq!(reply.view.diagnostics.stale_invalidations, 0);
+        }
+        assert_eq!(
+            observed,
+            times
+                .into_iter()
+                .enumerate()
+                .map(|(index, milliseconds)| (index as u32 + 1, milliseconds as u32))
+                .collect::<Vec<_>>()
+        );
+    }
+
+    fn read_sample(transport: &mut ScriptedTransport) -> Sample {
+        match parse_line(&transport.read_line(Duration::ZERO).unwrap()).unwrap() {
+            Frame::Sample(sample) => sample,
+            other => panic!("expected a quality sample, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn producer_clock_keeps_cadence_and_wraps_without_resetting_for_a_new_session() {
+        let clock = Arc::new(ManualClock::new());
+        let mut transport =
+            ScriptedTransport::with_clock(Arc::new(Mutex::new(State::default())), clock.clone());
+        let before_wrap = u64::from(u32::MAX) - 25;
+        clock.set_ms(before_wrap);
+        transport.write_line("stream3,1,7,1").unwrap();
+        assert_eq!(
+            transport.read_line(Duration::ZERO).unwrap(),
+            "ok3,1,stream,7"
+        );
+        let first = read_sample(&mut transport);
+        assert_eq!((first.sequence, first.device_ms), (1, u32::MAX - 25));
+
+        clock.set_ms(before_wrap + 49);
+        assert!(matches!(
+            transport.read_line(Duration::ZERO),
+            Err(TransportError::Timeout)
+        ));
+        clock.set_ms(before_wrap + 50);
+        let wrapped = read_sample(&mut transport);
+        assert_eq!((wrapped.sequence, wrapped.device_ms), (2, 24));
+
+        transport.write_line("stream3,2,8,1").unwrap();
+        assert_eq!(
+            transport.read_line(Duration::ZERO).unwrap(),
+            "ok3,2,stream,8"
+        );
+        clock.set_ms(before_wrap + 150);
+        let next_session = read_sample(&mut transport);
+        assert_eq!(
+            (
+                next_session.session,
+                next_session.sequence,
+                next_session.device_ms
+            ),
+            (8, 1, 124)
+        );
     }
 }

@@ -276,18 +276,36 @@ fn consume(
             if interrupted.load(Ordering::SeqCst) {
                 return Err(CliError::Interrupted);
             }
-            let view = execute(&mut service, Command::StreamTick, root)?.view;
-            if let Some(sample) = view.sample.filter(|s| Some(s.sequence) != sequence) {
+            let reply = execute(&mut service, Command::StreamTick, root)?;
+            for event in reply.sample_events {
+                let sample = event.sample;
+                if Some(sample.sequence) == sequence {
+                    return Err(CliError::Failure(
+                        "sample delivery repeated a source sequence".into(),
+                    ));
+                }
                 sequence = Some(sample.sequence);
                 let absent = [None::<f64>; 7];
+                let age_ms = service
+                    .host_elapsed_us()
+                    .saturating_sub(event.host_received_us)
+                    .div_ceil(1000)
+                    .saturating_add(event.relative_backlog_ms);
+                let output = event
+                    .output
+                    .as_ref()
+                    .filter(|_| event.ready && age_ms <= 250);
                 println!(
                     "{}",
-                    serde_json::json!({"schema":1,"domain":"normalized_input","preprocessing_domain":"raw_adc","postprocessing_domain":"device_oriented_counts","source":{"device_id":info.device_id,"firmware":info.firmware_version,"source_sha":info.source_sha,"port":args.port},"sequence":sample.sequence,"device_ms":sample.timestamp_ms,"tare_epoch":sample.tare_epoch,"settings_generation":sample.generation,"quality_flags":sample.flags,"normalized":view.output.as_ref().map(|o|o.normalized).unwrap_or(absent),"command":view.output.as_ref().map(|o|o.command).unwrap_or(absent),"missing":view.output.is_none(),"span_exceeded":view.output.as_ref().map(|o|o.span_exceeded),"unsupported_direction":view.output.as_ref().map(|o|o.unsupported_direction),"hardware_acceptance":false})
+                    serde_json::json!({"schema":1,"domain":"normalized_input","preprocessing_domain":"raw_adc","postprocessing_domain":"device_oriented_counts","source":{"device_id":info.device_id,"firmware":info.firmware_version,"source_sha":info.source_sha,"port":args.port},"sequence":sample.sequence,"device_ms":sample.timestamp_ms,"tare_epoch":sample.tare_epoch,"settings_generation":sample.generation,"quality_flags":sample.flags,"normalized":output.map(|o|o.normalized).unwrap_or(absent),"command":output.map(|o|o.command).unwrap_or(absent),"missing":output.is_none(),"span_exceeded":output.map(|o|o.span_exceeded),"unsupported_direction":output.map(|o|o.unsupported_direction),"host_clock":"consumer_process_elapsed_us","host_received_us":event.host_received_us,"host_emitted_us":service.host_elapsed_us(),"sample_age_ms":age_ms,"hardware_acceptance":false})
                 );
                 emitted += 1;
                 last_output = Instant::now();
-                if !view.ready {
+                if !event.ready || age_ms > 250 {
                     return Err(CliError::Failure("input invalidated; current sample missing, acquire new neutral before reuse".into()));
+                }
+                if emitted >= args.frames {
+                    break;
                 }
             }
             if last_output.elapsed() > Duration::from_secs(3) {
