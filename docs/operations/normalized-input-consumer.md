@@ -49,6 +49,8 @@ process単調時計の原点を他processと同じとみなさない。
 
 ## 別processのconsumer
 
+実験用binaryは[bridgeの準備手順](bridge-build.md)でsource revision、起動status、binary hashを確認できる。
+
 `selfrionettectl bridge`は同じserviceをversioned local JSON Linesで公開する。
 一つの明示device IDに一つのprocessを対応させ、configure/statusはserial accessなしで使える。
 接続・無荷重tare・自然姿勢neutral・applyはconsumerのUIで別々に確認する。
