@@ -66,6 +66,7 @@ related:
 | GitHub配布・版選択の案内 | [device-manager-distribution.md](operations/device-manager-distribution.md) |
 | Windowsバイナリの利用・生成 | [device-manager-distribution.md](operations/device-manager-distribution.md) |
 | Git / PR workflow | [git-pr-workflow.md](operations/git-pr-workflow.md) |
+| 実験用bridgeのbuild・serialなしの確認 | [bridge-build.md](operations/bridge-build.md) |
 | 旧Sim firmwareの管理・build・採用順 | [legacy-sim-firmware.md](operations/legacy-sim-firmware.md) |
 | 旧Sim monitor / measure操作 | [legacy-sim-host-tools.md](operations/legacy-sim-host-tools.md) |
 | validation categories | [validation.md](operations/validation.md) |
